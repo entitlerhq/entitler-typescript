@@ -624,6 +624,7 @@ export class Transport {
     const deadline = AbortSignal.timeout(timeout);
     const send = this.#fetch;
     try {
+      signal?.throwIfAborted();
       const response = await send(url, {
         method,
         headers,
