@@ -265,8 +265,7 @@ describe("token refresh edge cases", () => {
     expect(provider).toHaveBeenCalledTimes(2);
   });
 
-  it("answers stale entries kept under the previous token when the provider fails", async () => {
-    vi.spyOn(Math, "random").mockReturnValue(0);
+  it("never answers entries kept under the previous token when the provider fails", async () => {
     const onError = vi.fn();
     let fail = false;
     let n = 0;
@@ -279,10 +278,9 @@ describe("token refresh edge cases", () => {
     const client = new EntitlerClient({ token: provider, fetch, onError });
     await client.me.check("f");
     fail = true;
-    const check = await client.me.check("f");
-    expect(check.stale).toBe(true);
+    await expect(client.me.check("f")).rejects.toBeInstanceOf(TokenError);
+    expect(await client.me.isEntitled("f", { default: false })).toBe(false);
     expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(TokenError);
-    await expect(client.me.recordUsage(aiCredits, 1, { idempotencyKey: "k" })).rejects.toBeInstanceOf(TokenError);
   });
 });
 

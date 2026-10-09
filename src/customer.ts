@@ -280,7 +280,7 @@ export interface Customer {
   settleUsage(holdId: string, amount: number, options?: WriteOptions): Promise<UsageResult>;
   /** Releases a hold, recording nothing. Releasing twice is safe. */
   releaseUsage(holdId: string, options?: WriteOptions): Promise<UsageResult>;
-  /** Signs the customer's entitlements for offline use. Verify it with {@link verifySnapshot}. */
+  /** Signs the customer's entitlements for offline use. Verify it with `verifySnapshot()`. */
   snapshot(options?: SnapshotOptions): Promise<IssuedSnapshot>;
   /**
    * Moves the customer to a plan, or adds an add-on, as their own choice under self-serve rules,

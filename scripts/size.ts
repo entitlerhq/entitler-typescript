@@ -3,7 +3,7 @@ import { gzipSync } from "node:zlib";
 const kib = (bytes: number) => `${(bytes / 1024).toFixed(1)} KiB`;
 const lines: string[] = ["| Entry | Minified | Minified and gzipped |", "| --- | --- | --- |"];
 
-for (const entry of ["dist/index.js", "dist/generate.js"]) {
+for (const entry of ["dist/index.js", "dist/generate.js", "dist/testing.js"]) {
   const result = await Bun.build({ entrypoints: [entry], minify: true, target: "browser", external: ["node:*"] });
   if (!result.success) throw new AggregateError(result.logs, `Could not bundle ${entry}.`);
   const code = await (result.outputs[0] as Blob).text();

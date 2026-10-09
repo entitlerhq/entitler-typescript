@@ -172,6 +172,7 @@ jobs:
       - name: Run the live API tests and the quickstart
         env:
           ENTITLER_TEST_KEY: ${{ secrets.ENTITLER_TEST_KEY }}
+          ENTITLER_TEST_PUBLISHABLE_KEY: ${{ vars.ENTITLER_TEST_PUBLISHABLE_KEY }}
           EVENT: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
