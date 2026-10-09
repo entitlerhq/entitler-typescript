@@ -28,11 +28,19 @@ describe("redirects", () => {
       const clients = [
         new EntitlerServer({ key: "k", fetch: fakeFetch(redirect(status)).fetch, cache: false }),
         new EntitlerClient({ token: "t", fetch: fakeFetch(redirect(status)).fetch, cache: false }),
-        new EntitlerClient({ key: "pk", identityToken: "idt", fetch: fakeFetch(redirect(status)).fetch, cache: false }),
+        new EntitlerClient({
+          key: "ent_pk_test_a",
+          identityToken: "idt",
+          fetch: fakeFetch(redirect(status)).fetch,
+          cache: false,
+        }),
       ];
       for (const client of clients) {
         const customer = client instanceof EntitlerServer ? client.customer("u") : client.me;
-        for (const call of [() => customer.check("f"), () => customer.recordUsage(aiCredits, 1)]) {
+        for (const call of [
+          () => customer.check("f"),
+          () => customer.recordUsage(aiCredits, 1, { idempotencyKey: "k" }),
+        ]) {
           const error = await call().catch((e: unknown) => e);
           expect(error).toBeInstanceOf(ApiError);
           expect(error).toMatchObject({
@@ -85,7 +93,9 @@ describe("onError that throws", () => {
     );
     const failure = new Error("work failed");
     const customer = new EntitlerServer({ key: "k", fetch, onError: throwing }).customer("u");
-    await expect(customer.withHold(aiCredits, 5, () => Promise.reject(failure))).rejects.toBe(failure);
+    await expect(customer.withHold(aiCredits, 5, () => Promise.reject(failure), { idempotencyKey: "k" })).rejects.toBe(
+      failure,
+    );
   });
 });
 
@@ -102,7 +112,7 @@ describe("the write generation", () => {
     const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
     const read = customer.check("f");
     await vi.waitFor(() => expect(sent).toHaveLength(1));
-    await customer.recordUsage(aiCredits, 1);
+    await customer.recordUsage(aiCredits, 1, { idempotencyKey: "k" });
     release(json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "max-age=60" }));
     await read;
     await customer.check("f");
@@ -120,7 +130,7 @@ describe("the write generation", () => {
     const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
     await customer.check("f");
     await new Promise((resolve) => setTimeout(resolve, 2));
-    await customer.recordUsage(aiCredits, 1).catch(() => undefined);
+    await customer.recordUsage(aiCredits, 1, { idempotencyKey: "k" }).catch(() => undefined);
     await customer.check("f");
     expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');
   });
@@ -206,8 +216,8 @@ describe("path ids", () => {
     await expect(server.customer("u").check(id)).rejects.toThrow(
       new TypeError("Pass an id that is not made only of dots."),
     );
-    await expect(server.customer("u").hold(id)).rejects.toThrow(TypeError);
-    await expect(server.customer("u").removeAddOn(id)).rejects.toThrow(TypeError);
+    await expect(server.customer("u").releaseUsage(id)).rejects.toThrow(TypeError);
+    await expect(server.customer("u").cancel({ addOn: id })).rejects.toThrow(TypeError);
   });
 
   it("allows dots inside an id", async () => {
@@ -272,7 +282,7 @@ describe("token refresh edge cases", () => {
     const check = await client.me.check("f");
     expect(check.stale).toBe(true);
     expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(TokenError);
-    await expect(client.me.recordUsage(aiCredits, 1)).rejects.toBeInstanceOf(TokenError);
+    await expect(client.me.recordUsage(aiCredits, 1, { idempotencyKey: "k" })).rejects.toBeInstanceOf(TokenError);
   });
 });
 

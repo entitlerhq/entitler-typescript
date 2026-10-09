@@ -76,11 +76,22 @@ describe("requests", () => {
 
   it("sends a generated UUID v4 idempotency key and a JSON body on a write", async () => {
     const { fetch, sent } = fakeFetch(json(usageAnswer()));
-    await server(fetch).customer("u").recordUsage(aiCredits, 3);
+    await server(fetch).customer("u").settleUsage("hold_1", 3);
     expect(sent[0]?.headers["idempotency-key"]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
     expect(sent[0]?.headers["content-type"]).toBe("application/json");
+  });
+
+  it("refuses a usage report without an idempotency key before any request", async () => {
+    const { fetch, mock } = fakeFetch(json(usageAnswer()));
+    const customer = server(fetch).customer("u") as unknown as {
+      recordUsage(feature: unknown, amount: number, options?: object): Promise<unknown>;
+    };
+    await expect(customer.recordUsage(aiCredits, 3, {})).rejects.toThrow(
+      new TypeError("Pass idempotencyKey: a key from your own unit of work, such as a message or job id."),
+    );
+    expect(mock).not.toHaveBeenCalled();
   });
 
   it("sends the caller's idempotency key", async () => {
@@ -280,7 +291,7 @@ describe("retries", () => {
   it("sends the same idempotency key on every attempt", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { fetch, sent } = fakeFetch(apiError(503, "unavailable"), apiError(502, "x"), json(usageAnswer()));
-    await server(fetch).customer("u").recordUsage(aiCredits, 1);
+    await server(fetch).customer("u").recordUsage(aiCredits, 1, { idempotencyKey: "k" });
     const keys = new Set(sent.map((request) => request.headers["idempotency-key"]));
     expect(sent).toHaveLength(3);
     expect(keys.size).toBe(1);

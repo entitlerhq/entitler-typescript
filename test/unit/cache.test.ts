@@ -86,7 +86,7 @@ describe("the answer cache", () => {
     await server.customer("u").check("f");
     await server.customer("other").check("f");
     vi.setSystemTime(2000);
-    await server.customer("u").recordUsage(aiCredits, 1);
+    await server.customer("u").recordUsage(aiCredits, 1, { idempotencyKey: "k" });
     vi.setSystemTime(3000);
     await server.customer("u").check("f");
     await server.customer("other").check("f");
@@ -155,24 +155,31 @@ describe("the answer cache", () => {
 
   it("keys entries by principal, as-of and visitor", async () => {
     const store = spyStore();
-    const { fetch, sent } = fakeFetch(
-      json({ ...context, customer: null, defaultPlan: null, products: [], plans: [] }, 200, fresh),
+    const { fetch, sent } = fakeFetch((request) =>
+      json(
+        request.path === "/pricing"
+          ? { ...context, customer: null, defaultPlan: null, products: [], plans: [] }
+          : checkAnswer(),
+        200,
+        fresh,
+      ),
     );
     const a = new EntitlerServer({ key: "key_a", fetch, cache: store });
     const b = new EntitlerServer({ key: "key_b", fetch, cache: store });
-    const past = new EntitlerServer({ key: "key_a", fetch, cache: store, asOf: "2026-01-01T00:00:00Z" });
     await a.pricing();
     await a.pricing();
     await b.pricing();
-    await past.pricing();
     await a.pricing({ visitor: "visitor_aaaaaaaaaaaa" });
     await a.pricing({ visitor: "visitor_aaaaaaaaaaaa" });
-    expect(sent).toHaveLength(4);
-    expect(store.entries.size).toBe(4);
+    await a.customer("u").check("f");
+    await a.customer("u").check("f", { asOf: "2026-01-01T00:00:00Z" });
+    await a.customer("u").check("f", { asOf: new Date("2026-01-01T00:00:00Z") });
+    expect(sent).toHaveLength(5);
+    expect(store.entries.size).toBe(5);
   });
 
   it("keys entries by the credential itself, never by claims", async () => {
-    const store = spyStore();
+    const store = new MemoryCache();
     const visitor = "visitor_aaaaaaaaaaaa";
     const claims = { iss: "https://api.entitler.dev/customers", eid: "env_1", sub: "u" };
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
@@ -184,13 +191,21 @@ describe("the answer cache", () => {
   });
 
   it("keys identity clients by the key and the identity token together", async () => {
-    const store = spyStore();
+    const store = new MemoryCache();
     const visitor = "visitor_aaaaaaaaaaaa";
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
-    await new EntitlerClient({ key: "pk", identityToken: "idt_a", fetch, cache: store, visitor }).me.check("f");
-    await new EntitlerClient({ key: "pk", identityToken: "idt_a", fetch, cache: store, visitor }).me.check("f");
-    await new EntitlerClient({ key: "pk", identityToken: "idt_b", fetch, cache: store, visitor }).me.check("f");
-    await new EntitlerClient({ key: "pk2", identityToken: "idt_a", fetch, cache: store, visitor }).me.check("f");
+    await new EntitlerClient({ key: "ent_pk_test_a", identityToken: "idt_a", fetch, cache: store, visitor }).me.check(
+      "f",
+    );
+    await new EntitlerClient({ key: "ent_pk_test_a", identityToken: "idt_a", fetch, cache: store, visitor }).me.check(
+      "f",
+    );
+    await new EntitlerClient({ key: "ent_pk_test_a", identityToken: "idt_b", fetch, cache: store, visitor }).me.check(
+      "f",
+    );
+    await new EntitlerClient({ key: "ent_pk_test_b", identityToken: "idt_a", fetch, cache: store, visitor }).me.check(
+      "f",
+    );
     expect(sent).toHaveLength(3);
   });
 
@@ -320,7 +335,7 @@ describe("writes that touch many customers", () => {
     const server = new EntitlerServer({ key: "k", fetch });
     await server.customer("a").check("f");
     vi.setSystemTime(2000);
-    await server.recordUsageBatch([{ customer: "a", feature: aiCredits }]);
+    await server.recordUsageBatch([{ customer: "a", feature: aiCredits, amount: 1, idempotencyKey: "e" }]);
     vi.setSystemTime(3000);
     await server.customer("a").check("f");
     expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');

@@ -235,7 +235,7 @@ describe("idempotency keys", () => {
 
   it("answers the spec's message for an amount", async () => {
     const customer = new EntitlerServer({ key: "k" }).customer("u");
-    await expect(customer.recordUsage(aiCredits, 0)).rejects.toThrow(
+    await expect(customer.recordUsage(aiCredits, 0, { idempotencyKey: "k" })).rejects.toThrow(
       new RangeError("Pass amount as a whole number from 1 to 9007199254740991."),
     );
     await expect(customer.settleUsage("h", -1)).rejects.toThrow(
@@ -263,9 +263,10 @@ describe("batches that fail", () => {
     const events = Array.from({ length: 501 }, (_, i) => ({
       customer: `c${i}`,
       feature: aiCredits,
+      amount: 1,
       idempotencyKey: `e${i}`,
     }));
-    const batch = await server.recordUsageBatch(events, { idempotencyKey: "import-7" });
+    const batch = await server.recordUsageBatch(events);
     expect(batch.results).toHaveLength(501);
     expect(batch.results[0]).toMatchObject({
       index: 0,
@@ -275,18 +276,17 @@ describe("batches that fail", () => {
     });
     expect(batch.results[500]).toMatchObject({ index: 500, outcome: "recorded", idempotencyKey: "e500" });
     expect(batch).toMatchObject({ recorded: 1, duplicates: 0, errors: 500 });
-    expect(sent.slice(0, 3).map((each) => each.headers["idempotency-key"])).toEqual([
-      "import-7:0",
-      "import-7:0",
-      "import-7:0",
-    ]);
-    expect(sent[3]?.headers["idempotency-key"]).toBe("import-7:1");
+    const keys = sent.map((each) => each.headers["idempotency-key"]);
+    expect(keys[0]).toMatch(/^batch:[0-9a-f]{64}$/);
+    expect(keys.slice(0, 3)).toEqual([keys[0], keys[0], keys[0]]);
+    expect(keys[3]).toMatch(/^batch:[0-9a-f]{64}$/);
+    expect(keys[3]).not.toBe(keys[0]);
   });
 
   it("answer an API error with its code, and a timeout with timed_out", async () => {
     const { fetch } = fakeFetch(apiError(403, "scope_required", "This key lacks usage:write."));
     const batch = await new EntitlerServer({ key: "k", fetch }).recordUsageBatch([
-      { customer: "a", feature: aiCredits },
+      { customer: "a", feature: aiCredits, amount: 1, idempotencyKey: "e" },
     ]);
     expect(batch.results[0]?.error).toEqual({ code: "scope_required", message: "This key lacks usage:write." });
     const slow = fakeFetch(
@@ -300,7 +300,7 @@ describe("batches that fail", () => {
       fetch: slow.fetch,
       timeout: 10,
       maxRetries: 0,
-    }).recordUsageBatch([{ customer: "a", feature: aiCredits }]);
+    }).recordUsageBatch([{ customer: "a", feature: aiCredits, amount: 1, idempotencyKey: "e" }]);
     expect(timed.results[0]?.error?.code).toBe("timed_out");
   });
 
@@ -311,17 +311,11 @@ describe("batches that fail", () => {
       throw new Error("aborted");
     });
     const error = await new EntitlerServer({ key: "k", fetch })
-      .recordUsageBatch([{ customer: "a", feature: aiCredits }], { signal: controller.signal })
+      .recordUsageBatch([{ customer: "a", feature: aiCredits, amount: 1, idempotencyKey: "e" }], {
+        signal: controller.signal,
+      })
       .catch((e: unknown) => e);
     expect(error).toBe(controller.signal.reason);
-  });
-
-  it("refuse a batch key with no room for the request index", async () => {
-    await expect(
-      new EntitlerServer({ key: "k" }).recordUsageBatch([{ customer: "a", feature: aiCredits }], {
-        idempotencyKey: "k".repeat(199),
-      }),
-    ).rejects.toThrow(TypeError);
   });
 });
 

@@ -4,6 +4,7 @@ import {
   defineFeature,
   EntitlerClient,
   EntitlerServer,
+  MemoryCache,
   newVisitorId,
   TokenError,
   VISITOR_ID_PATTERN,
@@ -18,7 +19,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const WAYS_IN = "Create the client with { token } or { key, identityToken }.";
+const WAYS_IN = "Create the client with { token }, { key, identityToken } or { key }.";
 const token = (claims: Record<string, unknown> = {}) =>
   jwt({
     iss: "https://api.entitler.dev/customers",
@@ -48,7 +49,7 @@ describe("construction", () => {
     [{}],
     [{ token: "t", key: "k", identityToken: "i" }],
     [{ token: "t", key: "k" }],
-    [{ key: "k" }],
+    [{ token: "t", identityToken: "i" }],
     [{ identityToken: "i" }],
     [undefined],
   ])("refuses %j", (options) => {
@@ -68,10 +69,40 @@ describe("construction", () => {
     expect(() => new EntitlerClient({ token: () => "" })).not.toThrow();
   });
 
-  it("validates asOf", () => {
+  it("refuses each key kind in the other client, after blank values", () => {
+    expect(() => new EntitlerServer({ key: " ent_pk_live_abc " })).toThrow(
+      new TypeError("A publishable key belongs in EntitlerClient. Use a secret key from the dashboard on your server."),
+    );
+    const secret = new TypeError(
+      "A secret key belongs on your server, in EntitlerServer. Use a publishable key (ent_pk_…) in an app.",
+    );
+    expect(() => new EntitlerClient({ key: "ent_live_abc" })).toThrow(secret);
+    expect(() => new EntitlerClient({ key: "ent_test_abc", identityToken: "idt" })).toThrow(secret);
+    expect(() => new EntitlerClient({ key: " ", identityToken: "idt" })).toThrow(
+      new TypeError("Provide an Entitler API key from the dashboard."),
+    );
+    expect(() => new EntitlerClient({ key: "ent_live_abc", identityToken: " " })).toThrow(
+      new TypeError("Provide the identity token your sign-in provider issued."),
+    );
+    expect(new EntitlerClient({ key: "ent_pk_test_abc" }).kind).toBe("publishable");
+  });
+
+  it("refuses a custom store in an in-app client", () => {
+    const store = { get: () => undefined, set: () => undefined };
+    expect(() => new EntitlerClient({ token: "t", cache: store as never })).toThrow(
+      new TypeError("In-app clients keep answers in memory: pass a cache size, or turn the cache off."),
+    );
+    expect(() => new EntitlerClient({ token: "t", cache: new MemoryCache({ maxEntries: 5 }) })).not.toThrow();
+    expect(() => new EntitlerClient({ token: "t", cache: false })).not.toThrow();
+  });
+
+  it("validates asOf on server reads before any request", async () => {
+    const { fetch, mock } = fakeFetch(json(checkAnswer()));
+    const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
     for (const asOf of ["yesterday", "2026-13-01T00:00:00Z", "2026-07-01", new Date(Number.NaN)]) {
-      expect(() => new EntitlerServer({ key: "k", asOf })).toThrow(new TypeError("Pass asOf as a valid date."));
+      await expect(customer.check("f", { asOf })).rejects.toThrow(new TypeError("Pass asOf as a valid date."));
     }
+    expect(mock).not.toHaveBeenCalled();
   });
 
   it("validates a given visitor", () => {
@@ -87,7 +118,7 @@ describe("string forms", () => {
     const clients = [
       new EntitlerServer({ key: secret }),
       new EntitlerClient({ token: secret }),
-      new EntitlerClient({ key: secret, identityToken: secret }),
+      new EntitlerClient({ key: `ent_pk_${secret}`, identityToken: secret }),
     ];
     for (const client of clients) {
       for (const text of [
@@ -126,9 +157,9 @@ describe("credentials on the wire", () => {
 
   it("sends the publishable key and the identity token on every request", async () => {
     const { fetch, sent } = fakeFetch(json(checkAnswer()));
-    const client = new EntitlerClient({ key: "pk_1", identityToken: "idt", fetch });
+    const client = new EntitlerClient({ key: "ent_pk_test_1", identityToken: "idt", fetch });
     await client.me.check("f");
-    expect(sent[0]?.headers.authorization).toBe("Bearer pk_1");
+    expect(sent[0]?.headers.authorization).toBe("Bearer ent_pk_test_1");
     expect(sent[0]?.headers["entitler-identity-token"]).toBe("idt");
   });
 
@@ -139,7 +170,7 @@ describe("credentials on the wire", () => {
         201,
       ),
     );
-    const client = new EntitlerClient({ key: "pk", identityToken: "idt", fetch });
+    const client = new EntitlerClient({ key: "ent_pk_test_a", identityToken: "idt", fetch });
     const registered = await client.register({ idempotencyKey: "reg-1" });
     expect(registered.createdAt).toBeInstanceOf(Date);
     expect(sent[0]).toMatchObject({ method: "PUT", path: "/customers/me", body: undefined });
@@ -147,10 +178,12 @@ describe("credentials on the wire", () => {
     expect(sent[0]?.headers["content-type"]).toBeUndefined();
   });
 
-  it("refuses register on a token client", async () => {
-    const client = new EntitlerClient({ token: "t" });
+  it("sends register from a token client, which the API refuses", async () => {
+    const { fetch, sent } = fakeFetch(apiError(403, "credential_not_allowed"));
+    const client = new EntitlerClient({ token: "t", fetch });
     // @ts-expect-error register needs an identity-token client
-    await expect(client.register()).rejects.toThrow(TypeError);
+    await expect(client.register()).rejects.toMatchObject({ code: "credential_not_allowed" });
+    expect(sent[0]).toMatchObject({ method: "PUT", path: "/customers/me" });
   });
 
   it("sends no credential, visitor or as-of to the snapshot keys, and never asks a provider", async () => {
@@ -158,9 +191,9 @@ describe("credentials on the wire", () => {
     const provider = vi.fn(() => {
       throw new Error("offline");
     });
-    await new EntitlerClient({ token: provider, fetch, asOf: "2026-01-01T00:00:00Z" }).snapshotKeys();
+    await new EntitlerClient({ token: provider, fetch }).snapshotKeys();
     expect(provider).not.toHaveBeenCalled();
-    await new EntitlerClient({ key: "pk", identityToken: "idt", fetch }).snapshotKeys();
+    await new EntitlerClient({ key: "ent_pk_test_a", identityToken: "idt", fetch }).snapshotKeys();
     await new EntitlerServer({ key: "k", fetch }).snapshotKeys();
     for (const request of sent) {
       expect(request.path).toBe("/customers/snapshot-keys");
@@ -171,16 +204,23 @@ describe("credentials on the wire", () => {
     }
   });
 
-  it("sends Entitler-As-Of on every request as UTC with milliseconds", async () => {
+  it("sends Entitler-As-Of only on the server reads given it, as UTC with milliseconds", async () => {
     const { fetch, sent } = fakeFetch(json(checkAnswer()));
-    const server = new EntitlerServer({ key: "k", fetch, asOf: "2026-07-01T19:30:00+10:00" });
-    await server.customer("u").check("f");
-    await server.customer("u").recordUsage(aiCredits, 1);
-    await new EntitlerClient({ token: "t", fetch, asOf: new Date("2026-07-01T09:30:00Z") }).me.check("f");
+    const server = new EntitlerServer({ key: "k", fetch, cache: false });
+    const customer = server.customer("u");
+    await customer.check("f", { asOf: "2026-07-01T19:30:00+10:00" });
+    await customer.entitlements({ asOf: new Date("2026-07-01T09:30:00Z") });
+    await customer.check("f");
+    await customer.recordUsage(aiCredits, 1, { idempotencyKey: "k", asOf: "2026-07-01T09:30:00Z" } as never);
+    await server.pricing({ asOf: "2026-07-01T09:30:00Z" } as never);
+    await new EntitlerClient({ token: "t", fetch }).me.check("f", { asOf: "2026-07-01T09:30:00Z" } as never);
     expect(sent.map((request) => request.headers["entitler-as-of"])).toEqual([
       "2026-07-01T09:30:00.000Z",
       "2026-07-01T09:30:00.000Z",
-      "2026-07-01T09:30:00.000Z",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
     ]);
   });
 });
@@ -311,9 +351,9 @@ describe("token providers", () => {
       jwt({ iss: "https://idp.example", sub: "a", r: Math.random(), exp: Math.floor(Date.now() / 1000) + 3600 }),
     );
     const { fetch, sent } = fakeFetch(apiError(401, "unauthorised"), json(checkAnswer()));
-    await new EntitlerClient({ key: "pk", identityToken: provider, fetch }).me.check("f");
+    await new EntitlerClient({ key: "ent_pk_test_a", identityToken: provider, fetch }).me.check("f");
     expect(provider).toHaveBeenCalledTimes(2);
-    expect(sent[1]?.headers.authorization).toBe("Bearer pk");
+    expect(sent[1]?.headers.authorization).toBe("Bearer ent_pk_test_a");
   });
 
   it("lets a caller abort a pending refresh", async () => {
@@ -354,7 +394,7 @@ describe("scopes", () => {
     const { fetch, sent } = fakeFetch(
       json({ scopes: ["entitlements:read", "customers:register"], registration: false }),
     );
-    const scopes = await new EntitlerClient({ key: "pk", identityToken: "idt", fetch }).scopes();
+    const scopes = await new EntitlerClient({ key: "ent_pk_test_a", identityToken: "idt", fetch }).scopes();
     expect(scopes).toEqual({ scopes: ["entitlements:read", "customers:register"], registration: false });
     expect(sent[0]?.headers["entitler-identity-token"]).toBe("idt");
   });
@@ -366,7 +406,7 @@ describe("scopes", () => {
 
   it("never holds a request back waiting on scopes", async () => {
     const { fetch, sent } = fakeFetch(apiError(403, "scope_required"));
-    await expect(new EntitlerServer({ key: "k", fetch }).customer("u").vendor.grant("sso")).rejects.toMatchObject({
+    await expect(new EntitlerServer({ key: "k", fetch }).customer("u").grant("sso")).rejects.toMatchObject({
       code: "scope_required",
     });
     expect(sent.map((request) => request.path)).toEqual(["/customers/u/grants"]);
@@ -403,7 +443,7 @@ describe("visitors", () => {
     const client = new EntitlerClient({ token: "t", fetch, cache: false });
     expect(client.visitor).toMatch(VISITOR_ID_PATTERN);
     await client.me.check("f");
-    await client.me.recordUsage(aiCredits, 1);
+    await client.me.recordUsage(aiCredits, 1, { idempotencyKey: "k" });
     await client.snapshotKeys();
     expect(sent.map((request) => request.headers["entitler-visitor"])).toEqual([
       client.visitor,
@@ -484,5 +524,81 @@ describe("visitors", () => {
         Reflect.deleteProperty(globalThis, "localStorage");
       }
     });
+  });
+});
+
+describe("the publishable-key client", () => {
+  it("reads signed-out pricing with its visitor, and has no signed-in members", async () => {
+    const { fetch, sent } = fakeFetch(
+      json({ ...checkAnswer(), customer: null, defaultPlan: null, products: [], plans: [] }),
+    );
+    const client = new EntitlerClient({ key: "ent_pk_test_abc", fetch });
+    expect((await client.pricing()).stale).toBe(false);
+    expect(sent[0]).toMatchObject({ method: "GET", path: "/pricing" });
+    expect(sent[0]?.headers.authorization).toBe("Bearer ent_pk_test_abc");
+    expect(sent[0]?.headers["entitler-visitor"]).toBe(client.visitor);
+    const signIn = new TypeError(
+      "Sign the customer in first: create the client with { token } or { key, identityToken }.",
+    );
+    const anyClient = client as unknown as { me: unknown; scopes(): Promise<unknown>; register(): Promise<unknown> };
+    expect(() => anyClient.me).toThrow(signIn);
+    await expect(anyClient.scopes()).rejects.toThrow(signIn);
+    await expect(anyClient.register()).rejects.toThrow(signIn);
+    const signedIn = new EntitlerClient({ token: "t", fetch }) as unknown as { pricing(): Promise<unknown> };
+    await expect(signedIn.pricing()).rejects.toThrow(
+      new TypeError("Read the signed-in customer's pricing with me.pricing()."),
+    );
+  });
+});
+
+describe("closing", () => {
+  it("cancels calls in flight and the pending refresh, then refuses every call", async () => {
+    const { fetch } = fakeFetch(
+      (_request, init) =>
+        new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        ),
+    );
+    const server = new EntitlerServer({ key: "k", fetch });
+    const inFlight = server.customer("u").check("f");
+    server.close();
+    const error = await inFlight.catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DOMException);
+    expect(error).toMatchObject({
+      name: "InvalidStateError",
+      message: "This Entitler client is closed. Create a new one.",
+    });
+    await expect(server.customer("u").check("f")).rejects.toMatchObject({ name: "InvalidStateError" });
+    await expect(server.customer("u").isEntitled("f", { default: true })).rejects.toMatchObject({
+      name: "InvalidStateError",
+    });
+    expect(() => server.close()).not.toThrow();
+
+    const provider = vi.fn(
+      ({ signal }: { signal: AbortSignal }) =>
+        new Promise<string>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason))),
+    );
+    const client = new EntitlerClient({ token: provider, fetch });
+    const waiting = client.me.check("f");
+    await vi.waitFor(() => expect(provider).toHaveBeenCalledOnce());
+    client.close();
+    await expect(waiting).rejects.toMatchObject({ name: "InvalidStateError" });
+    await expect(client.snapshotKeys()).rejects.toMatchObject({ name: "InvalidStateError" });
+  });
+
+  it("drops the in-memory cache and leaves a custom store and an injected fetch as they are", async () => {
+    const { fetch, mock } = fakeFetch(json(checkAnswer(), 200, { "cache-control": "max-age=60", etag: '"a"' }));
+    const store = new Map<string, unknown>();
+    const custom = {
+      get: (key: string) => store.get(key) as never,
+      set: (key: string, entry: unknown) => void store.set(key, entry),
+    };
+    const server = new EntitlerServer({ key: "k", fetch, cache: custom });
+    await server.customer("u").check("f");
+    server.close();
+    expect(store.size).toBe(1);
+    const next = new EntitlerServer({ key: "k", fetch, cache: custom });
+    await next.customer("u").check("f");
+    expect(mock).toHaveBeenCalledOnce();
   });
 });
