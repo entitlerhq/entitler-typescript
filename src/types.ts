@@ -594,9 +594,17 @@ export interface Page<T> {
  * for await (const customer of server.customers.list({ q: "acme" })) console.log(customer.name);
  * ```
  */
-export interface Paged<T> extends AsyncIterable<T> {
+export interface Paged<T, P extends Page<T> = Page<T>> extends AsyncIterable<T> {
   /** Each page in turn, for showing a page at a time. */
-  pages(): AsyncIterable<Page<T>>;
+  pages(): AsyncIterable<P>;
+}
+
+/** A page of the customer list, with the list's use of the project's customer limit. */
+export interface CustomerPage extends Page<CustomerSummary> {
+  /** How many customers the project holds. */
+  readonly used: number;
+  /** The most customers the project may hold, or `null` for no limit. */
+  readonly limit: number | null;
 }
 
 /**

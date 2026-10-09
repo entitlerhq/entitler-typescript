@@ -202,14 +202,15 @@ describe("entitler generate", () => {
   it("prints usage for --help and exits 0", async () => {
     const result = await run(["--help"]);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("Usage: npx @entitlerhq/entitler generate [options]");
+    expect(result.stdout).toContain("Usage: npx @entitlerhq/entitler <command> [options]");
+    expect(result.stdout).toContain("snapshot-keys");
     expect((await run(["generate", "--help"])).code).toBe(0);
   });
 
   it("prints usage with no command and exits 1", async () => {
     const result = await run([]);
     expect(result).toMatchObject({ code: 1, stdout: "" });
-    expect(result.stderr).toContain("Usage: npx @entitlerhq/entitler generate");
+    expect(result.stderr).toContain("Usage: npx @entitlerhq/entitler <command>");
     expect((await run(["make"])).stderr).toContain("Unknown command make.");
   });
 
@@ -278,8 +279,71 @@ describe("entitler generate", () => {
     );
   });
 
+  it("never overwrites constants with an empty list unless --allow-empty", async () => {
+    const file = await temp();
+    vi.stubGlobal("fetch", fakeFetch(json(listing)).fetch);
+    await run(["generate", "--out", file]);
+    vi.stubGlobal("fetch", fakeFetch(json({ ...listing, features: [] })).fetch);
+    expect(await run(["generate", "--out", file])).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: `Entitler listed no features, so ${file} was left as it is. Check the key's environment, or pass --allow-empty.\n`,
+    });
+    expect(await readFile(file, "utf8")).toContain("sso:");
+    expect((await run(["generate", "--out", file, "--allow-empty"])).stdout).toBe(`Wrote 0 features to ${file}.\n`);
+    expect(await readFile(file, "utf8")).not.toContain("sso:");
+    expect((await run(["generate", "--out", await temp()])).code).toBe(0);
+  });
+
   it("rethrows unexpected file errors", async () => {
     vi.stubGlobal("fetch", fakeFetch(json(listing)).fetch);
     await expect(run(["generate", "--out", tmpdir()])).rejects.toThrow();
+  });
+});
+
+describe("entitler snapshot-keys", () => {
+  const key = { kty: "EC", crv: "P-256", kid: "key_1", x: "x", y: "y", alg: "ES256", use: "sig" };
+
+  async function run(args: string[]) {
+    let stdout = "";
+    let stderr = "";
+    const code = await main(
+      args,
+      {},
+      (text) => (stdout += text),
+      (text) => (stderr += text),
+    );
+    return { code, stdout, stderr };
+  }
+
+  it("writes the key set with no credential, two-space indented with a final line feed", async () => {
+    const { fetch, sent } = fakeFetch(json({ keys: [key, { ...key, kid: "key_2" }] }));
+    vi.stubGlobal("fetch", fetch);
+    const file = join(await mkdtemp(join(tmpdir(), "entitler-")), "keys", "snapshot-keys.json");
+    expect(await run(["snapshot-keys", "--out", file, "--base-url=http://localhost:9"])).toEqual({
+      code: 0,
+      stdout: `Wrote 2 snapshot keys to ${file}.\n`,
+      stderr: "",
+    });
+    expect(sent[0]?.url).toBe("http://localhost:9/customers/snapshot-keys");
+    expect(sent[0]?.headers.authorization).toBeUndefined();
+    expect(await readFile(file, "utf8")).toBe(
+      `${JSON.stringify({ keys: [key, { ...key, kid: "key_2" }] }, null, 2)}\n`,
+    );
+  });
+
+  it("refuses an empty key set and reports failures as generate does", async () => {
+    vi.stubGlobal("fetch", fakeFetch(json({ keys: [] })).fetch);
+    expect(await run(["snapshot-keys"])).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "Entitler published no snapshot keys, so entitler-snapshot-keys.json was left as it is.\n",
+    });
+    vi.stubGlobal("fetch", fakeFetch(apiError(503, "unavailable", "Try again.")).fetch);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    expect((await run(["snapshot-keys", "--out", join(tmpdir(), "never.json")])).stderr).toBe(
+      "Entitler request failed: Try again (unavailable).\n",
+    );
+    expect((await run(["snapshot-keys", "--key", "k"])).stderr).toContain("Unknown option --key.");
   });
 });

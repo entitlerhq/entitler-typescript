@@ -14,6 +14,7 @@ import {
 } from "./transport.js";
 import type {
   CustomerDetails,
+  CustomerPage,
   CustomerSummary,
   FeatureList,
   Page,
@@ -62,6 +63,8 @@ export interface ListCustomersOptions extends CallOptions {
   track?: string;
   /** Includes test customers. */
   includeTest?: boolean;
+  /** Starts at the page a previous page's `next` names, so a stateless admin page can link to page 3. */
+  cursor?: string;
 }
 
 /** A customer to create with {@link EntitlerServer.customers}' `create`. */
@@ -89,7 +92,7 @@ export interface UsageBatchOptions extends CallOptions {
 /** The customer list and creation. */
 export interface Customers {
   /** Every customer matching the options, a page at a time. */
-  list(options?: ListCustomersOptions): Paged<CustomerSummary>;
+  list(options?: ListCustomersOptions): Paged<CustomerSummary, CustomerPage>;
   /** Creates a customer, optionally on a plan. */
   create(input: CustomerCreate, options?: WriteOptions): Promise<CustomerDetails & Replayed>;
 }
@@ -183,8 +186,9 @@ export class EntitlerServer {
     const transport = this.#transport;
     this.customers = {
       list: (list = {}) =>
-        paged(async (cursor) => {
-          const answer = await transport.send<Page<CustomerSummary>>({
+        paged<CustomerSummary, CustomerPage>(async (next) => {
+          const cursor = next ?? list.cursor;
+          const answer = await transport.send<CustomerPage>({
             method: "GET",
             path: "/customers",
             query: {
@@ -196,7 +200,8 @@ export class EntitlerServer {
             },
             options: list,
           });
-          return { items: answer.data.items, next: answer.data.next };
+          const { items, next: following, used, limit } = answer.data;
+          return { items, next: following, used, limit };
         }),
       create: async (input, options) => {
         const externalId = requireId(input?.externalId, "Provide the id your app uses for the customer.");
