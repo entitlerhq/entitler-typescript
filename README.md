@@ -40,6 +40,20 @@ if (await customer.isEntitled(features.exportPdf, { default: false })) {
 await customer.recordUsage(features.aiCredits, 3, { idempotencyKey: "job_42" });
 ```
 
+## Public API
+
+| | |
+| --- | --- |
+| `new EntitlerServer({ key, ...options })` | `customer(id)`, `customers.list()`, `customers.create()`, `recordUsageBatch()`, `pricing()`, `features()`, `scopes()`, `snapshotKeys()`, `verifySnapshot()`, `newVisitorId()` |
+| `new EntitlerClient({ token })` or `({ key, identityToken })` | `me`, `register()` (identity clients), `scopes()`, `snapshotKeys()`, `verifySnapshot()`, `visitor` |
+| `Customer` (`server.customer(id)`, `client.me`) | `check()`, `isEntitled()`, `entitlements()`, `plans()`, `pricing()`, `usage()`, `recordUsage()`, `holdUsage()`, `settleUsage()`, `releaseUsage()`, `hold()`, `withHold()`, `snapshot()` |
+| `ServerCustomer` | adds `register()`, `details()`, `update()`, `delete()`, `token()`, `setTrack()`, the self-serve billing calls, and `vendor.*` |
+| Errors | `ApiError`, `ConnectionError`, `TimeoutError`, `TokenError`, `SnapshotError`, `UsageRefusedError`, `UsageSettlementError`, all `EntitlerError` |
+| Without a client | `defineFeature()`, `verifySnapshot()`, `newVisitorId()`, `VISITOR_ID_PATTERN`, `MemoryCache` |
+
+Every method's last argument is an options object taking `signal` and `timeout`, and on writes
+`idempotencyKey`.
+
 ## Two clients
 
 | Client | Built from | Runs | Acts on |
@@ -72,8 +86,8 @@ Generate typed constants for your catalogue, so checks are typed by the feature'
 or archived feature shows up in your editor:
 
 ```sh
-ENTITLER_KEY=ent_test_… npx entitler generate --out src/entitler.gen.ts
-npx entitler generate --check
+ENTITLER_KEY=ent_test_… npx @entitlerhq/entitler generate --out src/entitler.gen.ts
+npx @entitlerhq/entitler generate --check
 ```
 
 `check(features.aiCredits)` then answers a `Check<"metered">` with `used`, `held`, `remaining` and
@@ -85,7 +99,7 @@ with `defineFeature(key, type)`. See [feature constants](docs/feature-constants.
 - [Checking access](docs/checking-access.md): `check`, `isEntitled`, failing open or closed
 - [Recording usage](docs/recording-usage.md): modes, holds, `withHold`, idempotency keys
 - [Pricing pages and visitors](docs/pricing-and-visitors.md)
-- [Plan space and upgrades](docs/plan-space.md)
+- [Changing plans](docs/changing-plans.md): `plans()`, upgrades and downgrades
 - [Billing](docs/billing.md): self-serve changes, checkout, the billing portal, vendor actions
 - [The in-app client](docs/in-app-client.md): customer tokens, identity tokens, token providers
 - [Offline snapshots](docs/offline-snapshots.md) and key pinning

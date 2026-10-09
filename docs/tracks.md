@@ -1,7 +1,7 @@
 # Tracks
 
 A track decides which release or change of the catalogue a customer is served. Everyone starts on All
-customers; testers' tracks follow an open change. Every check, entitlement list, plan space, usage
+customers; testers' tracks follow an open change. Every check, entitlement list, customer's plans, usage
 answer and pricing names the track it came from, with its `release` or `change`.
 
 Move a customer with `setTrack`, and back to All customers with `null`:

@@ -44,7 +44,7 @@ describe("Customer requests", () => {
       undefined,
     ],
     ["entitlements", (c: ServerCustomer) => c.entitlements(), "GET", "/customers/user_1/entitlements", undefined],
-    ["planSpace", (c: ServerCustomer) => c.plans(), "GET", "/customers/user_1/plans", undefined],
+    ["plans", (c: ServerCustomer) => c.plans(), "GET", "/customers/user_1/plans", undefined],
     ["pricing", (c: ServerCustomer) => c.pricing(), "GET", "/customers/user_1/pricing", undefined],
     ["hold", (c: ServerCustomer) => c.hold("hold_1"), "GET", "/customers/user_1/usage/holds/hold_1", undefined],
     ["snapshot", (c: ServerCustomer) => c.snapshot(), "POST", "/customers/user_1/snapshots", {}],

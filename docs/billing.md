@@ -3,14 +3,14 @@
 ## Self-serve changes
 
 The billing methods on `ServerCustomer` act as the customer choosing for themselves in your own
-interface, so each sends `"selfServe": true`. The change must then be in the customer's plan space
-along a self-serve path, or Entitler refuses it with `403 not_self_serve`.
+interface, so each sends `"selfServe": true`. The change must then be among the plans the customer can move to
+(`plans()`), along a self-serve path, or Entitler refuses it with `403 not_self_serve`.
 
 A plan is named by its key or public id, or replaced by a SKU the customer bought, which names its own
-period:
+period. A period is named by its label exactly as pricing shows it (`Monthly`, `Yearly`):
 
 ```ts
-await customer.subscribe("pro", { period: "yearly" });
+await customer.subscribe("pro", { period: "Yearly" });
 await customer.subscribe({ sku: { connector: "stripe", ids: { priceId: "price_123" } } });
 await customer.addAddOn("sso_addon");
 await customer.setAddOnQuantity("extra_seats", 5);
@@ -53,7 +53,7 @@ customer anywhere, sales-led plans included.
 
 ```ts
 await customer.vendor.subscribe("enterprise");
-await customer.vendor.override("pro", { when: "now" });
+await customer.vendor.override("pro", { period: "Monthly" });
 await customer.vendor.undoOverride();
 await customer.vendor.addAddOn("support_premium");
 await customer.vendor.setAddOnQuantity("extra_seats", 20);

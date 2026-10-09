@@ -13,6 +13,7 @@ import {
 
 const key = process.env.ENTITLER_TEST_KEY;
 if (!key) console.warn("Live API tests skipped: set ENTITLER_TEST_KEY to run them.");
+console.info("The test project has no sign-in provider, so unit tests alone cover the identity client.");
 
 const features = {
   aiCredits: defineFeature("ai_credits", "metered"),
@@ -94,10 +95,12 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     expect(check).toMatchObject({ type: "metered", entitled: true, value: 20, used: 0, stale: false });
     const pdf = await customer.check(features.exportPdf);
     expect(pdf).toMatchObject({ entitled: false, value: 0 });
-    await customer.check(features.aiCredits);
+    await customer.check(features.exportPdf);
     expect(cache.revalidated).toBe(1);
     expect(await customer.isEntitled(features.exportPdf, { default: true })).toBe(false);
+    await customer.entitlements();
     const entitlements = await customer.entitlements();
+    expect(cache.revalidated).toBe(3);
     expect(entitlements.get(features.collaboration)).toMatchObject({ type: "group", entitled: false });
     expect(entitlements.has(features.collaboration)).toBe(false);
     expect(entitlements.has(features.aiCredits)).toBe(true);
@@ -156,7 +159,11 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
   it("runs work inside withHold", async () => {
     const customer = newCustomer();
     await customer.register();
-    expect(await customer.withHold(features.aiCredits, 8, async () => 6)).toBe(6);
+    const reply = await customer.withHold(features.aiCredits, 8, async ({ hold }) => {
+      hold.use(6);
+      return "summary";
+    });
+    expect(reply).toBe("summary");
     expect((await customer.check(features.aiCredits)).used).toBe(6);
     await expect(
       customer.withHold(features.aiCredits, 8, async () => {
@@ -173,7 +180,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     await Promise.all([a.register(), b.register()]);
     const batch = await server.recordUsageBatch([
       { customer: a.id, feature: features.aiCredits, amount: 2, idempotencyKey: `${a.id}-batch` },
-      { customer: b.id, feature: "ai_credits", amount: 3 },
+      { customer: b.id, feature: features.aiCredits, amount: 3 },
       { customer: a.id, feature: features.aiCredits, amount: 2, idempotencyKey: `${a.id}-batch` },
     ]);
     expect(batch.results.map((result) => result.outcome)).toEqual(["recorded", "recorded", "duplicate"]);
@@ -181,7 +188,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     expect((await a.check(features.aiCredits)).used).toBe(2);
   });
 
-  it("answers plan space and customer pricing", async () => {
+  it("answers the customer's plans and customer pricing", async () => {
     const customer = newCustomer();
     const space = await customer.plans();
     expect(space.held.map((held) => held.plan.key)).toEqual(["free"]);
@@ -198,7 +205,8 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     const client = new EntitlerClient({
       token: async () => {
         minted += 1;
-        return (await customer.token({ ttlSeconds: 600 })).token;
+        return (await customer.token({ scopes: ["entitlements:read", "usage:read", "usage:write"], ttlSeconds: 600 }))
+          .token;
       },
     });
     expect((await client.me.check(features.aiCredits)).customer).toBe(customer.id);
@@ -214,11 +222,10 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
       (e: unknown) => e,
     )) as ApiError | undefined;
     if (refused) expect(["credential_not_allowed", "scope_required"]).toContain(refused.code);
-    const limited = new EntitlerClient({ token: (await customer.token({ scopes: ["entitlements:read"] })).token });
-    await expect(limited.me.recordUsage(features.aiCredits, 1)).rejects.toMatchObject({
-      status: 403,
-      code: "scope_required",
+    const limited = new EntitlerClient({
+      token: (await customer.token({ scopes: ["entitlements:read", "usage:write"] })).token,
     });
+    await expect(limited.me.usage()).rejects.toMatchObject({ status: 403, code: "scope_required" });
     expect(minted).toBe(1);
     expect((await client.scopes()).scopes).toEqual(["entitlements:read", "usage:read", "usage:write"]);
   });
@@ -261,11 +268,9 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     }
   });
 
-  it("changes plans as the vendor and self-serve", async () => {
+  it("changes plans self-serve and as the vendor", async () => {
     const customer = newCustomer();
     await customer.register({ name: "Billing test" });
-    const vendorMove = await customer.vendor.subscribe("pro_basic");
-    expect(vendorMove.subscription?.plan.key).toBe("pro_basic");
     await expect(
       customer.checkout("pro", { successUrl: "https://example.com/ok", cancelUrl: "https://example.com/no" }),
     ).rejects.toMatchObject({ status: 409, code: "stale" });
@@ -273,8 +278,8 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
       status: 409,
       code: "stale",
     });
-    const pro = await customer.subscribe("pro");
-    expect(pro.subscription?.plan.key).toBe("pro");
+    const pro = await customer.subscribe("pro", { period: "Monthly" });
+    expect(pro.subscription).toMatchObject({ plan: { key: "pro" }, period: "Monthly" });
     expect(pro.selfServe).toBe(true);
     expect((await customer.check(features.exportPdf)).entitled).toBe(true);
     const withAddOn = await customer.addAddOn("sso_addon");
@@ -286,6 +291,9 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     const free = await customer.subscribe("free");
     expect(free.subscription?.pending).toMatchObject({ type: "move", plan: { key: "free" } });
     expect((await customer.undoPendingChange()).subscription?.pending).toBeNull();
+    const period = (await server.pricing()).plans.find((plan) => plan.key === "pro_basic")?.periods[0]?.label;
+    const vendorMove = await customer.vendor.subscribe("pro_basic", { period, when: "now" });
+    expect(vendorMove.subscription?.plan.key).toBe("pro_basic");
     const granted = await customer.vendor.grant(features.sso, { days: 30, reason: "SDK test" });
     const grant = granted.grants.find((each) => each.feature === "sso" && each.revokedAt === null);
     expect(grant?.until).toBeInstanceOf(Date);

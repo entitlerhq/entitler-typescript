@@ -13,7 +13,7 @@ if (scopes.includes("customers:write")) console.log("Show the billing controls."
 
 | Method | Scope |
 | --- | --- |
-| `check`, `isEntitled`, `entitlements`, `planSpace`, `customer.pricing`, `snapshot` | `entitlements:read` |
+| `check`, `isEntitled`, `entitlements`, `plans`, `customer.pricing`, `snapshot` | `entitlements:read` |
 | `usage`, `hold` | `usage:read` |
 | `recordUsage`, `holdUsage`, `settleUsage`, `releaseUsage`, `withHold`, `recordUsageBatch` | `usage:write` |
 | `server.pricing`, `features` | `plans:read` |

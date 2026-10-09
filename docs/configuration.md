@@ -10,7 +10,7 @@ Both clients take one options object:
 | `maxRetryDelay` | `10_000` | the longest `Retry-After` the SDK waits for, in milliseconds |
 | `cache` | a `MemoryCache` of 1,000 answers | a `CacheStore`, or `false` |
 | `staleFor` | 24 hours | how long a kept answer may stand in while Entitler is unreachable, in milliseconds |
-| `onError` | none | called with each error a fallback absorbed |
+| `onError` | none | called with each error a fallback absorbed, and a custom store's failures; one that throws is ignored |
 | `asOf` | none | read the API at another instant ([as-of](as-of.md)) |
 | `fetch` | the global `fetch` | the transport, for tests, proxies and instrumentation |
 

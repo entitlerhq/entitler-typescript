@@ -4,15 +4,17 @@ Every failure the SDK raises is an `EntitlerError`:
 
 | Error | When | Fields |
 | --- | --- | --- |
-| `ApiError` | Entitler answered with a status other than 2xx | `status`, `code`, `message`, `requestId`, `retryAfter` (ms), `idempotencyKey`, `payment`, `listingGaps`, `listingProblems` |
+| `ApiError` | Entitler answered with a status other than 2xx, a redirect, or a 2xx this SDK cannot read | `status`, `code`, `message`, `requestId`, `retryAfter` (ms), `idempotencyKey`, `payment`, `listingGaps`, `listingProblems` |
 | `ConnectionError` | no answer arrived (DNS, TLS, refused or reset) | `cause`, `idempotencyKey` |
 | `TimeoutError` | an attempt passed its `timeout` | `idempotencyKey` |
 | `TokenError` | a token provider failed or answered an unusable token | `cause` |
 | `SnapshotError` | snapshot verification failed | `code`: `snapshot_invalid` or `snapshot_expired` |
 | `UsageRefusedError` | `withHold`'s hold was refused | `result`, the refused answer |
-| `SettleError` | `withHold` could not settle after the work succeeded | `holdId`, `amount`, `cause` |
+| `UsageSettlementError` | `withHold` could not settle, or record the excess, after the work succeeded | `holdId`, `amount`, `excess`, `result`, `cause` |
 
 Argument errors are `TypeError` (`RangeError` for a number out of range), never an `ApiError`.
+Errors keep their cause for diagnosis, but never a request or headers carrying a credential. A token
+provider's own error is kept as it is, so its contents are outside the SDK's control.
 Cancelling rejects with the signal's `reason`, never an `EntitlerError`. No error carries a credential.
 
 ```ts
@@ -32,8 +34,10 @@ try {
 
 ## Codes
 
-`ErrorCode` lists every code the API documents, plus the SDK's own `http_error` for an answer with
-no readable error body. New codes from newer API releases still type-check. Among the common ones:
+`ErrorCode` lists every code the API documents, plus the SDK's own: `http_error` for an answer with
+no readable error body (and for any redirect, which the SDK never follows), `invalid_response` for a
+2xx answer it cannot read (usually a proxy or captive portal), and `connection_failed` and
+`timed_out` on batch event results. New codes from newer API releases still type-check. Among the common ones:
 
 | Code | Meaning |
 | --- | --- |

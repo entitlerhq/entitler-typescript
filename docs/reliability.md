@@ -26,20 +26,33 @@ Nothing else is retried.
   `maxRetryDelay` (10,000 ms by default), the call fails at once with that answer's `ApiError`, whose
   `retryAfter` says when to try again.
 - Otherwise it waits a random time between 0 and `min(8, 0.5 × 2^n)` seconds before retry `n`.
-- At most `maxRetries` retries (2 by default), then the last error.
+- At most `maxRetries` retries (2 by default), then the last error. The one retry with a refreshed
+  token after a `401` does not count towards them.
+- An answer cut off while it is being read is a `ConnectionError`, and retried like one.
 
 Every write sends `Idempotency-Key`: yours (`idempotencyKey`) or a new UUID, the same on every
 attempt. A failed call's error carries the key it sent, so you can repeat the call later with it.
 
 ## The answer cache
 
-Checks, entitlement lists, plan space and customer pricing, and on the server `pricing()` and
-`features()`, go through the cache: an in-memory store of 1,000 answers by default.
+Checks, entitlement lists, the customer's plans and customer pricing, and on the server `pricing()`
+and `features()`, go through the cache: an in-memory store of 1,000 answers by default. It is the
+only cache: requests pass `cache: "no-store"` to `fetch`, so no browser or runtime HTTP cache
+answers in its place.
 
-- An answer younger than its `max-age` answers without a request, unless this client has written to
-  that customer since, in which case it is revalidated.
-- Otherwise the SDK sends `If-None-Match`; a `304` answers the kept copy.
+- An answer is fresh while its age (the time since it arrived plus its `Age` header) is below its
+  `max-age` and it has no `no-cache`; a fresh answer answers without a request.
+- Every write to a customer (except `token`, `snapshot`, `checkout` and `billingPortal`, which
+  change no answer) bumps that customer's write generation first, whether or not it succeeds.
+  Answers kept before the bump are revalidated, and a read that was under way during a write is
+  never kept as fresh.
+- Otherwise the SDK sends `If-None-Match`; a `304` answers the kept copy and renews it, keeping any
+  header the `304` leaves out.
 - `no-store` answers are never kept, and answers from the cache are copies.
+
+Keys are SHA-256 hashes of the request and a fingerprint of the credential itself, never of token
+claims, so a forged token can never read another customer's answers from a shared store. A refreshed
+token starts its own entries.
 
 Pass your own store to share answers between processes, or `cache: false` to turn it off:
 
@@ -57,8 +70,11 @@ const shared = new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "", cache: 
 console.log(shared);
 ```
 
-Entries are plain JSON-ready data (the body text, `etag`, `maxAge`, `receivedAt`), so Workers KV or
-Redis fit, and keys are SHA-256 hashes that never contain a credential.
+Entries are plain JSON-ready data (`v`, the body text, `etag`, `cacheControl`, `age`, `receivedAt`),
+so Workers KV or Redis fit. `set` receives a lifetime in milliseconds (`staleFor` plus the entry's
+`max-age`); stores that cannot expire entries should drop them after that time. A `get` that fails
+counts as a miss and a `set` that fails is skipped; both go to `onError`, and neither fails the call.
+Entries are private to this SDK: do not share a store with the SDKs for other languages.
 
 ## Stale answers
 
@@ -78,5 +94,21 @@ const resilient = new EntitlerServer({
 console.log(resilient);
 ```
 
-`onError` is called with each error a fallback absorbed: a stale answer, an `isEntitled` default, and
-a hold `withHold` could not release.
+After a read fails because Entitler is unreachable, reads with a kept answer answer it, stale, without
+a request for the next 30 seconds (or the failed answer's `Retry-After`, if longer); then one request
+goes through to test the API. So an outage costs one slow read, not one per call. A 2xx answer the SDK
+cannot read counts as unreachable, since its usual cause is a proxy or captive portal.
+
+Stale answers never cross credentials, with one exception: when this client's token provider fails
+(typically offline), reads may answer stale entries kept under the token this same client held
+before.
+
+`onError` is called with each error a fallback absorbed: a stale answer, an `isEntitled` default, a
+hold `withHold` could not release, and a custom store's failures. An `onError` that throws is caught
+and ignored, so it can never change a call's answer or error.
+
+## Redirects
+
+The SDK never follows a redirect: every request passes `redirect: "manual"`, and any `3xx` other
+than `304` fails with an `ApiError` of code `http_error`. So no credential, and above all no
+identity token, ever reaches another origin.

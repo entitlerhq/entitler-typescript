@@ -5,7 +5,7 @@ import { ApiError, TimeoutError } from "./errors.js";
 import { renderFeatures, sameFeatures } from "./generate.js";
 import { EntitlerServer } from "./server.js";
 
-const USAGE = `Usage: entitler generate [options]
+const USAGE = `Usage: npx @entitlerhq/entitler generate [options]
 
 Writes a TypeScript file of typed feature constants from your Entitler catalogue.
 

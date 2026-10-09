@@ -112,7 +112,7 @@ describe("the platform's HTTP cache", () => {
   it("is bypassed with cache: no-store", async () => {
     const { fetch, mock } = fakeFetch(json(checkAnswer()));
     await new EntitlerServer({ key: "k", fetch }).customer("u").check("f");
-    expect((mock.mock.calls[0]?.[1] as RequestInit).cache).toBe("no-store");
+    expect((mock.mock.calls[0]?.[1] as RequestInit | undefined)?.cache).toBe("no-store");
   });
 });
 
