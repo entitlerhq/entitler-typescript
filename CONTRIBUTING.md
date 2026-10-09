@@ -38,6 +38,11 @@ ENTITLER_TEST_KEY=ent_test_… bun run test:integration
 It never writes the catalogue, tracks or keys. Each customer it creates is named
 `sdk-typescript-<random>` and deleted with `erase`, so several runs can share the environment.
 
+The shared conformance suite lives in `test/fixtures/conformance`, copied unchanged from the
+specification with its `manifest.json`; `test/unit/conformance.test.ts` checks every file's SHA-256
+and case count, then runs each case as its own test. Never edit a case: a case the SDK cannot pass
+is a question about the specification. Replace the files only with a new published copy.
+
 Generator golden files live in `test/fixtures/generate`; refresh them with
 `UPDATE_GOLDEN=1 bun run test` and review the diff.
 

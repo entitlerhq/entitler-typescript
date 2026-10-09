@@ -1,5 +1,6 @@
 import { Entitlements } from "./entitlements.js";
 import { SnapshotError } from "./errors.js";
+import { isEntitlement } from "./shapes.js";
 import { parseAnswer } from "./transport.js";
 import type { Entitlement, EnvironmentRef, SnapshotKey, SnapshotKeys, TrackRef } from "./types.js";
 import { base64UrlDecode, decodeJson, requireText } from "./util.js";
@@ -40,7 +41,9 @@ export interface VerifiedSnapshot {
   readonly entitlements: Entitlements<EnvironmentRef>;
 }
 
-const MAX_INSTANT_SECONDS = 8_640_000_000_000;
+const FOR_WHOM = "Provide the customer and environment the snapshot must be for.";
+const FIRST_INSTANT_SECONDS = -62_135_596_800;
+const LAST_INSTANT_SECONDS = 253_402_300_799;
 const NOT_A_SNAPSHOT = "That is not an entitlements snapshot. Pass the token snapshot() returned.";
 
 function invalid(message: string, cause?: unknown): SnapshotError {
@@ -83,14 +86,16 @@ function claimsOf(value: unknown): Claims | undefined {
     stringOrNull(change) &&
     typeof testers === "boolean" &&
     Array.isArray(entitlements) &&
-    entitlements.every((item) => isObject(item) && typeof item.key === "string") &&
+    entitlements.every(isEntitlement) &&
     instantSeconds(iat) &&
     instantSeconds(exp);
   return shaped ? (value as unknown as Claims) : undefined;
 }
 
 function instantSeconds(value: unknown): boolean {
-  return Number.isInteger(value) && Math.abs(value as number) <= MAX_INSTANT_SECONDS;
+  return (
+    Number.isInteger(value) && (value as number) >= FIRST_INSTANT_SECONDS && (value as number) <= LAST_INSTANT_SECONDS
+  );
 }
 
 function rfc3339(seconds: number): string {
@@ -117,8 +122,8 @@ function rfc3339(seconds: number): string {
  * ```
  */
 export async function verifySnapshot(token: string, expected: ExpectedSnapshot): Promise<VerifiedSnapshot> {
-  const customer = requireText(expected?.customer, "Provide the id your app uses for the customer.");
-  const environment = requireText(expected?.environment, "Provide the id of your app's environment.");
+  const customer = requireText(expected?.customer, FOR_WHOM);
+  const environment = requireText(expected?.environment, FOR_WHOM);
   const issuer = expected.issuer ?? "https://api.entitler.dev/customers";
   const skew = expected.clockSkewSeconds ?? 60;
   if (!Number.isInteger(skew) || skew < 0 || skew > 300) {
@@ -129,7 +134,7 @@ export async function verifySnapshot(token: string, expected: ExpectedSnapshot):
   const now = (expected.now ?? new Date()).getTime() / 1000;
 
   const parts = typeof token === "string" ? token.split(".") : [];
-  if (parts.length !== 3) throw invalid(NOT_A_SNAPSHOT);
+  if (parts.length !== 3 || !parts.every((part) => /^[A-Za-z0-9_-]*$/.test(part))) throw invalid(NOT_A_SNAPSHOT);
   const [headerPart, payloadPart, signaturePart] = parts as [string, string, string];
   let header: unknown;
   let signature: Uint8Array<ArrayBuffer>;

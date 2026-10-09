@@ -1,0 +1,611 @@
+{
+  "description": "Idempotency key validation (sections 7.2 and 5.2). Each case passes key as the caller's idempotencyKey: to an ordinary write (method write, for example recordUsage), to withHold, to recordUsageBatch with that many events, or as the key of the one event in a batch (method batchEvent). length is its length in Unicode code points, for reading. outcome is the exact argument error, raised before any request, or valid: the key is sent as given (as Idempotency-Key, or in the event for batchEvent), a withHold excess is recorded under excessKey, and a batch sends its requests in order, each with its number of events and its Idempotency-Key, where null is a new UUID v4 of that request's own.",
+  "spec": "7.2, 5.2",
+  "cases": [
+    {
+      "name": "length-1",
+      "why": "One character is the shortest key.",
+      "method": "write",
+      "key": "7",
+      "length": 1,
+      "outcome": {
+        "valid": true
+      }
+    },
+    {
+      "name": "length-200",
+      "why": "Two hundred characters is the longest key.",
+      "method": "write",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
+      "length": 200,
+      "outcome": {
+        "valid": true
+      }
+    },
+    {
+      "name": "length-201",
+      "why": "Two hundred and one characters is too long.",
+      "method": "write",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijk",
+      "length": 201,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "empty",
+      "why": "An empty key is refused rather than treated as absent.",
+      "method": "write",
+      "key": "",
+      "length": 0,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "uuid",
+      "why": "A UUID, the form the SDK generates, is valid.",
+      "method": "write",
+      "key": "3f2b8c1e-7d4a-4f6b-9a0e-5c1d2e3f4a5b",
+      "length": 36,
+      "outcome": {
+        "valid": true
+      }
+    },
+    {
+      "name": "inner-space",
+      "why": "A space inside the key is printable ASCII and valid.",
+      "method": "write",
+      "key": "job 42",
+      "length": 6,
+      "outcome": {
+        "valid": true
+      }
+    },
+    {
+      "name": "leading-space",
+      "why": "A key may not start with a space.",
+      "method": "write",
+      "key": " job-42",
+      "length": 7,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "trailing-space",
+      "why": "A key may not end with a space.",
+      "method": "write",
+      "key": "job-42 ",
+      "length": 7,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "single-space",
+      "why": "A lone space starts and ends with a space.",
+      "method": "write",
+      "key": " ",
+      "length": 1,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "only-spaces",
+      "why": "A key made only of spaces is refused.",
+      "method": "write",
+      "key": "     ",
+      "length": 5,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "tab",
+      "why": "A tab is a control character.",
+      "method": "write",
+      "key": "job\t42",
+      "length": 6,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "line-feed",
+      "why": "A line feed is a control character.",
+      "method": "write",
+      "key": "job\n42",
+      "length": 6,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "nul",
+      "why": "NUL is a control character.",
+      "method": "write",
+      "key": "job\u000042",
+      "length": 6,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "unit-separator",
+      "why": "0x1F, just below the space, is a control character.",
+      "method": "write",
+      "key": "job\u001f42",
+      "length": 6,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "del",
+      "why": "DEL (0x7F), just above the tilde, is not printable.",
+      "method": "write",
+      "key": "job\u007f42",
+      "length": 6,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "non-ascii-accent",
+      "why": "Non-ASCII letters are refused.",
+      "method": "write",
+      "key": "café-42",
+      "length": 7,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "non-ascii-emoji",
+      "why": "Emoji are refused.",
+      "method": "write",
+      "key": "job-🎉",
+      "length": 5,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "non-breaking-space",
+      "why": "A non-breaking space looks like a space but is not ASCII.",
+      "method": "write",
+      "key": "job\u00a042",
+      "length": 6,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "c1-control",
+      "why": "0x80 is outside ASCII.",
+      "method": "write",
+      "key": "job\u008042",
+      "length": 6,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "printable-punctuation",
+      "why": "Every ASCII punctuation character is printable and valid.",
+      "method": "write",
+      "key": "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+      "length": 32,
+      "outcome": {
+        "valid": true
+      }
+    },
+    {
+      "name": "printable-ascii",
+      "why": "Every printable ASCII character other than the space is valid.",
+      "method": "write",
+      "key": "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~",
+      "length": 94,
+      "outcome": {
+        "valid": true
+      }
+    },
+    {
+      "name": "tilde-and-exclamation-edges",
+      "why": "A key may start and end with any printable character other than the space, here ~ (0x7E, the top of the range) and ! (0x21).",
+      "method": "write",
+      "key": "~job!",
+      "length": 5,
+      "outcome": {
+        "valid": true
+      }
+    },
+    {
+      "name": "with-hold-length-1",
+      "why": "One character is the shortest withHold key.",
+      "method": "withHold",
+      "key": "h",
+      "length": 1,
+      "outcome": {
+        "valid": true,
+        "excessKey": "h:excess"
+      }
+    },
+    {
+      "name": "with-hold-length-193",
+      "why": "withHold allows 193 characters, so the key plus :excess fits in 200.",
+      "method": "withHold",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abc",
+      "length": 193,
+      "outcome": {
+        "valid": true,
+        "excessKey": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abc:excess"
+      }
+    },
+    {
+      "name": "with-hold-length-194",
+      "why": "withHold refuses 194 characters with its own message.",
+      "method": "withHold",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcd",
+      "length": 194,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 193 printable ASCII characters."
+      }
+    },
+    {
+      "name": "with-hold-empty",
+      "why": "An empty withHold key is refused with withHold's message.",
+      "method": "withHold",
+      "key": "",
+      "length": 0,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 193 printable ASCII characters."
+      }
+    },
+    {
+      "name": "with-hold-length-200",
+      "why": "A key valid for other writes is too long for withHold.",
+      "method": "withHold",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
+      "length": 200,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 193 printable ASCII characters."
+      }
+    },
+    {
+      "name": "with-hold-leading-space",
+      "why": "A withHold key that starts with a space fails with withHold's message, not the general one.",
+      "method": "withHold",
+      "key": " hold-42",
+      "length": 8,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 193 printable ASCII characters."
+      }
+    },
+    {
+      "name": "with-hold-trailing-space",
+      "why": "A withHold key that ends with a space fails with withHold's message.",
+      "method": "withHold",
+      "key": "hold-42 ",
+      "length": 8,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 193 printable ASCII characters."
+      }
+    },
+    {
+      "name": "with-hold-tab",
+      "why": "A control character in a withHold key fails with withHold's message.",
+      "method": "withHold",
+      "key": "hold\t42",
+      "length": 7,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 193 printable ASCII characters."
+      }
+    },
+    {
+      "name": "with-hold-del",
+      "why": "DEL in a withHold key fails with withHold's message.",
+      "method": "withHold",
+      "key": "hold\u007f42",
+      "length": 7,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 193 printable ASCII characters."
+      }
+    },
+    {
+      "name": "with-hold-non-ascii",
+      "why": "A non-ASCII character in a withHold key fails with withHold's message.",
+      "method": "withHold",
+      "key": "café-42",
+      "length": 7,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 193 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-key-length-1",
+      "why": "One character is the shortest batch key; its single request sends the key plus :0.",
+      "method": "recordUsageBatch",
+      "key": "b",
+      "length": 1,
+      "events": 1,
+      "outcome": {
+        "valid": true,
+        "requests": [
+          {
+            "events": 1,
+            "idempotencyKey": "b:0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "batch-key-length-190",
+      "why": "A batch key allows 190 characters, so the key plus a colon and a request index fits in 200.",
+      "method": "recordUsageBatch",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789",
+      "length": 190,
+      "events": 1,
+      "outcome": {
+        "valid": true,
+        "requests": [
+          {
+            "events": 1,
+            "idempotencyKey": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789:0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "batch-key-length-191",
+      "why": "A batch key of 191 characters fails with the batch's own message.",
+      "method": "recordUsageBatch",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789a",
+      "length": 191,
+      "events": 1,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 190 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-key-length-200",
+      "why": "A key valid for other writes is too long for a batch.",
+      "method": "recordUsageBatch",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
+      "length": 200,
+      "events": 1,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 190 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-key-empty",
+      "why": "An empty batch key is refused rather than treated as absent.",
+      "method": "recordUsageBatch",
+      "key": "",
+      "length": 0,
+      "events": 1,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 190 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-key-leading-space",
+      "why": "A batch key that starts with a space fails with the batch's message.",
+      "method": "recordUsageBatch",
+      "key": " nightly-42",
+      "length": 11,
+      "events": 1,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 190 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-key-trailing-space",
+      "why": "A batch key that ends with a space fails with the batch's message.",
+      "method": "recordUsageBatch",
+      "key": "nightly-42 ",
+      "length": 11,
+      "events": 1,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 190 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-key-line-feed",
+      "why": "A control character in a batch key fails with the batch's message.",
+      "method": "recordUsageBatch",
+      "key": "nightly\n42",
+      "length": 10,
+      "events": 1,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 190 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-key-non-ascii",
+      "why": "A non-ASCII character in a batch key fails with the batch's message.",
+      "method": "recordUsageBatch",
+      "key": "lote-ñ",
+      "length": 6,
+      "events": 1,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 190 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-event-key-length-200",
+      "why": "An event's own key follows the general rule, so 200 characters is valid.",
+      "method": "batchEvent",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghij",
+      "length": 200,
+      "outcome": {
+        "valid": true
+      }
+    },
+    {
+      "name": "batch-event-key-length-201",
+      "why": "An event key of 201 characters fails with the general message.",
+      "method": "batchEvent",
+      "key": "0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789abcdefghijk",
+      "length": 201,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-event-key-empty",
+      "why": "An empty event key fails with the general message.",
+      "method": "batchEvent",
+      "key": "",
+      "length": 0,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-event-key-trailing-space",
+      "why": "An event key that ends with a space fails with the general message.",
+      "method": "batchEvent",
+      "key": "event-42 ",
+      "length": 9,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-event-key-unit-separator",
+      "why": "A control character in an event key fails with the general message.",
+      "method": "batchEvent",
+      "key": "event\u001f42",
+      "length": 8,
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass idempotencyKey as 1 to 200 printable ASCII characters."
+      }
+    },
+    {
+      "name": "batch-500-events-one-request",
+      "why": "Five hundred events fit in one request, which sends the batch key plus :0.",
+      "method": "recordUsageBatch",
+      "key": "nightly-2026-07-01",
+      "length": 18,
+      "events": 500,
+      "outcome": {
+        "valid": true,
+        "requests": [
+          {
+            "events": 500,
+            "idempotencyKey": "nightly-2026-07-01:0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "batch-501-events-two-requests",
+      "why": "The 501st event starts a second request, which sends the batch key plus :1.",
+      "method": "recordUsageBatch",
+      "key": "nightly-2026-07-01",
+      "length": 18,
+      "events": 501,
+      "outcome": {
+        "valid": true,
+        "requests": [
+          {
+            "events": 500,
+            "idempotencyKey": "nightly-2026-07-01:0"
+          },
+          {
+            "events": 1,
+            "idempotencyKey": "nightly-2026-07-01:1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "batch-1001-events-three-requests",
+      "why": "Requests are counted from 0, so 1,001 events send the keys k:0, k:1 and k:2.",
+      "method": "recordUsageBatch",
+      "key": "k",
+      "length": 1,
+      "events": 1001,
+      "outcome": {
+        "valid": true,
+        "requests": [
+          {
+            "events": 500,
+            "idempotencyKey": "k:0"
+          },
+          {
+            "events": 500,
+            "idempotencyKey": "k:1"
+          },
+          {
+            "events": 1,
+            "idempotencyKey": "k:2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "batch-1001-events-without-key",
+      "why": "Without a batch key each request sends a new UUID v4 of its own, shown as null.",
+      "method": "recordUsageBatch",
+      "key": null,
+      "length": null,
+      "events": 1001,
+      "outcome": {
+        "valid": true,
+        "requests": [
+          {
+            "events": 500,
+            "idempotencyKey": null
+          },
+          {
+            "events": 500,
+            "idempotencyKey": null
+          },
+          {
+            "events": 1,
+            "idempotencyKey": null
+          }
+        ]
+      }
+    }
+  ]
+}

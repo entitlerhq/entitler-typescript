@@ -1,6 +1,7 @@
 import { Entitlements, type EntitlementsInit } from "./entitlements.js";
 import { ApiError, UsageRefusedError, UsageSettlementError } from "./errors.js";
 import { paged } from "./paging.js";
+import { isCheck } from "./shapes.js";
 import type { Call, CallOptions, Transport, WriteOptions } from "./transport.js";
 import type {
   Check,
@@ -27,7 +28,17 @@ import type {
   UsageMode,
   UsageResult,
 } from "./types.js";
-import { compact, featureKey, idempotencyKeyOf, instant, planKey, requireText, segment, wholeNumber } from "./util.js";
+import {
+  compact,
+  featureKey,
+  idempotencyKeyOf,
+  instant,
+  planKey,
+  requireId,
+  requireText,
+  segment,
+  wholeNumber,
+} from "./util.js";
 import { visitorOf } from "./visitor.js";
 
 /** Options for {@link Customer.isEntitled}. */
@@ -382,7 +393,7 @@ function choice(plan: PlanChoice): { plan?: string; sku?: Sku } {
 }
 
 function idOf(value: string, message: string): string {
-  return segment(requireText(value, message));
+  return segment(requireId(value, message));
 }
 
 /** The customer methods both clients share, on the path `/customers/{id}`. @internal */
@@ -441,6 +452,7 @@ export class CustomerApi implements Customer {
       method: "GET",
       path: `/entitlements/${segment(featureKey(feature))}`,
       cached: true,
+      shape: isCheck,
       options,
     });
     return { ...answer.data, stale: answer.stale } as unknown as Check;

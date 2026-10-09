@@ -1,26 +1,49 @@
 import type { Feature } from "./types.js";
 
-/** @internal */
+const SPACE = /^[ \t\r\n]+|[ \t\r\n]+$/g;
+
+/** Trims a credential of spaces, tabs, carriage returns and line feeds. @internal */
+export function trimCredential(value: string): string {
+  return value.replace(SPACE, "");
+}
+
+/** Checks a credential is not blank, and trims it. @internal */
 export function requireText(value: unknown, message: string): string {
-  if (typeof value !== "string" || value.trim() === "") throw new TypeError(message);
-  return value.trim();
+  if (typeof value !== "string" || trimCredential(value) === "") throw new TypeError(message);
+  return trimCredential(value);
+}
+
+/** Checks an id is not blank, keeping it exactly as given. @internal */
+export function requireId(value: unknown, message: string): string {
+  if (typeof value !== "string" || trimCredential(value) === "") throw new TypeError(message);
+  return value;
+}
+
+/** Percent-encodes a query value or path segment as `encodeURIComponent` does. @internal */
+export function encode(value: string): string {
+  try {
+    return encodeURIComponent(value);
+  } catch {
+    throw new TypeError("Pass an id that is valid Unicode.");
+  }
 }
 
 /** Percent-encodes one path segment, refusing ids that URL handling would turn into another route. @internal */
 export function segment(value: string): string {
+  const encoded = encode(value);
   if (/^\.+$/.test(value)) throw new TypeError("Pass an id that is not made only of dots.");
-  return encodeURIComponent(value);
+  return encoded;
 }
 
 /** @internal */
 export function featureKey(feature: Feature | string): string {
   const key = typeof feature === "string" ? feature : feature?.key;
-  return requireText(key, "Name the feature by its key.");
+  return requireId(key, "Name the feature by its key.");
 }
 
 /** @internal */
 export function planKey(plan: string): string {
-  return requireText(plan, "Name the plan by its id or its key.");
+  return requireId(plan, "Name the plan by its id or its key.");
 }
 
 /** Checks a whole number from `min` to `max`, failing with `message`. @internal */

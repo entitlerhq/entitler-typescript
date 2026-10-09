@@ -41,7 +41,7 @@ describe("construction", () => {
   it("validates a customer id", () => {
     const server = new EntitlerServer({ key: "k" });
     expect(() => server.customer(" ")).toThrow(new TypeError("Provide the id your app uses for the customer."));
-    expect(server.customer(" user_1 ").id).toBe("user_1");
+    expect(server.customer(" user_1 ").id).toBe(" user_1 ");
   });
 
   it.each([
@@ -307,7 +307,9 @@ describe("token providers", () => {
   });
 
   it("refreshes an identity token after a 401", async () => {
-    const provider = vi.fn(() => jwt({ iss: "https://idp.example", sub: "a", r: Math.random() }));
+    const provider = vi.fn(() =>
+      jwt({ iss: "https://idp.example", sub: "a", r: Math.random(), exp: Math.floor(Date.now() / 1000) + 3600 }),
+    );
     const { fetch, sent } = fakeFetch(apiError(401, "unauthorised"), json(checkAnswer()));
     await new EntitlerClient({ key: "pk", identityToken: provider, fetch }).me.check("f");
     expect(provider).toHaveBeenCalledTimes(2);
