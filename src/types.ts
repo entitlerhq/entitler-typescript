@@ -285,7 +285,7 @@ export interface OfferedSku {
 }
 
 /** A SKU the customer bought, named by its connector and the provider's ids. */
-export interface SkuRef {
+export interface Sku {
   /** The payment connector, such as `stripe` or `apple`. */
   readonly connector: string;
   /** The provider's ids, such as `{ priceId: "price_123" }`. */
@@ -338,15 +338,15 @@ export interface MoveOption {
   readonly skus: readonly OfferedSku[];
 }
 
-/** The customer's plan space: the plans they hold and the moves open to them. */
-export interface PlanSpace extends AnswerContext {
+/** The customer's plans: the plans they hold and the plans they can move to. */
+export interface CustomerPlans extends AnswerContext {
   /** The customer's external id. */
   readonly customer: string;
   /** The instant the answer was computed for. */
   readonly asOf: Date;
   /** The plans held. */
   readonly held: readonly HeldPlan[];
-  /** The moves open to the customer. */
+  /** The plans the customer can move to. */
   readonly options: readonly MoveOption[];
   /** True only when the SDK answered from a kept copy because Entitler was unreachable. */
   readonly stale: boolean;
@@ -544,6 +544,12 @@ export interface Paged<T> extends AsyncIterable<T> {
   pages(): AsyncIterable<Page<T>>;
 }
 
+/**
+ * A usage log: its first page (`items`, `next`), and every item across pages with `for await`,
+ * each later page fetched only when iteration reaches it.
+ */
+export interface UsageLog extends Page<UsageEvent>, Paged<UsageEvent> {}
+
 /** A metered feature's meter in the customer's usage. */
 export interface FeatureUsage {
   /** The feature's key. */
@@ -576,8 +582,8 @@ export interface CustomerUsage extends AnswerContext {
   readonly metersStartAgainAt: Date | null;
   /** Each metered feature's meter. */
   readonly features: readonly FeatureUsage[];
-  /** The usage log, newest first, fetched a page at a time. */
-  readonly log: Paged<UsageEvent>;
+  /** The usage log: its first page, and every item across pages, fetched as iteration reaches them. */
+  readonly log: UsageLog;
 }
 
 /** How a usage report counts against the allowance. */
@@ -939,8 +945,8 @@ export interface CustomerDetails {
   readonly moveOptions: readonly MoveOption[];
   /** The grants. */
   readonly grants: readonly Grant[];
-  /** The usage log, fetched a page at a time. */
-  readonly usage: Paged<UsageEvent>;
+  /** The usage log: its first page, and every item across pages, fetched as iteration reaches them. */
+  readonly usage: UsageLog;
   /** Recent activity. */
   readonly activity: readonly Activity[];
   /** The environment. */

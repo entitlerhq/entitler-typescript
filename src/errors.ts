@@ -1,8 +1,10 @@
 import type { ListingGap, ListingProblem, Open, UsageResult } from "./types.js";
 
 /**
- * Every error code the Entitler API documents, plus the SDK's own `http_error` for an answer
- * without a readable error body. Unknown codes from newer API releases still type-check.
+ * Every error code the Entitler API documents, plus the SDK's own: `http_error` for an answer
+ * without a readable error body, `invalid_response` for a 2xx answer the SDK cannot read, and
+ * `connection_failed` and `timed_out` on batch event results. Unknown codes from newer API
+ * releases still type-check.
  */
 export type ErrorCode = Open<
   | "allowance_reached"
@@ -15,6 +17,7 @@ export type ErrorCode = Open<
   | "catalogue_not_empty"
   | "change_locked"
   | "change_required"
+  | "connection_failed"
   | "connection_in_use"
   | "connection_mode"
   | "connection_required"
@@ -37,6 +40,7 @@ export type ErrorCode = Open<
   | "invalid_idempotency_key"
   | "invalid_occurred_at"
   | "invalid_path"
+  | "invalid_response"
   | "last_environment"
   | "limit_reached"
   | "listing_gaps"
@@ -60,6 +64,7 @@ export type ErrorCode = Open<
   | "switch_in_use"
   | "switch_needed"
   | "switch_off"
+  | "timed_out"
   | "too_many_customers"
   | "track_closed"
   | "unauthorised"
@@ -100,6 +105,8 @@ export interface ApiErrorInit {
   listingGaps?: readonly ListingGap[] | undefined;
   /** The listing problems from the body. */
   listingProblems?: readonly ListingProblem[] | undefined;
+  /** What went wrong underneath, such as a decoding failure. */
+  cause?: unknown;
 }
 
 /**
@@ -137,7 +144,7 @@ export class ApiError extends EntitlerError {
 
   /** Creates an API error. The SDK raises these; apps rarely need to. */
   constructor(init: ApiErrorInit) {
-    super(init.message);
+    super(init.message, init.cause === undefined ? undefined : { cause: init.cause });
     this.status = init.status;
     this.code = init.code;
     this.requestId = init.requestId;
@@ -201,8 +208,8 @@ export class SnapshotError extends EntitlerError {
 }
 
 /**
- * Raised only by `withHold` when Entitler refuses the hold, before the work runs. Everywhere
- * else a refusal is an answer, not an error.
+ * Raised only by `withHold` when Entitler refuses the hold, or a replay answers that it was already
+ * settled or released, before the work runs. Everywhere else a refusal is an answer, not an error.
  */
 export class UsageRefusedError extends EntitlerError {
   /** `UsageRefusedError`. */
@@ -213,27 +220,55 @@ export class UsageRefusedError extends EntitlerError {
   /** Creates a refusal error from the refused hold's answer. */
   constructor(result: UsageResult) {
     super(
-      result.refusal === "not_entitled"
-        ? `The customer is not entitled to ${result.feature}.`
-        : `The customer has too little ${result.feature} left for ${result.amount}.`,
+      result.outcome === "settled" || result.outcome === "released"
+        ? `This hold was already ${result.outcome}. Use a new idempotency key for new work.`
+        : result.refusal === "not_entitled"
+          ? `The customer is not entitled to ${result.feature}.`
+          : `The customer has too little ${result.feature} left for ${result.amount}.`,
     );
     this.result = result;
   }
 }
 
-/** A settlement failed after the work succeeded. Settle again with `holdId`; the cause is in `cause`. */
-export class SettleError extends EntitlerError {
-  /** `SettleError`. */
-  override name = "SettleError";
+/** Fields a {@link UsageSettlementError} is built from. */
+export interface UsageSettlementErrorInit {
+  /** The hold that is still open. */
+  holdId: string;
+  /** The amount to settle it with. */
+  amount: number;
+  /** The excess over the hold still to record in `observe` mode, or `undefined`. */
+  excess: number | undefined;
+  /** What `work` answered. */
+  result: unknown;
+  /** Why settling or recording the excess failed. */
+  cause: unknown;
+}
+
+/**
+ * Raised only by `withHold` when settling the hold or recording the excess fails after `work`
+ * succeeded. Keep `result`, and settle again with `settleUsage(holdId, amount)` before the hold
+ * expires.
+ */
+export class UsageSettlementError extends EntitlerError {
+  /** `UsageSettlementError`. */
+  override name = "UsageSettlementError";
   /** The hold that is still open. */
   readonly holdId: string;
-  /** The amount the work used, to settle with. */
+  /** The amount to settle it with. */
   readonly amount: number;
+  /** The excess over the hold still to record in `observe` mode, or `undefined`. */
+  readonly excess: number | undefined;
+  /** What `work` answered, so its output is not lost. */
+  readonly result: unknown;
 
   /** Creates a settlement error. The SDK raises these; apps rarely need to. */
-  constructor(holdId: string, amount: number, cause: unknown) {
-    super(`Entitler could not settle hold ${holdId}. Settle it again with settleUsage().`, { cause });
-    this.holdId = holdId;
-    this.amount = amount;
+  constructor(init: UsageSettlementErrorInit) {
+    super(`Entitler could not settle hold ${init.holdId}. Settle it again with settleUsage().`, {
+      cause: init.cause,
+    });
+    this.holdId = init.holdId;
+    this.amount = init.amount;
+    this.excess = init.excess;
+    this.result = init.result;
   }
 }

@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import process from "node:process";
-import { ApiError } from "./errors.js";
+import { ApiError, TimeoutError } from "./errors.js";
 import { renderFeatures, sameFeatures } from "./generate.js";
 import { EntitlerServer } from "./server.js";
 
@@ -80,8 +80,10 @@ export async function main(
     const baseUrl = options["base-url"] as string | undefined;
     source = await new EntitlerServer({ key, cache: false, ...(baseUrl ? { baseUrl } : {}) }).features();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    err(`Entitler request failed: ${message}${error instanceof ApiError ? ` (${error.code})` : ""}\n`);
+    const message = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
+    const code =
+      error instanceof ApiError ? error.code : error instanceof TimeoutError ? "timed_out" : "connection_failed";
+    err(`Entitler request failed: ${message} (${code}).\n`);
     return 1;
   }
   const existing = await readExisting(file);

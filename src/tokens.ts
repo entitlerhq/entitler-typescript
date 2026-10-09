@@ -4,7 +4,8 @@ import { readClaims, requireText } from "./util.js";
 /**
  * A function that answers a fresh token, such as one that asks your server for a customer
  * token. The client calls it for the first request, again when the kept token expires within
- * 60 seconds, and once after a `401`. Concurrent calls share one pending refresh.
+ * 60 seconds (or half its lifetime, when shorter), and once after a `401`. Concurrent calls share
+ * one pending refresh.
  *
  * @example
  * ```ts
@@ -17,7 +18,6 @@ import { readClaims, requireText } from "./util.js";
 export type TokenProvider = (context: { signal: AbortSignal }) => string | Promise<string>;
 
 const REFRESH_BEFORE_MS = 60_000;
-const NEVER = new AbortController().signal;
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (!signal) return promise;
@@ -33,9 +33,13 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Pro
 export class TokenSource {
   readonly #provider: TokenProvider | undefined;
   #current: string | undefined;
+  #receivedAt = 0;
   #pending: Promise<string> | undefined;
 
-  constructor(value: string | TokenProvider, blankMessage: string) {
+  readonly #timeout: number;
+
+  constructor(value: string | TokenProvider, blankMessage: string, timeout = 10_000) {
+    this.#timeout = timeout;
     if (typeof value === "function") this.#provider = value;
     else this.#current = requireText(value, blankMessage);
   }
@@ -46,7 +50,7 @@ export class TokenSource {
 
   async get(signal: AbortSignal | undefined): Promise<string> {
     const current = this.#current;
-    if (current !== undefined && (!this.#provider || !expiresSoon(current))) return current;
+    if (current !== undefined && (!this.#provider || !expiresSoon(current, this.#receivedAt))) return current;
     return this.#refresh(signal);
   }
 
@@ -56,19 +60,24 @@ export class TokenSource {
   }
 
   #refresh(signal: AbortSignal | undefined): Promise<string> {
-    this.#pending ??= this.#ask(signal).finally(() => {
+    this.#pending ??= this.#ask().finally(() => {
       this.#pending = undefined;
     });
     return abortable(this.#pending, signal);
   }
 
-  async #ask(signal: AbortSignal | undefined): Promise<string> {
+  async #ask(): Promise<string> {
+    const deadline = AbortSignal.timeout(this.#timeout);
     let answer: unknown;
     try {
-      answer = await (this.#provider as TokenProvider)({ signal: signal ?? NEVER });
+      answer = await abortable(Promise.resolve((this.#provider as TokenProvider)({ signal: deadline })), deadline);
     } catch (cause) {
-      if (signal?.aborted && cause === signal.reason) throw cause;
-      throw new TokenError("The token provider failed.", { cause });
+      throw new TokenError(
+        deadline.aborted
+          ? `The token provider did not answer within ${this.#timeout} ms.`
+          : "The token provider failed.",
+        { cause },
+      );
     }
     if (typeof answer !== "string" || answer.trim() === "") {
       throw new TokenError("The token provider answered a blank token.");
@@ -76,17 +85,15 @@ export class TokenSource {
     const token = answer.trim();
     if (!readClaims(token)) throw new TokenError("The token provider answered a token that is not a readable JWT.");
     this.#current = token;
+    this.#receivedAt = Date.now();
     return token;
   }
 }
 
-function expiresSoon(token: string): boolean {
-  const exp = readClaims(token)?.exp;
-  return typeof exp === "number" && exp * 1000 - Date.now() < REFRESH_BEFORE_MS;
-}
-
-/** The claims that name a token's customer, for keying cached answers. @internal */
-export function principalOf(token: string, names: readonly string[]): string {
+function expiresSoon(token: string, receivedAt: number): boolean {
   const claims = readClaims(token);
-  return claims ? JSON.stringify(names.map((name) => claims[name] ?? null)) : `token:${token}`;
+  if (typeof claims?.exp !== "number") return false;
+  const expiresAt = claims.exp * 1000;
+  const issuedAt = typeof claims.iat === "number" ? claims.iat * 1000 : receivedAt;
+  return expiresAt - Date.now() < Math.min(REFRESH_BEFORE_MS, (expiresAt - issuedAt) / 2);
 }

@@ -1,7 +1,7 @@
 import { type Customer, CustomerApi } from "./customer.js";
 import { type ClientDescription, describe, knownScopes } from "./describe.js";
 import { type ExpectedSnapshot, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
-import { principalOf, type TokenProvider, TokenSource } from "./tokens.js";
+import { type TokenProvider, TokenSource } from "./tokens.js";
 import {
   type Authorised,
   type CallOptions,
@@ -95,7 +95,8 @@ const WAYS_IN = "Create the client with { token } or { key, identityToken }.";
 function tokenCredentials(token: TokenSource): Credentials {
   const signed = (value: string): Authorised => ({
     headers: { Authorization: `Bearer ${value}` },
-    principal: principalOf(value, ["iss", "eid", "sub"]),
+    kind: "customer-token",
+    credential: value,
     token: value,
   });
   return {
@@ -110,7 +111,8 @@ function tokenCredentials(token: TokenSource): Credentials {
 function identityCredentials(key: string, identity: TokenSource): Credentials {
   const signed = (value: string): Authorised => ({
     headers: { Authorization: `Bearer ${key}`, "Entitler-Identity-Token": value },
-    principal: `key:${key}:${principalOf(value, ["iss", "sub"])}`,
+    kind: "identity",
+    credential: `${key}\n${value}`,
     token: value,
   });
   return {
@@ -137,12 +139,13 @@ class InAppClient {
       throw new TypeError(WAYS_IN);
     }
     const credentials = byToken
-      ? tokenCredentials(new TokenSource(token, "Provide a customer token minted by your server."))
+      ? tokenCredentials(new TokenSource(token, "Provide a customer token minted by your server.", options.timeout))
       : identityCredentials(
           requireText(key, "Provide an Entitler API key from the dashboard."),
           new TokenSource(
             identityToken as string | TokenProvider,
             "Provide the identity token your sign-in provider issued.",
+            options.timeout,
           ),
         );
     const visitor = new Visitor(visitorOf(options.visitor));
@@ -167,7 +170,7 @@ class InAppClient {
       method: "PUT",
       path: "/customers/me",
       idempotencyKey: idempotencyKeyOf(options?.idempotencyKey),
-      customer: "/customers/me",
+      changes: ["/customers/me"],
       options,
     });
     return answer.data;

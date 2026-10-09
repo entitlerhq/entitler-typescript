@@ -8,6 +8,7 @@ export {
   type TokenClientOptions,
 } from "./client.js";
 export type {
+  ActiveHold,
   AddOnOptions,
   CancelOptions,
   CheckoutOptions,
@@ -16,6 +17,7 @@ export type {
   HoldContext,
   HoldOptions,
   IsEntitledOptions,
+  OverrideOptions,
   PlanChoice,
   PricingOptions,
   ProductOptions,
@@ -38,12 +40,13 @@ export {
   EntitlerError,
   type ErrorCode,
   type PaymentRequired,
-  SettleError,
   SnapshotError,
   type SnapshotErrorCode,
   TimeoutError,
   TokenError,
   UsageRefusedError,
+  UsageSettlementError,
+  type UsageSettlementErrorInit,
 } from "./errors.js";
 export {
   type CustomerCreate,

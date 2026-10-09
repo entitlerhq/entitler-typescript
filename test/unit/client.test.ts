@@ -1,7 +1,16 @@
 import { inspect } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EntitlerClient, EntitlerServer, newVisitorId, TokenError, VISITOR_ID_PATTERN } from "../../src/index.js";
+import {
+  defineFeature,
+  EntitlerClient,
+  EntitlerServer,
+  newVisitorId,
+  TokenError,
+  VISITOR_ID_PATTERN,
+} from "../../src/index.js";
 import { apiError, checkAnswer, fakeFetch, json, jwt } from "./fake.js";
+
+const aiCredits = defineFeature("ai_credits", "metered");
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -144,14 +153,21 @@ describe("credentials on the wire", () => {
     await expect(client.register()).rejects.toThrow(TypeError);
   });
 
-  it("sends no credential to the snapshot keys", async () => {
+  it("sends no credential, visitor or as-of to the snapshot keys, and never asks a provider", async () => {
     const { fetch, sent } = fakeFetch(json({ keys: [] }));
+    const provider = vi.fn(() => {
+      throw new Error("offline");
+    });
+    await new EntitlerClient({ token: provider, fetch, asOf: "2026-01-01T00:00:00Z" }).snapshotKeys();
+    expect(provider).not.toHaveBeenCalled();
     await new EntitlerClient({ key: "pk", identityToken: "idt", fetch }).snapshotKeys();
     await new EntitlerServer({ key: "k", fetch }).snapshotKeys();
     for (const request of sent) {
       expect(request.path).toBe("/customers/snapshot-keys");
       expect(request.headers.authorization).toBeUndefined();
       expect(request.headers["entitler-identity-token"]).toBeUndefined();
+      expect(request.headers["entitler-visitor"]).toBeUndefined();
+      expect(request.headers["entitler-as-of"]).toBeUndefined();
     }
   });
 
@@ -159,7 +175,7 @@ describe("credentials on the wire", () => {
     const { fetch, sent } = fakeFetch(json(checkAnswer()));
     const server = new EntitlerServer({ key: "k", fetch, asOf: "2026-07-01T19:30:00+10:00" });
     await server.customer("u").check("f");
-    await server.customer("u").recordUsage("ai_credits", 1);
+    await server.customer("u").recordUsage(aiCredits, 1);
     await new EntitlerClient({ token: "t", fetch, asOf: new Date("2026-07-01T09:30:00Z") }).me.check("f");
     expect(sent.map((request) => request.headers["entitler-as-of"])).toEqual([
       "2026-07-01T09:30:00.000Z",
@@ -385,12 +401,12 @@ describe("visitors", () => {
     const client = new EntitlerClient({ token: "t", fetch, cache: false });
     expect(client.visitor).toMatch(VISITOR_ID_PATTERN);
     await client.me.check("f");
-    await client.me.recordUsage("ai_credits", 1);
+    await client.me.recordUsage(aiCredits, 1);
     await client.snapshotKeys();
     expect(sent.map((request) => request.headers["entitler-visitor"])).toEqual([
       client.visitor,
       client.visitor,
-      client.visitor,
+      undefined,
     ]);
     expect(new EntitlerClient({ token: "t" }).visitor).not.toBe(client.visitor);
   });
