@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, defineFeature, EntitlerClient, EntitlerServer } from "../../src/index.js";
+import { ApiError, defineFeature, EntitlerClient, EntitlerServer, TokenError } from "../../src/index.js";
 import { apiError, checkAnswer, context, fakeFetch, json, jwt, usageAnswer } from "./fake.js";
 
 afterEach(() => {
@@ -208,13 +208,13 @@ describe("token lifetimes", () => {
     expect(provider).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps a token without exp until a 401", async () => {
+  it("refuses a provider's token without exp as unreadable", async () => {
     const provider = vi.fn(() => jwt({ sub: "u" }));
-    const { fetch } = fakeFetch(json(checkAnswer()));
-    const client = new EntitlerClient({ token: provider, fetch, cache: false });
-    await client.me.check("f");
-    await client.me.check("f");
-    expect(provider).toHaveBeenCalledTimes(1);
+    const { fetch, mock } = fakeFetch(json(checkAnswer()));
+    await expect(new EntitlerClient({ token: provider, fetch, cache: false }).me.check("f")).rejects.toBeInstanceOf(
+      TokenError,
+    );
+    expect(mock).not.toHaveBeenCalled();
   });
 });
 

@@ -8,6 +8,7 @@
       "!**/coverage",
       "!**/docs/api",
       "!test/fixtures/generate/*.ts",
+      "!test/fixtures/conformance",
       "!**/*.gen.ts",
       "!test/docs/out"
     ]

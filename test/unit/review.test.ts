@@ -228,7 +228,7 @@ describe("token refresh edge cases", () => {
     const second = client.me.check("b");
     controller.abort();
     await expect(first).rejects.toBe(controller.signal.reason);
-    resolve(jwt({ sub: "u" }));
+    resolve(jwt({ sub: "u", exp: Math.floor(Date.now() / 1000) + 3600 }));
     await second;
     expect(provider).toHaveBeenCalledOnce();
     expect(sent).toHaveLength(1);
@@ -247,7 +247,7 @@ describe("token refresh edge cases", () => {
   it("retries 503, then 401 with a refreshed token, then answers", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     let n = 0;
-    const provider = vi.fn(() => jwt({ sub: "u", n: ++n }));
+    const provider = vi.fn(() => jwt({ sub: "u", n: ++n, exp: Math.floor(Date.now() / 1000) + 3600 }));
     const { fetch, sent } = fakeFetch(apiError(503, "unavailable"), apiError(401, "unauthorised"), json(checkAnswer()));
     const client = new EntitlerClient({ token: provider, fetch, cache: false, maxRetries: 1 });
     expect((await client.me.check("f")).entitled).toBe(true);

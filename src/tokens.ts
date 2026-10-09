@@ -1,5 +1,5 @@
 import { TokenError } from "./errors.js";
-import { readClaims, requireText } from "./util.js";
+import { readClaims, requireText, trimCredential } from "./util.js";
 
 /**
  * A function that answers a fresh token, such as one that asks your server for a customer
@@ -79,15 +79,19 @@ export class TokenSource {
         { cause },
       );
     }
-    if (typeof answer !== "string" || answer.trim() === "") {
-      throw new TokenError("The token provider answered a blank token.");
-    }
-    const token = answer.trim();
-    if (!readClaims(token)) throw new TokenError("The token provider answered a token that is not a readable JWT.");
+    const token = typeof answer === "string" ? trimCredential(answer) : "";
+    if (token === "") throw new TokenError("The token provider answered a blank token.");
+    if (!readable(token)) throw new TokenError("The token provider answered a token that is not a readable JWT.");
     this.#current = token;
     this.#receivedAt = Date.now();
     return token;
   }
+}
+
+function readable(token: string): boolean {
+  const claims = readClaims(token);
+  if (!claims || !Number.isInteger(claims.exp)) return false;
+  return claims.iat === undefined || (Number.isInteger(claims.iat) && (claims.iat as number) < (claims.exp as number));
 }
 
 function expiresSoon(token: string, receivedAt: number): boolean {
@@ -95,5 +99,5 @@ function expiresSoon(token: string, receivedAt: number): boolean {
   if (typeof claims?.exp !== "number") return false;
   const expiresAt = claims.exp * 1000;
   const issuedAt = typeof claims.iat === "number" ? claims.iat * 1000 : receivedAt;
-  return expiresAt - Date.now() < Math.min(REFRESH_BEFORE_MS, (expiresAt - issuedAt) / 2);
+  return expiresAt - Date.now() <= Math.min(REFRESH_BEFORE_MS, (expiresAt - issuedAt) / 2);
 }

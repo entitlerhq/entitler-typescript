@@ -18,7 +18,7 @@ import type {
   UsageEventInput,
   UsageEventResult,
 } from "./types.js";
-import { compact, featureKey, idempotencyKeyOf, instant, requireText } from "./util.js";
+import { compact, featureKey, idempotencyKeyOf, instant, requireId, requireText } from "./util.js";
 import { newVisitorId, visitorOf } from "./visitor.js";
 
 /** Options for {@link EntitlerServer}. */
@@ -134,7 +134,7 @@ export class EntitlerServer {
           return { items: answer.data.items, next: answer.data.next };
         }),
       create: async (input, options) => {
-        const externalId = requireText(input?.externalId, "Provide the id your app uses for the customer.");
+        const externalId = requireId(input?.externalId, "Provide the id your app uses for the customer.");
         const body = compact({ ...input, externalId, name: requireText(input?.name, "Provide the customer's name.") });
         const answer = await transport.send<CustomerDetails & { usage: Page<UsageEvent> }>({
           method: "POST",
@@ -152,7 +152,7 @@ export class EntitlerServer {
 
   /** The customer with the id your app uses for them. Makes no request. */
   customer(id: string): ServerCustomer {
-    return new ServerCustomerApi(this.#transport, requireText(id, "Provide the id your app uses for the customer."));
+    return new ServerCustomerApi(this.#transport, requireId(id, "Provide the id your app uses for the customer."));
   }
 
   /**
@@ -168,7 +168,7 @@ export class EntitlerServer {
     const prepared = events.map(
       (event) =>
         compact({
-          customer: requireText(event?.customer, "Provide the id your app uses for the customer."),
+          customer: requireId(event?.customer, "Provide the id your app uses for the customer."),
           feature: featureKey(event.feature),
           amount: event.amount === undefined ? undefined : usageAmount(event.amount),
           occurredAt: instant(event.occurredAt, "Pass occurredAt as a valid date."),
@@ -179,7 +179,7 @@ export class EntitlerServer {
     const keys = Array.from({ length: requests }, (_, index) =>
       options?.idempotencyKey === undefined
         ? idempotencyKeyOf(undefined)
-        : idempotencyKeyOf(`${idempotencyKeyOf(options.idempotencyKey)}:${index}`),
+        : `${idempotencyKeyOf(options.idempotencyKey, 190)}:${index}`,
     );
     const results: UsageEventResult[] = [];
     const totals = { recorded: 0, duplicates: 0, errors: 0 };

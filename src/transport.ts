@@ -1,6 +1,6 @@
 import { type CacheEntry, type CacheStore, MemoryCache } from "./cache.js";
 import { ApiError, ConnectionError, type EntitlerError, type ErrorCode, TimeoutError, TokenError } from "./errors.js";
-import { instant, sha256Hex, sleep, wholeNumber } from "./util.js";
+import { encode, instant, sha256Hex, sleep, wholeNumber } from "./util.js";
 import { VERSION } from "./version.js";
 
 /** Options both clients take. */
@@ -77,6 +77,7 @@ export interface Call {
   readonly headers?: Record<string, string | undefined>;
   readonly idempotencyKey?: string;
   readonly cached?: boolean;
+  readonly shape?: (data: Record<string, unknown>) => boolean;
   readonly customer?: string;
   readonly changes?: readonly string[];
   readonly open?: boolean;
@@ -131,9 +132,16 @@ const PAYMENT_STATUSES = new Set(["declined", "requires_action", "processing", "
 /** Parses an answer body, turning its timestamps into `Date`s. @internal */
 export function parseAnswer(text: string): unknown {
   if (text === "") return undefined;
-  return JSON.parse(text, (key, value) =>
-    DATE_KEYS.has(key) && typeof value === "string" && TIMESTAMP.test(value) ? new Date(value) : value,
-  );
+  return JSON.parse(text, (key, value) => (DATE_KEYS.has(key) && typeof value === "string" ? instantOf(value) : value));
+}
+
+function instantOf(text: string): Date {
+  const date = new Date(text);
+  const year = date.getUTCFullYear();
+  if (!TIMESTAMP.test(text) || Number.isNaN(date.getTime()) || year < 1 || year > 9999) {
+    throw new TypeError("An instant in the answer is not an RFC 3339 timestamp from year 1 to 9999.");
+  }
+  return date;
 }
 
 function runtime(): string | undefined {
@@ -151,12 +159,38 @@ function runtime(): string | undefined {
 
 const RUNTIME = runtime();
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const IMF_FIXDATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2}) ([A-Z][a-z]{2}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
+const RFC_850 =
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (\d{2})-([A-Z][a-z]{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
+const ASCTIME = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) ([A-Z][a-z]{2}) ([ \d]\d) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/;
+
+function httpDate(value: string): number | undefined {
+  const fixed = IMF_FIXDATE.exec(value) ?? RFC_850.exec(value);
+  const asctime = ASCTIME.exec(value);
+  const parts = fixed
+    ? fixed.slice(1)
+    : asctime
+      ? [asctime[2], asctime[1], asctime[6], asctime[3], asctime[4], asctime[5]]
+      : [];
+  const [day, month, year, hours, minutes, seconds] = parts as string[];
+  const monthIndex = MONTHS.indexOf(month ?? "");
+  if (monthIndex < 0 || !day || !year) return undefined;
+  let fullYear = Number(year);
+  if (year.length === 2) {
+    const thisYear = new Date(Date.now()).getUTCFullYear();
+    fullYear += Math.floor(thisYear / 100) * 100;
+    if (fullYear > thisYear + 50) fullYear -= 100;
+  }
+  return Date.UTC(fullYear, monthIndex, Number(day), Number(hours), Number(minutes), Number(seconds));
+}
+
 function retryAfterOf(headers: Headers): number | undefined {
   const value = headers.get("retry-after")?.trim();
   if (!value) return undefined;
-  if (/^\d+(\.\d+)?$/.test(value)) return Math.round(Number(value) * 1000);
-  const date = Date.parse(value);
-  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
+  if (/^\d+$/.test(value)) return Number(value) * 1000;
+  const date = httpDate(value);
+  return date === undefined ? undefined : Math.max(0, date - Date.now());
 }
 
 function directive(control: string | undefined, name: string): boolean {
@@ -180,12 +214,21 @@ function apiError(received: Received, idempotencyKey: string | undefined): ApiEr
   } catch {
     body = undefined;
   }
-  const error = body && typeof body.error === "object" && body.error ? body.error : {};
-  const payment = error.payment as { status?: unknown; url?: unknown } | undefined;
+  const error =
+    !received.redirect && body && typeof body.error === "object" && body.error && !Array.isArray(body.error)
+      ? body.error
+      : {};
+  const payment =
+    received.status === 402 && error.payment && typeof error.payment === "object"
+      ? (error.payment as { status?: unknown; url?: unknown })
+      : undefined;
   return new ApiError({
     status: received.status,
-    code: typeof error.code === "string" ? (error.code as ErrorCode) : "http_error",
-    message: typeof error.message === "string" ? error.message : `Entitler answered with HTTP ${received.status}.`,
+    code: typeof error.code === "string" && error.code !== "" ? (error.code as ErrorCode) : "http_error",
+    message:
+      typeof error.message === "string" && error.message !== ""
+        ? error.message
+        : `Entitler answered with HTTP ${received.status}.`,
     requestId: received.headers.get("x-request-id") ?? undefined,
     retryAfter: retryAfterOf(received.headers),
     idempotencyKey,
@@ -312,7 +355,8 @@ export class Transport {
     }
     if (!call.cached || !this.#cache) {
       const received = await this.#exchange(call, url, headers, auth);
-      return { data: this.#decode<T>(received.text, received), stale: false };
+      if (received.status === 304) throw apiError(received, call.idempotencyKey);
+      return { data: this.#decode<T>(received.text, received, call.shape), stale: false };
     }
     return this.#cached<T>(call, url, headers, auth, this.#cache);
   }
@@ -341,7 +385,7 @@ export class Transport {
     try {
       received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304 && !kept) throw apiError(received, undefined);
-      data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received);
+      data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received, call.shape);
       this.#downUntil = 0;
     } catch (error) {
       if (isUnreachable(error)) {
@@ -437,10 +481,13 @@ export class Transport {
     }
   }
 
-  #decode<T>(text: string, received?: Received): T {
+  #decode<T>(text: string, received?: Received, check?: (data: Record<string, unknown>) => boolean): T {
     try {
       const data = parseAnswer(text);
-      if (data === null || typeof data !== "object") throw new TypeError("The answer is not a JSON object.");
+      if (data === null || typeof data !== "object" || Array.isArray(data)) {
+        throw new TypeError("The answer is not a JSON object.");
+      }
+      if (check && !check(data as Record<string, unknown>)) throw new TypeError("The answer lacks a required field.");
       return data as T;
     } catch (cause) {
       throw new ApiError({
@@ -455,7 +502,7 @@ export class Transport {
 
   #url(call: Call): string {
     const query = Object.entries(call.query ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined);
-    const search = query.map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`).join("&");
+    const search = query.map(([name, value]) => `${encode(name)}=${encode(value)}`).join("&");
     return `${this.baseUrl}${call.path}${search ? `?${search}` : ""}`;
   }
 

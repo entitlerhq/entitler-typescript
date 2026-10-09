@@ -1,0 +1,54 @@
+{
+  "description": "The Entitler SDK conformance suite. Each data file with its section of the specification, its number of cases and the SHA-256 of its bytes. Copy the files with this manifest and check every hash before running the cases.",
+  "spec": "12",
+  "files": [
+    {
+      "path": "cache-keys.json",
+      "spec": "7.3",
+      "cases": 23,
+      "sha256": "a63b29600f01bd9aaa4639a338c630d016814c62388db2b68f614c55d0ad9fd9"
+    },
+    {
+      "path": "path-encoding.json",
+      "spec": "6.1, 4.3, 5.5",
+      "cases": 67,
+      "sha256": "fcf96abb953ff21759bc604efa4e22b75f55ff3718f4af99e33eced20f95b0bf"
+    },
+    {
+      "path": "idempotency-keys.json",
+      "spec": "7.2, 5.2",
+      "cases": 50,
+      "sha256": "6f106ef65449453521f9487b14f2f920aa415281af75faf0deddae1bc2fe0d1d"
+    },
+    {
+      "path": "retry-timing.json",
+      "spec": "7.2, 7.5, 3.5",
+      "cases": 73,
+      "sha256": "324550307055d3545ea61b347be6db2cbf1eb4315ed1d56846469d00fa92fbea"
+    },
+    {
+      "path": "token-refresh.json",
+      "spec": "7.5, 4.3",
+      "cases": 46,
+      "sha256": "b9a23288fc7d64e338f041a94fb2aa0238d707c295b8ef059ee259a461d014c8"
+    },
+    {
+      "path": "values.json",
+      "spec": "6.2, 8",
+      "cases": 26,
+      "sha256": "c003da0e5d6841bcb1f12a0e038b7c79d24404ce872c977dc663a0319c382ece"
+    },
+    {
+      "path": "errors.json",
+      "spec": "8, 3.5, 6.2, 7.2, 7.3",
+      "cases": 63,
+      "sha256": "5a563f7c59b27cface2d536ae071f61e6e55060561752ac6ea5729e25fae3f16"
+    },
+    {
+      "path": "snapshots.json",
+      "spec": "9, 3.1, 6.2, 8",
+      "cases": 123,
+      "sha256": "72486d47fc2b00e5168c7f34216274d80becb9dd717e4b23e14941969653c235"
+    }
+  ]
+}
