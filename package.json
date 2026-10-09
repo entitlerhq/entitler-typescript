@@ -30,6 +30,10 @@
       "types": "./dist/generate.d.ts",
       "default": "./dist/generate.js"
     },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
