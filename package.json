@@ -1,0 +1,67 @@
+{
+  "name": "@entitlerhq/entitler",
+  "version": "0.1.0",
+  "description": "The official Entitler SDK for TypeScript and JavaScript: feature checks, usage, pricing and billing.",
+  "license": "MIT",
+  "author": "1843 Inc.",
+  "homepage": "https://github.com/entitlerhq/entitler-typescript#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/entitlerhq/entitler-typescript.git"
+  },
+  "bugs": "https://github.com/entitlerhq/entitler-typescript/issues",
+  "keywords": [
+    "entitler",
+    "entitlements",
+    "feature-flags",
+    "billing",
+    "usage",
+    "pricing",
+    "saas"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./generate": {
+      "types": "./dist/generate.d.ts",
+      "default": "./dist/generate.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "entitler": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples",
+    "lint": "biome ci .",
+    "format": "biome check --write .",
+    "test": "vitest run test/unit",
+    "test:coverage": "vitest run test/unit --coverage",
+    "test:integration": "vitest run test/integration",
+    "docs": "typedoc",
+    "size": "bun scripts/size.ts",
+    "package:check": "bun run build && bun scripts/package-check.ts"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "22.20.5",
+    "@vitest/coverage-v8": "4.1.11",
+    "publint": "0.3.25",
+    "typedoc": "0.28.20",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}
