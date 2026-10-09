@@ -6,6 +6,12 @@ export function requireText(value: unknown, message: string): string {
   return value.trim();
 }
 
+/** Percent-encodes one path segment, refusing ids that URL handling would turn into another route. @internal */
+export function segment(value: string): string {
+  if (/^\.+$/.test(value)) throw new TypeError("Pass an id that is not made only of dots.");
+  return encodeURIComponent(value);
+}
+
 /** @internal */
 export function featureKey(feature: Feature | string): string {
   const key = typeof feature === "string" ? feature : feature?.key;
@@ -17,24 +23,24 @@ export function planKey(plan: string): string {
   return requireText(plan, "Name the plan by its id or its key.");
 }
 
-/** @internal */
-export function wholeNumber(value: unknown, name: string, min: number): number {
-  if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new TypeError(`Pass ${name} as a whole number.`);
-  }
-  if (value < min || value > Number.MAX_SAFE_INTEGER) {
-    throw new RangeError(`Pass ${name} as a whole number from ${min} to ${Number.MAX_SAFE_INTEGER}.`);
-  }
+/** Checks a whole number from `min` to `max`, failing with `message`. @internal */
+export function wholeNumber(
+  value: unknown,
+  name: string,
+  min: number,
+  max = Number.MAX_SAFE_INTEGER,
+  message = `Pass ${name} as a whole number from ${min} to ${max}.`,
+): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) throw new TypeError(message);
+  if (value < min || value > max) throw new RangeError(message);
   return value;
 }
 
-const IDEMPOTENCY_KEY = /^[\x20-\x7e]{1,200}$/;
-
-/** @internal */
-export function idempotencyKeyOf(key: string | undefined): string {
+/** Checks a caller's idempotency key, or generates one. @internal */
+export function idempotencyKeyOf(key: string | undefined, max = 200): string {
   if (key === undefined) return crypto.randomUUID();
-  if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key)) {
-    throw new TypeError("Pass idempotencyKey as 1 to 200 printable ASCII characters.");
+  if (typeof key !== "string" || key.length > max || !/^[\x21-\x7e]([\x20-\x7e]*[\x21-\x7e])?$/.test(key)) {
+    throw new TypeError(`Pass idempotencyKey as 1 to ${max} printable ASCII characters.`);
   }
   return key;
 }

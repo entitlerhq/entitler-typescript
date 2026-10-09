@@ -1,5 +1,5 @@
 import { type CacheEntry, type CacheStore, MemoryCache } from "./cache.js";
-import { ApiError, ConnectionError, type EntitlerError, type ErrorCode, TimeoutError } from "./errors.js";
+import { ApiError, ConnectionError, type EntitlerError, type ErrorCode, TimeoutError, TokenError } from "./errors.js";
 import { instant, sha256Hex, sleep, wholeNumber } from "./util.js";
 import { VERSION } from "./version.js";
 
@@ -17,7 +17,10 @@ export interface ClientOptions {
   cache?: CacheStore | false;
   /** How long a kept answer may stand in while Entitler is unreachable, in milliseconds. Defaults to 24 hours. */
   staleFor?: number;
-  /** Called with each error a fallback absorbed: a stale answer, an `isEntitled` default, a failed release. */
+  /**
+   * Called with each error a fallback absorbed: a stale answer, an `isEntitled` default, a hold
+   * `withHold` could not release, and a custom cache store's own failures.
+   */
   onError?: (error: unknown) => void;
   /**
    * Reads the API at another instant. Needs the organisation's `as_of` capability
@@ -40,17 +43,21 @@ export interface CallOptions {
 /** Options every write method takes. */
 export interface WriteOptions extends CallOptions {
   /**
-   * The idempotency key, 1 to 200 printable ASCII characters. Derive it from your own unit of
+   * The idempotency key, 1 to 200 printable ASCII characters, not starting or ending with a space. Derive it from your own unit of
    * work (a job id, a message id) so a retry from another process is recognised; the SDK
    * generates one when it is left out.
    */
   idempotencyKey?: string;
 }
 
-/** A credential's request headers and the principal answers are kept under. @internal */
+/** The kind of credential a principal is. @internal */
+export type PrincipalKind = "key" | "customer-token" | "identity";
+
+/** A credential's request headers, and the credential that keys its cached answers. @internal */
 export interface Authorised {
   readonly headers: Record<string, string>;
-  readonly principal: string;
+  readonly kind: PrincipalKind;
+  readonly credential: string;
   readonly token?: string;
 }
 
@@ -71,6 +78,7 @@ export interface Call {
   readonly idempotencyKey?: string;
   readonly cached?: boolean;
   readonly customer?: string;
+  readonly changes?: readonly string[];
   readonly open?: boolean;
   readonly options?: CallOptions | undefined;
 }
@@ -85,6 +93,7 @@ interface Received {
   readonly status: number;
   readonly headers: Headers;
   readonly text: string;
+  readonly redirect?: boolean;
 }
 
 const DATE_KEYS = new Set([
@@ -136,7 +145,7 @@ function runtime(): string | undefined {
   if (g.Deno?.version?.deno) return `deno/${g.Deno.version.deno}`;
   if (g.process?.versions?.bun) return `bun/${g.process.versions.bun}`;
   if (g.process?.versions?.node) return `node/${g.process.versions.node}`;
-  if (g.navigator?.userAgent === "Cloudflare-Workers") return "workerd/unknown";
+  if (g.navigator?.userAgent === "Cloudflare-Workers") return "workerd";
   return undefined;
 }
 
@@ -150,12 +159,18 @@ function retryAfterOf(headers: Headers): number | undefined {
   return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
-function maxAgeOf(headers: Headers): number | undefined | "no-store" {
-  const control = headers.get("cache-control")?.toLowerCase() ?? "";
-  if (/(^|[\s,])no-store($|[\s,])/.test(control)) return "no-store";
-  const maxAge = /(?:^|[\s,])max-age=(\d+)/.exec(control)?.[1];
-  if (maxAge !== undefined) return Number(maxAge);
-  return /(^|[\s,])no-cache($|[\s,])/.test(control) ? 0 : undefined;
+function directive(control: string | undefined, name: string): boolean {
+  return new RegExp(`(^|[\\s,])${name}($|[\\s,=])`, "i").test(control ?? "");
+}
+
+function maxAgeOf(control: string | undefined): number | undefined {
+  const maxAge = /(?:^|[\s,])max-age=(\d+)/i.exec(control ?? "")?.[1];
+  return maxAge === undefined ? undefined : Number(maxAge);
+}
+
+function ageOf(headers: Headers): number | undefined {
+  const age = headers.get("age")?.trim();
+  return age && /^\d+$/.test(age) ? Number(age) : undefined;
 }
 
 function apiError(received: Received, idempotencyKey: string | undefined): ApiError {
@@ -170,8 +185,7 @@ function apiError(received: Received, idempotencyKey: string | undefined): ApiEr
   return new ApiError({
     status: received.status,
     code: typeof error.code === "string" ? (error.code as ErrorCode) : "http_error",
-    message:
-      typeof error.message === "string" ? error.message : `Entitler request failed with HTTP ${received.status}.`,
+    message: typeof error.message === "string" ? error.message : `Entitler answered with HTTP ${received.status}.`,
     requestId: received.headers.get("x-request-id") ?? undefined,
     retryAfter: retryAfterOf(received.headers),
     idempotencyKey,
@@ -192,15 +206,48 @@ export function isUnreachable(error: unknown): boolean {
   return (
     error instanceof ConnectionError ||
     error instanceof TimeoutError ||
-    (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+    (error instanceof ApiError && (error.status === 429 || error.status >= 500 || error.code === "invalid_response"))
   );
+}
+
+let noStore: boolean | undefined;
+
+function bypassesHttpCache(): boolean {
+  if (noStore === undefined) {
+    try {
+      new Request("https://api.entitler.dev", { cache: "no-store" });
+      noStore = true;
+    } catch {
+      noStore = false;
+    }
+  }
+  return noStore;
+}
+
+function positive(value: number, name: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new RangeError(`Pass ${name} as a number of milliseconds above 0.`);
+  }
+  return value;
+}
+
+const fingerprints = new Map<string, Promise<string>>();
+
+function fingerprint(credential: string): Promise<string> {
+  let digest = fingerprints.get(credential);
+  if (!digest) {
+    if (fingerprints.size >= 64) fingerprints.clear();
+    digest = sha256Hex(credential);
+    fingerprints.set(credential, digest);
+  }
+  return digest;
 }
 
 /** The one transport both clients share: headers, retries, timeouts, idempotency and the cache. @internal */
 export class Transport {
   readonly baseUrl: string;
-  readonly onError: ((error: unknown) => void) | undefined;
-  readonly #timeout: number;
+  readonly timeout: number;
+  readonly #onError: ((error: unknown) => void) | undefined;
   readonly #maxRetries: number;
   readonly #maxRetryDelay: number;
   readonly #staleFor: number;
@@ -209,18 +256,21 @@ export class Transport {
   readonly #fetch: typeof fetch;
   readonly #credentials: Credentials;
   readonly #headers: () => Record<string, string>;
-  readonly #writes = new Map<string, number>();
+  readonly #generations = new Map<string, { generation: number; at: number }>();
+  #lastAuth: Authorised | undefined;
+  #downUntil = 0;
+  #probing = false;
 
   constructor(options: ClientOptions, credentials: Credentials, headers: () => Record<string, string> = () => ({})) {
     this.baseUrl = (options.baseUrl ?? "https://api.entitler.dev").replace(/\/+$/, "");
-    this.#timeout = positive(options.timeout ?? 10_000, "timeout");
+    this.timeout = positive(options.timeout ?? 10_000, "timeout");
     this.#maxRetries = wholeNumber(options.maxRetries ?? 2, "maxRetries", 0);
     this.#maxRetryDelay = wholeNumber(options.maxRetryDelay ?? 10_000, "maxRetryDelay", 0);
     this.#staleFor = wholeNumber(options.staleFor ?? 86_400_000, "staleFor", 0);
     this.#cache = options.cache === false ? undefined : (options.cache ?? new MemoryCache());
     this.#asOf = instant(options.asOf, "Pass asOf as a valid date.");
     this.#fetch = options.fetch ?? ((input, init) => fetch(input, init));
-    this.onError = options.onError;
+    this.#onError = options.onError;
     this.#credentials = credentials;
     this.#headers = headers;
   }
@@ -229,80 +279,178 @@ export class Transport {
     return this.#credentials.kind;
   }
 
+  /** Passes an absorbed error to `onError`, which can never change the call's outcome. */
+  report(error: unknown): void {
+    try {
+      this.#onError?.(error);
+    } catch {
+      return;
+    }
+  }
+
   async send<T>(call: Call): Promise<Answer<T>> {
     const signal = call.options?.signal;
     signal?.throwIfAborted();
-    let auth = call.open ? { headers: {}, principal: "" } : await this.#credentials.authorise(signal);
+    for (const customer of call.changes ?? []) this.#bump(customer);
     const url = this.#url(call);
     const headers = this.#requestHeaders(call);
-    if (!call.cached) {
+    let auth: Authorised;
+    if (call.open) {
+      auth = { headers: {}, kind: "key", credential: "" };
+    } else {
       try {
-        return { data: parseAnswer((await this.#exchange(call, url, headers, auth)).text) as T, stale: false };
-      } finally {
-        if (call.method !== "GET" && call.customer !== undefined) this.#writes.set(call.customer, Date.now());
+        auth = await this.#credentials.authorise(signal);
+      } catch (error) {
+        const previous = this.#lastAuth;
+        if (!(error instanceof TokenError) || !call.cached || !this.#cache || !previous) throw error;
+        const kept = await this.#get(this.#cache, await this.#key(call, url, headers, previous));
+        if (!kept || Date.now() - kept.receivedAt >= this.#staleFor) throw error;
+        this.report(error);
+        return { data: this.#decode<T>(kept.body), stale: true };
       }
+      this.#lastAuth = auth;
     }
-    const cache = this.#cache;
-    const key = cache
-      ? await sha256Hex(
-          JSON.stringify([
-            call.method,
-            url,
-            headers["Entitler-As-Of"] ?? null,
-            headers["Entitler-Visitor"] ?? null,
-            auth.principal,
-          ]),
-        )
-      : "";
-    const kept = cache ? await cache.get(key) : undefined;
-    if (kept && this.#fresh(kept, call.customer)) return { data: parseAnswer(kept.body) as T, stale: false };
-    if (kept?.etag) headers["If-None-Match"] = kept.etag;
-    let received: Received;
-    try {
-      received = await this.#exchange(call, url, headers, auth, (refreshed) => {
-        auth = refreshed;
-      });
-    } catch (error) {
-      if (kept && isUnreachable(error) && Date.now() - kept.receivedAt < this.#staleFor) {
-        this.onError?.(error);
-        return { data: parseAnswer(kept.body) as T, stale: true };
-      }
-      throw error;
+    if (!call.cached || !this.#cache) {
+      const received = await this.#exchange(call, url, headers, auth);
+      return { data: this.#decode<T>(received.text, received), stale: false };
     }
-    if (received.status === 304) {
-      if (!kept) throw apiError(received, undefined);
-      const maxAge = maxAgeOf(received.headers);
-      const renewed: CacheEntry = {
-        body: kept.body,
-        ...withEtag(received.headers.get("etag") ?? kept.etag),
-        ...(typeof maxAge === "number" ? { maxAge } : {}),
-        receivedAt: Date.now(),
-      };
-      if (maxAge !== "no-store") await cache?.set(key, renewed);
-      return { data: parseAnswer(kept.body) as T, stale: false };
-    }
-    const maxAge = maxAgeOf(received.headers);
-    const etag = received.headers.get("etag") ?? undefined;
-    if (cache && maxAge !== "no-store" && (etag !== undefined || maxAge !== undefined)) {
-      await cache.set(key, {
-        body: received.text,
-        ...withEtag(etag),
-        ...(maxAge !== undefined ? { maxAge } : {}),
-        receivedAt: Date.now(),
-      });
-    }
-    return { data: parseAnswer(received.text) as T, stale: false };
+    return this.#cached<T>(call, url, headers, auth, this.#cache);
   }
 
-  wrote(customers: Iterable<string>): void {
-    const now = Date.now();
-    for (const customer of customers) this.#writes.set(customer, now);
+  async #cached<T>(
+    call: Call,
+    url: string,
+    headers: Record<string, string>,
+    auth: Authorised,
+    cache: CacheStore,
+  ): Promise<Answer<T>> {
+    const key = await this.#key(call, url, headers, auth);
+    const started = Date.now();
+    const generation = this.#generationOf(call.customer);
+    const kept = await this.#get(cache, key);
+    const usable = kept !== undefined && Date.now() - kept.receivedAt < this.#staleFor;
+    if (kept && this.#fresh(kept, call.customer)) return { data: this.#decode<T>(kept.body), stale: false };
+    if (usable && (Date.now() < this.#downUntil || (this.#downUntil > 0 && this.#probing))) {
+      return { data: this.#decode<T>(kept.body), stale: true };
+    }
+    if (kept?.etag) headers["If-None-Match"] = kept.etag;
+    const probe = this.#downUntil > 0;
+    if (probe) this.#probing = true;
+    let received: Received;
+    let data: T;
+    try {
+      received = await this.#exchange(call, url, headers, auth);
+      if (received.status === 304 && !kept) throw apiError(received, undefined);
+      data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received);
+      this.#downUntil = 0;
+    } catch (error) {
+      if (isUnreachable(error)) {
+        const retryAfter = error instanceof ApiError ? (error.retryAfter ?? 0) : 0;
+        this.#downUntil = Date.now() + Math.max(30_000, retryAfter);
+      }
+      if (usable && isUnreachable(error)) {
+        this.report(error);
+        return { data: this.#decode<T>(kept.body), stale: true };
+      }
+      throw error;
+    } finally {
+      if (probe) this.#probing = false;
+    }
+    const receivedAt = this.#generationOf(call.customer) === generation ? Date.now() : started;
+    const entry: CacheEntry =
+      received.status === 304 && kept
+        ? {
+            v: 1,
+            body: kept.body,
+            ...optional("etag", received.headers.get("etag") ?? kept.etag),
+            ...optional("cacheControl", received.headers.get("cache-control") ?? kept.cacheControl),
+            ...optional(
+              "age",
+              ageOf(received.headers) ?? (received.headers.has("cache-control") ? undefined : kept.age),
+            ),
+            receivedAt,
+          }
+        : {
+            v: 1,
+            body: received.text,
+            ...optional("etag", received.headers.get("etag") ?? undefined),
+            ...optional("cacheControl", received.headers.get("cache-control") ?? undefined),
+            ...optional("age", ageOf(received.headers)),
+            receivedAt,
+          };
+    if (
+      !directive(entry.cacheControl, "no-store") &&
+      (entry.etag !== undefined || maxAgeOf(entry.cacheControl) !== undefined)
+    ) {
+      await this.#set(cache, key, entry);
+    }
+    return { data, stale: false };
+  }
+
+  async #key(call: Call, url: string, headers: Record<string, string>, auth: Authorised): Promise<string> {
+    return sha256Hex(
+      JSON.stringify([
+        "entitler-cache-v1",
+        call.method,
+        url,
+        auth.kind,
+        await fingerprint(auth.credential),
+        headers["Entitler-As-Of"] ?? null,
+        headers["Entitler-Visitor"] ?? null,
+      ]),
+    );
+  }
+
+  #generationOf(customer: string | undefined): number {
+    return customer === undefined ? 0 : (this.#generations.get(customer)?.generation ?? 0);
+  }
+
+  #bump(customer: string): void {
+    this.#generations.set(customer, { generation: this.#generationOf(customer) + 1, at: Date.now() });
   }
 
   #fresh(entry: CacheEntry, customer: string | undefined): boolean {
-    if (entry.maxAge === undefined || Date.now() - entry.receivedAt >= entry.maxAge * 1000) return false;
-    const wrote = customer === undefined ? undefined : this.#writes.get(customer);
-    return wrote === undefined || wrote < entry.receivedAt;
+    const maxAge = maxAgeOf(entry.cacheControl);
+    if (maxAge === undefined || directive(entry.cacheControl, "no-cache")) return false;
+    if ((Date.now() - entry.receivedAt) / 1000 + (entry.age ?? 0) >= maxAge) return false;
+    const bumped = customer === undefined ? undefined : this.#generations.get(customer)?.at;
+    return bumped === undefined || bumped < entry.receivedAt;
+  }
+
+  async #get(cache: CacheStore, key: string): Promise<CacheEntry | undefined> {
+    try {
+      const entry = await cache.get(key);
+      return entry && entry.v === 1 && typeof entry.body === "string" && typeof entry.receivedAt === "number"
+        ? entry
+        : undefined;
+    } catch (error) {
+      this.report(error);
+      return undefined;
+    }
+  }
+
+  async #set(cache: CacheStore, key: string, entry: CacheEntry): Promise<void> {
+    try {
+      await cache.set(key, entry, this.#staleFor + (maxAgeOf(entry.cacheControl) ?? 0) * 1000);
+    } catch (error) {
+      this.report(error);
+    }
+  }
+
+  #decode<T>(text: string, received?: Received): T {
+    try {
+      const data = parseAnswer(text);
+      if (data === null || typeof data !== "object") throw new TypeError("The answer is not a JSON object.");
+      return data as T;
+    } catch (cause) {
+      throw new ApiError({
+        status: received?.status ?? 200,
+        code: "invalid_response",
+        message: "Entitler sent an answer this SDK cannot read.",
+        requestId: received?.headers.get("x-request-id") ?? undefined,
+        cause,
+      });
+    }
   }
 
   #url(call: Call): string {
@@ -312,46 +460,42 @@ export class Transport {
   }
 
   #requestHeaders(call: Call): Record<string, string> {
-    const headers: Record<string, string> = { Accept: "application/json", ...this.#headers() };
+    const headers: Record<string, string> = { Accept: "application/json", ...(call.open ? {} : this.#headers()) };
     if (RUNTIME) headers["User-Agent"] = `entitler-typescript/${VERSION} ${RUNTIME}`;
     if (call.body !== undefined) headers["Content-Type"] = "application/json";
     if (call.idempotencyKey !== undefined) headers["Idempotency-Key"] = call.idempotencyKey;
-    if (this.#asOf) headers["Entitler-As-Of"] = this.#asOf;
+    if (this.#asOf && !call.open) headers["Entitler-As-Of"] = this.#asOf;
     for (const [name, value] of Object.entries(call.headers ?? {})) if (value !== undefined) headers[name] = value;
     return headers;
   }
 
-  async #exchange(
-    call: Call,
-    url: string,
-    headers: Record<string, string>,
-    auth: Authorised,
-    onRefresh?: (auth: Authorised) => void,
-  ): Promise<Received> {
+  async #exchange(call: Call, url: string, headers: Record<string, string>, auth: Authorised): Promise<Received> {
     const signal = call.options?.signal;
-    const timeout = positive(call.options?.timeout ?? this.#timeout, "timeout");
+    const timeout = positive(call.options?.timeout ?? this.timeout, "timeout");
     const body = call.body === undefined ? undefined : JSON.stringify(call.body);
     let refreshed = false;
+    let current = auth;
     for (let retry = 0; ; ) {
       let failure: EntitlerError;
       try {
         const received = await this.#attempt(
           url,
           call.method,
-          { ...headers, ...auth.headers },
+          { ...headers, ...current.headers },
           body,
           signal,
           timeout,
           call,
         );
-        if (received.status < 300 || received.status === 304) return received;
+        if (!received.redirect && (received.status < 300 || received.status === 304)) return received;
         failure = apiError(received, call.idempotencyKey);
+        if (received.redirect) throw failure;
         if (received.status === 401 && !refreshed && !call.open && this.#credentials.refresh) {
           refreshed = true;
-          const next = await this.#credentials.refresh(auth, signal);
+          const next = await this.#credentials.refresh(current, signal);
           if (next) {
-            auth = next;
-            onRefresh?.(next);
+            current = next;
+            this.#lastAuth = next;
             continue;
           }
         }
@@ -383,9 +527,18 @@ export class Transport {
       const response = await send(url, {
         method,
         headers,
+        redirect: "manual",
+        ...(bypassesHttpCache() ? { cache: "no-store" as const } : {}),
         ...(body === undefined ? {} : { body }),
         signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
       });
+      if (
+        response.type === "opaqueredirect" ||
+        (response.status >= 300 && response.status < 400 && response.status !== 304)
+      ) {
+        void response.body?.cancel().catch(() => undefined);
+        return { status: response.status, headers: response.headers, text: "", redirect: true };
+      }
       return { status: response.status, headers: response.headers, text: await response.text() };
     } catch (cause) {
       if (signal?.aborted) throw signal.reason;
@@ -400,13 +553,6 @@ export class Transport {
   }
 }
 
-function withEtag(etag: string | undefined): { etag?: string } {
-  return etag === undefined ? {} : { etag };
-}
-
-function positive(value: number, name: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`Pass ${name} as a number of milliseconds above 0.`);
-  }
-  return value;
+function optional<K extends string, V>(name: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [name]: value }) as { [P in K]?: V };
 }

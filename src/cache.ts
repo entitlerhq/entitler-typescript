@@ -3,12 +3,16 @@ export type MaybePromise<T> = T | Promise<T>;
 
 /** One kept answer. Plain JSON-ready data, so any store can keep it. */
 export interface CacheEntry {
+  /** The entry format's version, `1`. */
+  readonly v: 1;
   /** The answer body, as the JSON text Entitler sent. */
   readonly body: string;
   /** The answer's `ETag`, for revalidating it. */
   readonly etag?: string;
-  /** How long the answer stays fresh, in seconds, from `Cache-Control: max-age`. */
-  readonly maxAge?: number;
+  /** The answer's `Cache-Control` directives, such as `private, max-age=60`. */
+  readonly cacheControl?: string;
+  /** The answer's `Age` header, in seconds: how old it already was when it arrived. */
+  readonly age?: number;
   /** When the answer was received, in milliseconds since the epoch. */
   readonly receivedAt: number;
 }
@@ -16,7 +20,8 @@ export interface CacheEntry {
 /**
  * Where a client keeps answers: the default {@link MemoryCache}, or your own store, such as
  * Workers KV or Redis, to share answers between processes or keep them across app launches.
- * Keys are SHA-256 hashes and never contain a credential.
+ * Keys are SHA-256 hashes and never contain a credential. A `get` that fails counts as a miss and
+ * a `set` that fails is skipped; both go to `onError` and neither fails the call.
  *
  * @example
  * ```ts
@@ -25,8 +30,8 @@ export interface CacheEntry {
  *     const text = await redis.get(`entitler:${key}`);
  *     return text ? JSON.parse(text) : undefined;
  *   },
- *   async set(key, entry) {
- *     await redis.set(`entitler:${key}`, JSON.stringify(entry), { EX: 86_400 });
+ *   async set(key, entry, ttl) {
+ *     await redis.set(`entitler:${key}`, JSON.stringify(entry), { PX: ttl });
  *   },
  * };
  * ```
@@ -34,8 +39,12 @@ export interface CacheEntry {
 export interface CacheStore {
   /** Answers the entry kept under `key`, or `undefined`. */
   get(key: string): MaybePromise<CacheEntry | undefined>;
-  /** Keeps `entry` under `key`, replacing any entry there. */
-  set(key: string, entry: CacheEntry): MaybePromise<void>;
+  /**
+   * Keeps `entry` under `key`, replacing any entry there. `ttl` is how long the entry stays
+   * useful, in milliseconds (`staleFor` plus its `max-age`), for stores that expire entries; other
+   * stores should drop entries after that time. Entries are private to this SDK.
+   */
+  set(key: string, entry: CacheEntry, ttl: number): MaybePromise<void>;
 }
 
 /** Options for a {@link MemoryCache}. */

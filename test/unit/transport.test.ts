@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, ConnectionError, EntitlerError, EntitlerServer, TimeoutError, VERSION } from "../../src/index.js";
+import {
+  ApiError,
+  ConnectionError,
+  defineFeature,
+  EntitlerError,
+  EntitlerServer,
+  TimeoutError,
+  VERSION,
+} from "../../src/index.js";
 import { apiError, checkAnswer, fakeFetch, json, usageAnswer } from "./fake.js";
+
+const aiCredits = defineFeature("ai_credits", "metered");
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -66,7 +76,7 @@ describe("requests", () => {
 
   it("sends a generated UUID v4 idempotency key and a JSON body on a write", async () => {
     const { fetch, sent } = fakeFetch(json(usageAnswer()));
-    await server(fetch).customer("u").recordUsage("ai_credits", 3);
+    await server(fetch).customer("u").recordUsage(aiCredits, 3);
     expect(sent[0]?.headers["idempotency-key"]).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
@@ -75,13 +85,13 @@ describe("requests", () => {
 
   it("sends the caller's idempotency key", async () => {
     const { fetch, sent } = fakeFetch(json(usageAnswer()));
-    await server(fetch).customer("u").recordUsage("ai_credits", 3, { idempotencyKey: "job-1" });
+    await server(fetch).customer("u").recordUsage(aiCredits, 3, { idempotencyKey: "job-1" });
     expect(sent[0]?.headers["idempotency-key"]).toBe("job-1");
   });
 
   it.each(["", "x".repeat(201), "tab\there", "é"])("refuses the idempotency key %j before any request", async (key) => {
     const { fetch, mock } = fakeFetch(json(usageAnswer()));
-    await expect(server(fetch).customer("u").recordUsage("ai_credits", 3, { idempotencyKey: key })).rejects.toThrow(
+    await expect(server(fetch).customer("u").recordUsage(aiCredits, 3, { idempotencyKey: key })).rejects.toThrow(
       new TypeError("Pass idempotencyKey as 1 to 200 printable ASCII characters."),
     );
     expect(mock).not.toHaveBeenCalled();
@@ -152,7 +162,7 @@ describe("errors", () => {
       .customer("u")
       .check("f")
       .catch((e: unknown) => e)) as ApiError;
-    expect(error).toMatchObject({ status: 418, code: "http_error", message: "Entitler request failed with HTTP 418." });
+    expect(error).toMatchObject({ status: 418, code: "http_error", message: "Entitler answered with HTTP 418." });
     expect(error.requestId).toBeUndefined();
     expect(error.idempotencyKey).toBeUndefined();
   });
@@ -162,7 +172,7 @@ describe("errors", () => {
     const { fetch } = fakeFetch(cause);
     const error = (await server(fetch, { maxRetries: 0 })
       .customer("u")
-      .recordUsage("ai_credits", 1, { idempotencyKey: "k1" })
+      .recordUsage(aiCredits, 1, { idempotencyKey: "k1" })
       .catch((e: unknown) => e)) as ConnectionError;
     expect(error).toBeInstanceOf(ConnectionError);
     expect(error.name).toBe("ConnectionError");
@@ -179,7 +189,7 @@ describe("errors", () => {
     );
     const error = (await server(fetch, { maxRetries: 0, timeout: 20 })
       .customer("u")
-      .recordUsage("ai_credits", 1, { idempotencyKey: "k2" })
+      .recordUsage(aiCredits, 1, { idempotencyKey: "k2" })
       .catch((e: unknown) => e)) as TimeoutError;
     expect(error).toBeInstanceOf(TimeoutError);
     expect(error.message).toBe("Entitler did not answer within 20 ms.");
@@ -270,7 +280,7 @@ describe("retries", () => {
   it("sends the same idempotency key on every attempt", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { fetch, sent } = fakeFetch(apiError(503, "unavailable"), apiError(502, "x"), json(usageAnswer()));
-    await server(fetch).customer("u").recordUsage("ai_credits", 1);
+    await server(fetch).customer("u").recordUsage(aiCredits, 1);
     const keys = new Set(sent.map((request) => request.headers["idempotency-key"]));
     expect(sent).toHaveLength(3);
     expect(keys.size).toBe(1);

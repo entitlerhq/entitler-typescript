@@ -183,7 +183,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
 
   it("answers plan space and customer pricing", async () => {
     const customer = newCustomer();
-    const space = await customer.planSpace();
+    const space = await customer.plans();
     expect(space.held.map((held) => held.plan.key)).toEqual(["free"]);
     expect(space.options.map((option) => option.plan.key)).toEqual(expect.arrayContaining(["pro"]));
     const pricing = await customer.pricing({ visitor: newVisitorId() });
@@ -209,7 +209,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
       .register()
       .catch((e: unknown) => e)) as Error;
     expect(error).toBeInstanceOf(TypeError);
-    const refused = (await client.me.planSpace().then(
+    const refused = (await client.me.plans().then(
       () => undefined,
       (e: unknown) => e,
     )) as ApiError | undefined;

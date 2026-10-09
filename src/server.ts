@@ -1,5 +1,6 @@
-import { type ServerCustomer, ServerCustomerApi } from "./customer.js";
+import { type ServerCustomer, ServerCustomerApi, usageAmount, usageLog } from "./customer.js";
 import { type ClientDescription, describe, knownScopes } from "./describe.js";
+import { ApiError, TimeoutError } from "./errors.js";
 import { paged } from "./paging.js";
 import { type ExpectedSnapshot, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
 import { type CallOptions, type ClientOptions, Transport, type WriteOptions } from "./transport.js";
@@ -17,7 +18,7 @@ import type {
   UsageEventInput,
   UsageEventResult,
 } from "./types.js";
-import { compact, featureKey, idempotencyKeyOf, instant, requireText, wholeNumber } from "./util.js";
+import { compact, featureKey, idempotencyKeyOf, instant, requireText } from "./util.js";
 import { newVisitorId, visitorOf } from "./visitor.js";
 
 /** Options for {@link EntitlerServer}. */
@@ -55,7 +56,7 @@ export interface CustomerCreate {
 }
 
 /** Options for {@link EntitlerServer.recordUsageBatch}. */
-export interface UsageBatchOptions extends CallOptions {
+export interface UsageBatchOptions extends WriteOptions {
   /** Registers customers not registered yet. */
   register?: boolean;
 }
@@ -69,6 +70,25 @@ export interface Customers {
 }
 
 const BATCH_SIZE = 500;
+
+function failedRequest(count: number, error: unknown): UsageBatchResult {
+  const code =
+    error instanceof ApiError ? error.code : error instanceof TimeoutError ? "timed_out" : "connection_failed";
+  const message = error instanceof Error ? error.message : "Entitler could not record these events.";
+  return {
+    results: Array.from({ length: count }, (_, index) => ({
+      index,
+      outcome: "error",
+      id: null,
+      late: false,
+      error: { code, message },
+      idempotencyKey: "",
+    })),
+    recorded: 0,
+    duplicates: 0,
+    errors: count,
+  };
+}
 
 /**
  * The server client, built from a secret project key. It runs on your servers and acts on any
@@ -93,7 +113,7 @@ export class EntitlerServer {
     const key = requireText(options?.key, "Provide an Entitler API key from the dashboard.");
     this.#transport = new Transport(options, {
       kind: "server",
-      authorise: async () => ({ headers: { Authorization: `Bearer ${key}` }, principal: `key:${key}` }),
+      authorise: async () => ({ headers: { Authorization: `Bearer ${key}` }, kind: "key", credential: key }),
     });
     const transport = this.#transport;
     this.customers = {
@@ -121,11 +141,11 @@ export class EntitlerServer {
           path: "/customers",
           body,
           idempotencyKey: idempotencyKeyOf(options?.idempotencyKey),
-          customer: `/customers/${encodeURIComponent(externalId)}`,
+          changes: [`/customers/${encodeURIComponent(externalId)}`],
           options,
         });
         const customer = new ServerCustomerApi(transport, externalId);
-        return { ...answer.data, usage: paged((cursor) => customer.usagePage(cursor, options), answer.data.usage) };
+        return { ...answer.data, usage: usageLog(answer.data.usage, (cursor) => customer.usagePage(cursor, options)) };
       },
     };
   }
@@ -137,7 +157,11 @@ export class EntitlerServer {
 
   /**
    * Records many usage events in `observe` mode, in requests of at most 500 events sent in order.
-   * Answers one result per event, in input order, with the totals.
+   * Answers one result per event, in input order, each with its idempotency key, and the totals.
+   * A request that fails after its retries answers its events with outcome `error` (code
+   * `connection_failed` or `timed_out` when no answer arrived) and the next request still goes:
+   * resend those events with the same keys. Keys derived from your own unit of work make any resend
+   * safe. Only argument errors and cancellation reject.
    */
   async recordUsageBatch(events: readonly UsageEventInput[], options?: UsageBatchOptions): Promise<UsageBatchResult> {
     if (!Array.isArray(events)) throw new TypeError("Pass events as an array.");
@@ -146,38 +170,39 @@ export class EntitlerServer {
         compact({
           customer: requireText(event?.customer, "Provide the id your app uses for the customer."),
           feature: featureKey(event.feature),
-          amount: event.amount === undefined ? undefined : wholeNumber(event.amount, "amount", 1),
+          amount: event.amount === undefined ? undefined : usageAmount(event.amount),
           occurredAt: instant(event.occurredAt, "Pass occurredAt as a valid date."),
           idempotencyKey: idempotencyKeyOf(event.idempotencyKey),
         }) as { customer: string; idempotencyKey: string },
     );
+    const requests = Math.ceil(prepared.length / BATCH_SIZE);
+    const keys = Array.from({ length: requests }, (_, index) =>
+      options?.idempotencyKey === undefined
+        ? idempotencyKeyOf(undefined)
+        : idempotencyKeyOf(`${idempotencyKeyOf(options.idempotencyKey)}:${index}`),
+    );
     const results: UsageEventResult[] = [];
     const totals = { recorded: 0, duplicates: 0, errors: 0 };
-    const customers = new Set(prepared.map((event) => `/customers/${encodeURIComponent(event.customer)}`));
-    try {
-      await this.#sendBatch(prepared, options, results, totals);
-    } finally {
-      this.#transport.wrote(customers);
-    }
-    return { results: results.sort((a, b) => a.index - b.index), ...totals };
-  }
-
-  async #sendBatch(
-    prepared: { idempotencyKey: string }[],
-    options: UsageBatchOptions | undefined,
-    results: UsageEventResult[],
-    totals: { recorded: number; duplicates: number; errors: number },
-  ): Promise<void> {
-    for (let start = 0; start < prepared.length; start += BATCH_SIZE) {
+    for (const [request, idempotencyKey] of keys.entries()) {
+      const start = request * BATCH_SIZE;
       const chunk = prepared.slice(start, start + BATCH_SIZE);
-      const answer = await this.#transport.send<UsageBatchResult>({
-        method: "POST",
-        path: "/usage/events",
-        body: { ...compact({ register: options?.register }), events: chunk },
-        idempotencyKey: idempotencyKeyOf(undefined),
-        options,
-      });
-      for (const result of answer.data.results) {
+      let answer: UsageBatchResult;
+      try {
+        answer = (
+          await this.#transport.send<UsageBatchResult>({
+            method: "POST",
+            path: "/usage/events",
+            body: { ...compact({ register: options?.register }), events: chunk },
+            idempotencyKey,
+            changes: chunk.map((event) => `/customers/${encodeURIComponent(event.customer)}`),
+            options,
+          })
+        ).data;
+      } catch (error) {
+        if (options?.signal?.aborted && error === options.signal.reason) throw error;
+        answer = failedRequest(chunk.length, error);
+      }
+      for (const result of answer.results) {
         const index = start + result.index;
         results.push({
           ...result,
@@ -185,10 +210,11 @@ export class EntitlerServer {
           idempotencyKey: (prepared[index] as { idempotencyKey: string }).idempotencyKey,
         });
       }
-      totals.recorded += answer.data.recorded;
-      totals.duplicates += answer.data.duplicates;
-      totals.errors += answer.data.errors;
+      totals.recorded += answer.recorded;
+      totals.duplicates += answer.duplicates;
+      totals.errors += answer.errors;
     }
+    return { results: results.sort((a, b) => a.index - b.index), ...totals };
   }
 
   /** The pricing on sale, signed out, through the answer cache. Pass a visitor id to keep their experiment arm. */

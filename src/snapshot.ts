@@ -40,6 +40,7 @@ export interface VerifiedSnapshot {
   readonly entitlements: Entitlements<EnvironmentRef>;
 }
 
+const MAX_INSTANT_SECONDS = 8_640_000_000_000;
 const NOT_A_SNAPSHOT = "That is not an entitlements snapshot. Pass the token snapshot() returned.";
 
 function invalid(message: string, cause?: unknown): SnapshotError {
@@ -83,9 +84,13 @@ function claimsOf(value: unknown): Claims | undefined {
     typeof testers === "boolean" &&
     Array.isArray(entitlements) &&
     entitlements.every((item) => isObject(item) && typeof item.key === "string") &&
-    Number.isInteger(iat) &&
-    Number.isInteger(exp);
+    instantSeconds(iat) &&
+    instantSeconds(exp);
   return shaped ? (value as unknown as Claims) : undefined;
+}
+
+function instantSeconds(value: unknown): boolean {
+  return Number.isInteger(value) && Math.abs(value as number) <= MAX_INSTANT_SECONDS;
 }
 
 function rfc3339(seconds: number): string {
@@ -100,7 +105,10 @@ function rfc3339(seconds: number): string {
  * The keys decide which snapshots the app trusts: ship them with the app (from `snapshotKeys()`
  * at build time) and replace them only with keys fetched from Entitler over HTTPS. Never store
  * them beside the token or load them from the same record, since anyone who can edit that record
- * could replace both.
+ * could replace both. Entitler publishes a new signing key before signing with it and keeps retired
+ * keys published for 30 days after their last use, so refresh the keys from `snapshotKeys()`
+ * whenever the app is online and persist them in the app's own trusted storage. An emergency
+ * replacement withdraws old keys at once.
  *
  * @example
  * ```ts
@@ -131,7 +139,9 @@ export async function verifySnapshot(token: string, expected: ExpectedSnapshot):
   } catch (cause) {
     throw invalid(NOT_A_SNAPSHOT, cause);
   }
-  if (!isObject(header) || header.typ !== "entitlements+jwt" || header.alg !== "ES256") throw invalid(NOT_A_SNAPSHOT);
+  if (!isObject(header) || header.typ !== "entitlements+jwt" || header.alg !== "ES256" || "crit" in header) {
+    throw invalid(NOT_A_SNAPSHOT);
+  }
 
   const jwk = keyList.find((key) => key?.kid === header.kid);
   if (!jwk) throw invalid("None of the keys passed signed this snapshot. Fetch them again with snapshotKeys().");

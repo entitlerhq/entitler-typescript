@@ -1,5 +1,5 @@
 import { Entitlements, type EntitlementsInit } from "./entitlements.js";
-import { SettleError, UsageRefusedError } from "./errors.js";
+import { ApiError, UsageRefusedError, UsageSettlementError } from "./errors.js";
 import { paged } from "./paging.js";
 import type { Call, CallOptions, Transport, WriteOptions } from "./transport.js";
 import type {
@@ -7,6 +7,7 @@ import type {
   CustomerBilling,
   CustomerChange,
   CustomerDetails,
+  CustomerPlans,
   CustomerProviders,
   CustomerTokenScope,
   CustomerTrack,
@@ -16,17 +17,17 @@ import type {
   IssuedCustomerToken,
   IssuedSnapshot,
   Page,
-  PlanSpace,
   Pricing,
   ProviderPage,
   RegisteredCustomer,
-  SkuRef,
+  Sku,
   UsageEvent,
   UsageHold,
+  UsageLog,
   UsageMode,
   UsageResult,
 } from "./types.js";
-import { compact, featureKey, idempotencyKeyOf, instant, planKey, requireText, wholeNumber } from "./util.js";
+import { compact, featureKey, idempotencyKeyOf, instant, planKey, requireText, segment, wholeNumber } from "./util.js";
 import { visitorOf } from "./visitor.js";
 
 /** Options for {@link Customer.isEntitled}. */
@@ -63,10 +64,25 @@ export interface HoldOptions extends WriteOptions {
   ttlSeconds?: number;
 }
 
+/** The open hold `withHold`'s work runs under. */
+export interface ActiveHold {
+  /** The hold's id. */
+  readonly id: string;
+  /** The amount held. */
+  readonly amount: number;
+  /** The hold's answer, with the meter. */
+  readonly result: UsageResult;
+  /**
+   * Reports the total the work really used, a whole number of 0 or more; a later call replaces an
+   * earlier one. When the work never calls it, the held amount is settled.
+   */
+  use(amount: number): void;
+}
+
 /** What `withHold`'s work receives. */
 export interface HoldContext {
-  /** The hold's answer, with its `holdId` and the meter. */
-  readonly hold: UsageResult;
+  /** The open hold, to report the amount used with `hold.use(n)`. */
+  readonly hold: ActiveHold;
   /** The call's signal, to pass on to the work. */
   readonly signal: AbortSignal;
 }
@@ -103,16 +119,19 @@ export interface Customer {
   isEntitled(feature: Feature | string, options: IsEntitledOptions): Promise<boolean>;
   /** The customer's entitlements, groups included, through the answer cache. */
   entitlements(options?: CallOptions): Promise<Entitlements>;
-  /** The plans the customer holds and the moves open to them, through the answer cache. */
-  planSpace(options?: CallOptions): Promise<PlanSpace>;
+  /**
+   * The plans the customer holds and the plans they can move to, through the answer cache. On the
+   * in-app client it needs the organisation's customer portal capability (`409 limit_reached`).
+   */
+  plans(options?: CallOptions): Promise<CustomerPlans>;
   /** The pricing on sale to the customer, through the answer cache. */
   pricing(options?: PricingOptions): Promise<Pricing>;
-  /** The customer's meters, and the usage log a page at a time. */
-  usage(options?: CallOptions): Promise<CustomerUsage>;
+  /** The customer's meters, and the usage log a page at a time, from `cursor` when given. */
+  usage(options?: CallOptions & { cursor?: string }): Promise<CustomerUsage>;
   /** Records usage of a metered feature: a whole number from 1 in the feature's unit. */
-  recordUsage(feature: Feature<"metered"> | string, amount: number, options?: RecordUsageOptions): Promise<UsageResult>;
+  recordUsage(feature: Feature<"metered">, amount: number, options?: RecordUsageOptions): Promise<UsageResult>;
   /** Holds an amount against the allowance until it is settled, released or expires. */
-  holdUsage(feature: Feature<"metered"> | string, amount: number, options?: HoldOptions): Promise<UsageResult>;
+  holdUsage(feature: Feature<"metered">, amount: number, options?: HoldOptions): Promise<UsageResult>;
   /** Settles a hold with the real amount, from 0 to the amount held. */
   settleUsage(holdId: string, amount: number, options?: WriteOptions): Promise<UsageResult>;
   /** Releases a hold. Releasing twice is safe. */
@@ -120,21 +139,31 @@ export interface Customer {
   /** Reads a hold back. */
   hold(holdId: string, options?: CallOptions): Promise<UsageHold>;
   /**
-   * Holds `amount`, runs `work`, and settles the amount `work` answers (any excess is recorded
-   * in `observe` mode). A refused hold never runs `work` and throws {@link UsageRefusedError};
-   * when `work` fails, the hold is released and the error propagates. Answers `work`'s amount.
+   * Holds `amount`, runs `work`, and settles the amount `work` reports with `hold.use(n)` (the held
+   * amount when it reports none); any excess is recorded in `observe` mode. Answers `work`'s own
+   * result. A refused hold, or a replay of one already settled or released, never runs `work` and
+   * throws {@link UsageRefusedError}. When `work` fails or the call is cancelled, the hold is
+   * released and the error propagates. A failed settlement throws {@link UsageSettlementError}
+   * holding `work`'s result. When the hold expired while `work` ran, the whole amount is recorded in
+   * `observe` mode. The idempotency key is at most 193 characters, leaving room for `:excess`.
+   * `withHold` keeps the accounting exactly once, not `work`: two callers using the same key at
+   * once may both run `work`, so coordinate `work` yourself where it must run once.
    *
    * @example
    * ```ts
-   * await customer.withHold(features.aiCredits, 500, async ({ signal }) => (await run({ signal })).tokens);
+   * const reply = await customer.withHold(features.aiCredits, 500, async ({ hold, signal }) => {
+   *   const reply = await run({ signal });
+   *   hold.use(reply.tokens);
+   *   return reply;
+   * });
    * ```
    */
-  withHold(
-    feature: Feature<"metered"> | string,
+  withHold<R>(
+    feature: Feature<"metered">,
     amount: number,
-    work: (context: HoldContext) => number | Promise<number>,
+    work: (context: HoldContext) => R | Promise<R>,
     options?: HoldOptions,
-  ): Promise<number>;
+  ): Promise<R>;
   /** Signs the customer's entitlements for offline use. Verify it with {@link verifySnapshot}. */
   snapshot(options?: SnapshotOptions): Promise<IssuedSnapshot>;
 }
@@ -145,8 +174,8 @@ export interface RegisterOptions extends WriteOptions {
   name?: string;
   /** The customer's email. */
   email?: string;
-  /** The vendor's metadata, merged into what is kept. */
-  metadata?: Record<string, string>;
+  /** The vendor's metadata, merged into what is kept; a `null` value removes that key. */
+  metadata?: Record<string, string | null>;
   /** The visitor id the customer had signed out, to keep their experiment arm. */
   visitor?: string;
 }
@@ -175,20 +204,26 @@ export type PlanChoice = string | SkuChoice;
 /** A SKU the customer bought, in place of a plan. */
 export interface SkuChoice {
   /** The SKU: its connector and the provider's ids. */
-  readonly sku: SkuRef;
+  readonly sku: Sku;
 }
 
 /** Options for subscribing. */
 export interface SubscribeOptions extends WriteOptions {
-  /** The billing period's key; left out with a SKU, which names its own. */
+  /** The billing period's label, as pricing shows it (`Monthly`, `Yearly`); left out with a SKU, which names its own. */
   period?: string;
   /** `now`, or `end` of the current period. */
   when?: "now" | "end";
 }
 
+/** Options for an override. */
+export interface OverrideOptions extends WriteOptions {
+  /** The billing period's label, as pricing shows it (`Monthly`, `Yearly`). */
+  period?: string;
+}
+
 /** Options for a checkout. */
 export interface CheckoutOptions extends WriteOptions {
-  /** The billing period's key. */
+  /** The billing period's label, as pricing shows it (`Monthly`, `Yearly`). */
   period?: string;
   /** Where the provider sends the customer after paying. */
   successUrl: string;
@@ -224,9 +259,9 @@ export interface AddOnOptions extends WriteOptions {
 
 /** Options for a grant. */
 export interface GrantOptions extends WriteOptions {
-  /** The amount granted, or `"unlimited"`; left out for an on/off feature. */
+  /** The amount granted, 0 to 999,999,999, or `"unlimited"`; left out for an on/off feature. */
   value?: number | "unlimited";
-  /** How many days it lasts; left out, or 0, for no end. */
+  /** How many days it lasts, 0 to 3,650; left out, or 0, for no end. */
   days?: number;
   /** Why, for the activity log. */
   reason?: string;
@@ -239,7 +274,7 @@ export interface Vendor {
   /** Moves the customer to a SKU they bought (`selfServe` false). */
   subscribe(purchase: SkuChoice, options?: Omit<SubscribeOptions, "period">): Promise<CustomerChange>;
   /** Moves the customer in Entitler only, while the payment provider keeps billing the plan they held. */
-  override(plan: string, options?: SubscribeOptions): Promise<CustomerChange>;
+  override(plan: string, options?: OverrideOptions): Promise<CustomerChange>;
   /** Ends an override. */
   undoOverride(options?: ProductOptions): Promise<CustomerDetails>;
   /** Starts a checkout for any plan (`selfServe` false). */
@@ -253,7 +288,7 @@ export interface Vendor {
   /** Revokes a grant. */
   revokeGrant(grantId: string, options?: WriteOptions): Promise<CustomerDetails>;
   /** Sets a meter's `used` amount: a correction, answered with outcome `adjusted`. */
-  setMeter(feature: Feature<"metered"> | string, used: number, options?: WriteOptions): Promise<UsageResult>;
+  setMeter(feature: Feature<"metered">, used: number, options?: WriteOptions): Promise<UsageResult>;
   /** Cancels a usage report: a correction, answered with outcome `cancelled`. */
   cancelUsage(usageId: string, options?: WriteOptions): Promise<UsageResult>;
 }
@@ -309,12 +344,37 @@ export interface ServerCustomer extends Customer {
 }
 
 const NEVER = new AbortController().signal;
+const UNCHANGING = new Set(["/tokens", "/snapshots", "/checkout", "/billing-portal"]);
+const USAGE_AMOUNT = `Pass amount as a whole number from 1 to ${Number.MAX_SAFE_INTEGER}.`;
+const SETTLED_AMOUNT = "Pass amount as a whole number from 0 to the held amount.";
+const AMOUNT_USED = "Pass the amount used as a whole number of 0 or more.";
+
+/** Checks a usage amount. @internal */
+export function usageAmount(amount: unknown): number {
+  return wholeNumber(amount, "amount", 1, Number.MAX_SAFE_INTEGER, USAGE_AMOUNT);
+}
+
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/** A usage log from its first page. @internal */
+export function usageLog(first: Page<UsageEvent>, fetchPage: (cursor: string) => Promise<Page<UsageEvent>>): UsageLog {
+  const all = paged((cursor) => (cursor === undefined ? Promise.resolve(first) : fetchPage(cursor)));
+  return { items: first.items, next: first.next, pages: all.pages, [Symbol.asyncIterator]: all[Symbol.asyncIterator] };
+}
 
 interface Raw {
   [key: string]: unknown;
 }
 
-function choice(plan: PlanChoice): { plan?: string; sku?: SkuRef } {
+function choice(plan: PlanChoice): { plan?: string; sku?: Sku } {
   if (typeof plan === "object" && plan !== null && "sku" in plan) {
     if (!plan.sku || typeof plan.sku !== "object") throw new TypeError("Name the plan by its id or its key.");
     return { sku: plan.sku };
@@ -323,7 +383,7 @@ function choice(plan: PlanChoice): { plan?: string; sku?: SkuRef } {
 }
 
 function idOf(value: string, message: string): string {
-  return encodeURIComponent(requireText(value, message));
+  return segment(requireText(value, message));
 }
 
 /** The customer methods both clients share, on the path `/customers/{id}`. @internal */
@@ -337,7 +397,7 @@ export class CustomerApi implements Customer {
     this.#transport = transport;
     this.#self = id === undefined;
     this.#id = id;
-    this.#path = `/customers/${id === undefined ? "me" : encodeURIComponent(id)}`;
+    this.#path = `/customers/${id === undefined ? "me" : segment(id)}`;
   }
 
   get id(): string | undefined {
@@ -366,7 +426,8 @@ export class CustomerApi implements Customer {
     headers?: Record<string, string | undefined>,
   ): Promise<T> {
     const idempotencyKey = idempotencyKeyOf(options?.idempotencyKey);
-    return (await this.send<T>({ method, path, body, query, headers, idempotencyKey, options })).data;
+    const changes = UNCHANGING.has(path) ? [] : [this.#path];
+    return (await this.send<T>({ method, path, body, query, headers, idempotencyKey, changes, options })).data;
   }
 
   /** @internal */
@@ -379,7 +440,7 @@ export class CustomerApi implements Customer {
   async check(feature: Feature | string, options?: CallOptions): Promise<Check> {
     const answer = await this.send<Raw>({
       method: "GET",
-      path: `/entitlements/${encodeURIComponent(featureKey(feature))}`,
+      path: `/entitlements/${segment(featureKey(feature))}`,
       cached: true,
       options,
     });
@@ -408,8 +469,8 @@ export class CustomerApi implements Customer {
     return new Entitlements({ ...answer.data, stale: answer.stale });
   }
 
-  async planSpace(options?: CallOptions): Promise<PlanSpace> {
-    const answer = await this.send<PlanSpace>({ method: "GET", path: "/plans", cached: true, options });
+  async plans(options?: CallOptions): Promise<CustomerPlans> {
+    const answer = await this.send<CustomerPlans>({ method: "GET", path: "/plans", cached: true, options });
     return { ...answer.data, stale: answer.stale };
   }
 
@@ -424,21 +485,17 @@ export class CustomerApi implements Customer {
     return { ...answer.data, stale: answer.stale };
   }
 
-  async usage(options?: CallOptions): Promise<CustomerUsage> {
+  async usage(options?: CallOptions & { cursor?: string }): Promise<CustomerUsage> {
     const page = (cursor: string | undefined) =>
       this.read<CustomerUsage & { log: Page<UsageEvent> }>("/usage", options, { query: { cursor } });
-    const first = await page(undefined);
-    return { ...first, log: paged(async (cursor) => (await page(cursor)).log, first.log) };
+    const first = await page(options?.cursor);
+    return { ...first, log: usageLog(first.log, async (cursor) => (await page(cursor)).log) };
   }
 
-  async recordUsage(
-    feature: Feature<"metered"> | string,
-    amount: number,
-    options?: RecordUsageOptions,
-  ): Promise<UsageResult> {
+  async recordUsage(feature: Feature<"metered">, amount: number, options?: RecordUsageOptions): Promise<UsageResult> {
     return this.write("POST", "/usage", options, {
       feature: featureKey(feature),
-      amount: wholeNumber(amount, "amount", 1),
+      amount: usageAmount(amount),
       ...compact({
         mode: options?.mode,
         occurredAt: instant(options?.occurredAt, "Pass occurredAt as a valid date."),
@@ -447,17 +504,17 @@ export class CustomerApi implements Customer {
     });
   }
 
-  async holdUsage(feature: Feature<"metered"> | string, amount: number, options?: HoldOptions): Promise<UsageResult> {
+  async holdUsage(feature: Feature<"metered">, amount: number, options?: HoldOptions): Promise<UsageResult> {
     return this.write("POST", "/usage/holds", options, {
       feature: featureKey(feature),
-      amount: wholeNumber(amount, "amount", 1),
+      amount: usageAmount(amount),
       ...compact({ ttlSeconds: options?.ttlSeconds }),
     });
   }
 
   async settleUsage(holdId: string, amount: number, options?: WriteOptions): Promise<UsageResult> {
     return this.write("POST", `/usage/holds/${idOf(holdId, "Provide the id of the hold.")}/settle`, options, {
-      amount: wholeNumber(amount, "amount", 0),
+      amount: wholeNumber(amount, "amount", 0, Number.MAX_SAFE_INTEGER, SETTLED_AMOUNT),
     });
   }
 
@@ -469,44 +526,64 @@ export class CustomerApi implements Customer {
     return this.read(`/usage/holds/${idOf(holdId, "Provide the id of the hold.")}`, options);
   }
 
-  async withHold(
-    feature: Feature<"metered"> | string,
+  async withHold<R>(
+    feature: Feature<"metered">,
     amount: number,
-    work: (context: HoldContext) => number | Promise<number>,
+    work: (context: HoldContext) => R | Promise<R>,
     options?: HoldOptions,
-  ): Promise<number> {
-    if (typeof work !== "function") throw new TypeError("Pass work as a function that answers the amount used.");
-    const key = idempotencyKeyOf(options?.idempotencyKey);
-    idempotencyKeyOf(`${key}:excess`);
-    const hold = await this.holdUsage(feature, amount, { ...options, idempotencyKey: key });
-    if (hold.outcome === "refused") throw new UsageRefusedError(hold);
-    const holdId = hold.holdId as string;
-    const call: CallOptions = { signal: options?.signal, timeout: options?.timeout };
-    let used: number;
+  ): Promise<R> {
+    if (typeof work !== "function") throw new TypeError("Pass work as a function.");
+    const key = idempotencyKeyOf(options?.idempotencyKey, 193);
+    const signal = options?.signal;
+    const answer = await this.holdUsage(feature, amount, { ...options, idempotencyKey: key });
+    const expired = answer.expiresAt !== null && answer.expiresAt.getTime() <= Date.now();
+    if ((answer.outcome !== "held" && answer.outcome !== "duplicate") || !answer.holdId || expired) {
+      throw new UsageRefusedError(answer);
+    }
+    const holdId = answer.holdId;
+    let used: number | undefined;
+    const hold: ActiveHold = {
+      id: holdId,
+      amount: answer.amount,
+      result: answer,
+      use(value: number) {
+        used = wholeNumber(value, "the amount used", 0, Number.MAX_SAFE_INTEGER, AMOUNT_USED);
+      },
+    };
+    let result: R;
     try {
-      used = wholeNumber(await work({ hold, signal: options?.signal ?? NEVER }), "the amount work answered", 0);
+      result = await untilAborted(Promise.resolve(work({ hold, signal: signal ?? NEVER })), signal);
     } catch (error) {
+      const timeout = options?.timeout;
       try {
-        await this.releaseUsage(holdId, call);
+        await this.releaseUsage(holdId, { signal: AbortSignal.timeout(timeout ?? this.#transport.timeout), timeout });
       } catch (releaseError) {
         this.onError(releaseError);
       }
       throw error;
     }
-    const settled = Math.min(used, hold.amount);
+    const total = used ?? answer.amount;
+    const settled = Math.min(total, answer.amount);
+    const excess = total > answer.amount ? total - answer.amount : undefined;
+    const call: CallOptions = { signal, timeout: options?.timeout };
+    const observe = (amount: number) =>
+      this.recordUsage(feature, amount, { ...call, mode: "observe", idempotencyKey: `${key}:excess` });
+    let unrecorded = excess;
     try {
-      await this.settleUsage(holdId, settled, call);
-    } catch (error) {
-      throw new SettleError(holdId, settled, error);
+      try {
+        await this.settleUsage(holdId, settled, call);
+      } catch (error) {
+        if (!(error instanceof ApiError && error.code === "hold_expired") || total === 0) throw error;
+        unrecorded = total;
+        await observe(total);
+        return result;
+      }
+      if (excess !== undefined) await observe(excess);
+    } catch (cause) {
+      if (signal?.aborted && cause === signal.reason) throw cause;
+      throw new UsageSettlementError({ holdId, amount: settled, excess: unrecorded, result, cause });
     }
-    if (used > hold.amount) {
-      await this.recordUsage(feature, used - hold.amount, {
-        ...call,
-        mode: "observe",
-        idempotencyKey: `${key}:excess`,
-      });
-    }
-    return used;
+    return result;
   }
 
   async snapshot(options?: SnapshotOptions): Promise<IssuedSnapshot> {
@@ -515,7 +592,7 @@ export class CustomerApi implements Customer {
 
   /** @internal */
   onError(error: unknown): void {
-    this.#transport.onError?.(error);
+    this.#transport.report(error);
   }
 }
 
@@ -536,7 +613,10 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
 
   async details(options?: CallOptions & { cursor?: string }): Promise<CustomerDetails> {
     const first = await this.#details(options?.cursor, options);
-    return { ...first, usage: paged((cursor) => this.usagePage(cursor, options), first.usage) };
+    return {
+      ...first,
+      usage: usageLog(first.usage, (cursor) => this.usagePage(cursor, options)),
+    };
   }
 
   /** @internal */
@@ -648,18 +728,18 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     options: WriteOptions | undefined,
     selfServe: boolean,
   ): Promise<CustomerChange> {
-    return this.write("PATCH", `/subscription/add-ons/${encodeURIComponent(planKey(plan))}`, options, {
+    return this.write("PATCH", `/subscription/add-ons/${segment(planKey(plan))}`, options, {
       quantity: wholeNumber(quantity, "quantity", 1),
       selfServe,
     });
   }
 
   async removeAddOn(plan: string, options?: WriteOptions): Promise<CustomerDetails> {
-    return this.write("DELETE", `/subscription/add-ons/${encodeURIComponent(planKey(plan))}`, options);
+    return this.write("DELETE", `/subscription/add-ons/${segment(planKey(plan))}`, options);
   }
 
   async undoAddOnChange(plan: string, options?: WriteOptions): Promise<CustomerDetails> {
-    return this.write("DELETE", `/subscription/add-ons/${encodeURIComponent(planKey(plan))}/pending`, options);
+    return this.write("DELETE", `/subscription/add-ons/${segment(planKey(plan))}/pending`, options);
   }
 
   async billing(options?: CallOptions): Promise<CustomerBilling> {
@@ -688,7 +768,7 @@ class VendorApi implements Vendor {
     return this.#customer.subscription(plan, options, false, false);
   }
 
-  async override(plan: string, options?: SubscribeOptions): Promise<CustomerChange> {
+  async override(plan: string, options?: OverrideOptions): Promise<CustomerChange> {
     return this.#customer.subscription(planKey(plan), options, false, true);
   }
 
@@ -710,12 +790,12 @@ class VendorApi implements Vendor {
 
   async grant(feature: Feature | string, options?: GrantOptions): Promise<CustomerDetails> {
     const value = options?.value;
-    if (value !== undefined && value !== "unlimited") wholeNumber(value, "value", 0);
+    if (value !== undefined && value !== "unlimited") wholeNumber(value, "value", 0, 999_999_999);
     return this.#customer.write("POST", "/grants", options, {
       feature: featureKey(feature),
       ...compact({
         value: value === undefined ? undefined : String(value),
-        days: options?.days === undefined ? undefined : wholeNumber(options.days, "days", 0),
+        days: options?.days === undefined ? undefined : wholeNumber(options.days, "days", 0, 3650),
         reason: options?.reason,
       }),
     });
@@ -725,8 +805,8 @@ class VendorApi implements Vendor {
     return this.#customer.write("DELETE", `/grants/${idOf(grantId, "Provide the id of the grant.")}`, options);
   }
 
-  async setMeter(feature: Feature<"metered"> | string, used: number, options?: WriteOptions): Promise<UsageResult> {
-    return this.#customer.write("PUT", `/meters/${encodeURIComponent(featureKey(feature))}`, options, {
+  async setMeter(feature: Feature<"metered">, used: number, options?: WriteOptions): Promise<UsageResult> {
+    return this.#customer.write("PUT", `/meters/${segment(featureKey(feature))}`, options, {
       used: wholeNumber(used, "used", 0),
     });
   }

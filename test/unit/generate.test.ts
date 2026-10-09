@@ -266,7 +266,7 @@ describe("entitler generate", () => {
     expect(await run(["generate", "--out", await temp()])).toEqual({
       code: 1,
       stdout: "",
-      stderr: "Entitler request failed: This key lacks plans:read. (scope_required)\n",
+      stderr: "Entitler request failed: This key lacks plans:read (scope_required).\n",
     });
   });
 
@@ -274,7 +274,7 @@ describe("entitler generate", () => {
     vi.stubGlobal("fetch", fakeFetch(new TypeError("offline")).fetch);
     vi.spyOn(Math, "random").mockReturnValue(0);
     expect((await run(["generate", "--out", await temp()])).stderr).toBe(
-      "Entitler request failed: Entitler could not be reached.\n",
+      "Entitler request failed: Entitler could not be reached (connection_failed).\n",
     );
   });
 

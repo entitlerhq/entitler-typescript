@@ -3,11 +3,14 @@ import {
   ApiError,
   type CacheEntry,
   type CacheStore,
+  defineFeature,
   EntitlerClient,
   EntitlerServer,
   MemoryCache,
 } from "../../src/index.js";
 import { apiError, checkAnswer, context, fakeFetch, json, jwt, usageAnswer } from "./fake.js";
+
+const aiCredits = defineFeature("ai_credits", "metered");
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -53,7 +56,7 @@ describe("the answer cache", () => {
     expect(sent[1]?.headers["if-none-match"]).toBe('"v1"');
     expect(check.entitled).toBe(true);
     const [entry] = store.entries.values();
-    expect(entry).toMatchObject({ etag: '"v2"', maxAge: 60, receivedAt: 61_000 });
+    expect(entry).toMatchObject({ v: 1, etag: '"v2"', cacheControl: "max-age=60", receivedAt: 61_000 });
     await customer.check("f");
     expect(sent).toHaveLength(2);
   });
@@ -83,7 +86,7 @@ describe("the answer cache", () => {
     await server.customer("u").check("f");
     await server.customer("other").check("f");
     vi.setSystemTime(2000);
-    await server.customer("u").recordUsage("ai_credits", 1);
+    await server.customer("u").recordUsage(aiCredits, 1);
     vi.setSystemTime(3000);
     await server.customer("u").check("f");
     await server.customer("other").check("f");
@@ -168,30 +171,26 @@ describe("the answer cache", () => {
     expect(store.entries.size).toBe(4);
   });
 
-  it("keeps a customer's answers across a refreshed token", async () => {
+  it("keys entries by the credential itself, never by claims", async () => {
     const store = spyStore();
     const visitor = "visitor_aaaaaaaaaaaa";
-    let n = 0;
-    const token = () => jwt({ iss: "https://api.entitler.dev/customers", eid: "env_1", sub: "u", n: ++n });
+    const claims = { iss: "https://api.entitler.dev/customers", eid: "env_1", sub: "u" };
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
-    await new EntitlerClient({ token, fetch, cache: store, visitor }).me.check("f");
-    await new EntitlerClient({ token, fetch, cache: store, visitor }).me.check("f");
-    expect(n).toBe(2);
+    await new EntitlerClient({ token: jwt(claims), fetch, cache: store, visitor }).me.check("f");
+    await new EntitlerClient({ token: jwt(claims), fetch, cache: store, visitor }).me.check("f");
     expect(sent).toHaveLength(1);
-    const other = () => jwt({ iss: "https://api.entitler.dev/customers", eid: "env_1", sub: "someone_else" });
-    await new EntitlerClient({ token: other, fetch, cache: store, visitor }).me.check("f");
+    await new EntitlerClient({ token: jwt({ ...claims, n: 2 }), fetch, cache: store, visitor }).me.check("f");
     expect(sent).toHaveLength(2);
   });
 
-  it("keys identity clients by key and the identity token's issuer and subject", async () => {
+  it("keys identity clients by the key and the identity token together", async () => {
     const store = spyStore();
     const visitor = "visitor_aaaaaaaaaaaa";
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
-    const identity = (sub: string) => jwt({ iss: "https://accounts.example", sub, iat: Math.random() });
-    await new EntitlerClient({ key: "pk", identityToken: identity("a"), fetch, cache: store, visitor }).me.check("f");
-    await new EntitlerClient({ key: "pk", identityToken: identity("a"), fetch, cache: store, visitor }).me.check("f");
-    await new EntitlerClient({ key: "pk", identityToken: identity("b"), fetch, cache: store, visitor }).me.check("f");
-    await new EntitlerClient({ key: "pk2", identityToken: identity("a"), fetch, cache: store, visitor }).me.check("f");
+    await new EntitlerClient({ key: "pk", identityToken: "idt_a", fetch, cache: store, visitor }).me.check("f");
+    await new EntitlerClient({ key: "pk", identityToken: "idt_a", fetch, cache: store, visitor }).me.check("f");
+    await new EntitlerClient({ key: "pk", identityToken: "idt_b", fetch, cache: store, visitor }).me.check("f");
+    await new EntitlerClient({ key: "pk2", identityToken: "idt_a", fetch, cache: store, visitor }).me.check("f");
     expect(sent).toHaveLength(3);
   });
 
@@ -220,7 +219,7 @@ describe("the answer cache", () => {
     const customer = server.customer("u");
     for (let i = 0; i < 2; i += 1) {
       await customer.entitlements();
-      await customer.planSpace();
+      await customer.plans();
       await customer.pricing();
       await server.pricing();
       await server.features();
@@ -285,7 +284,7 @@ describe("stale answers", () => {
 describe("MemoryCache", () => {
   it("drops the least recently used entry when full", () => {
     const cache = new MemoryCache({ maxEntries: 2 });
-    const entry = { body: "{}", receivedAt: 0 };
+    const entry = { v: 1 as const, body: "{}", receivedAt: 0 };
     cache.set("a", entry);
     cache.set("b", entry);
     cache.get("a");
@@ -293,13 +292,13 @@ describe("MemoryCache", () => {
     expect(cache.get("a")).toBe(entry);
     expect(cache.get("b")).toBeUndefined();
     expect(cache.get("c")).toBe(entry);
-    cache.set("c", { body: "[]", receivedAt: 1 });
+    cache.set("c", { v: 1, body: "[]", receivedAt: 1 });
     expect(cache.get("c")?.body).toBe("[]");
   });
 
   it("holds 1,000 answers by default", () => {
     const cache = new MemoryCache();
-    for (let i = 0; i <= 1000; i += 1) cache.set(String(i), { body: "{}", receivedAt: i });
+    for (let i = 0; i <= 1000; i += 1) cache.set(String(i), { v: 1, body: "{}", receivedAt: i });
     expect(cache.get("0")).toBeUndefined();
     expect(cache.get("1")).toBeDefined();
   });
@@ -321,7 +320,7 @@ describe("writes that touch many customers", () => {
     const server = new EntitlerServer({ key: "k", fetch });
     await server.customer("a").check("f");
     vi.setSystemTime(2000);
-    await server.recordUsageBatch([{ customer: "a", feature: "ai_credits" }]);
+    await server.recordUsageBatch([{ customer: "a", feature: aiCredits }]);
     vi.setSystemTime(3000);
     await server.customer("a").check("f");
     expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');
