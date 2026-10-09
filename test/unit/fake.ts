@@ -48,7 +48,8 @@ export function fakeFetch(...replies: Reply[]) {
 }
 
 export function jwt(claims: Record<string, unknown>): string {
-  const part = (value: unknown) => btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+  const part = (value: unknown) =>
+    btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
   return `${part({ alg: "none", typ: "JWT" })}.${part(claims)}.c2ln`;
 }
 

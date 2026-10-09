@@ -108,22 +108,31 @@ function comment(lines: string[]): string[] {
   return ["  /**", ...lines.map((line) => (line ? `   * ${line}` : "   *")), "   */"];
 }
 
+function call(indent: string, args: string[], quoted: string[]): string[] {
+  const inner = `${indent}  `;
+  const array = `${inner}[${quoted.join(", ")}],`;
+  const members = !quoted.length
+    ? []
+    : array.length <= LINE_WIDTH
+      ? [array]
+      : [`${inner}[`, ...quoted.map((member) => `${inner}  ${member},`), `${inner}],`];
+  return [...args.map((arg) => `${inner}${arg},`), ...members, `${indent}),`];
+}
+
 function constant(name: string, feature: FeatureSource["features"][number], members: string[]): string[] {
   const args = [JSON.stringify(feature.key), JSON.stringify(feature.type)];
   const quoted = members.map((member) => JSON.stringify(member));
-  const inline = `  ${name}: defineFeature(${[...args, ...(quoted.length ? [`[${quoted.join(", ")}]`] : [])].join(", ")}),`;
+  const all = [...args, ...(quoted.length ? [`[${quoted.join(", ")}]`] : [])];
+  const inline = `  ${name}: defineFeature(${all.join(", ")}),`;
   if (inline.length <= LINE_WIDTH) return [inline];
-  const opening = `  ${name}: defineFeature(${args.join(", ")}${quoted.length ? ", [" : ""}`;
-  if (!quoted.length) return [`  ${name}: defineFeature(`, ...args.map((arg) => `    ${arg},`), "  ),"];
-  if (opening.length <= LINE_WIDTH) return [opening, ...quoted.map((member) => `    ${member},`), "  ]),"];
-  return [
-    `  ${name}: defineFeature(`,
-    ...args.map((arg) => `    ${arg},`),
-    "    [",
-    ...quoted.map((member) => `      ${member},`),
-    "    ],",
-    "  ),",
-  ];
+  const hugged = `  ${name}: defineFeature(${args.join(", ")}, [`;
+  if (quoted.length && hugged.length <= LINE_WIDTH)
+    return [hugged, ...quoted.map((member) => `    ${member},`), "  ]),"];
+  const opening = `  ${name}: defineFeature(`;
+  if (opening.length <= LINE_WIDTH) return [opening, ...call("  ", args, quoted)];
+  const broken = `    defineFeature(${all.join(", ")}),`;
+  if (broken.length <= LINE_WIDTH) return [`  ${name}:`, broken];
+  return [`  ${name}:`, "    defineFeature(", ...call("    ", args, quoted)];
 }
 
 function readFrom(source: FeatureSource): string {

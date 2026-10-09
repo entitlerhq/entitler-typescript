@@ -191,7 +191,7 @@ class InAppClient {
     ).data;
   }
 
-  verifySnapshot(token: string, expected: ExpectedSnapshot): Promise<VerifiedSnapshot> {
+  async verifySnapshot(token: string, expected: ExpectedSnapshot): Promise<VerifiedSnapshot> {
     return verifySnapshot(token, expected);
   }
 
