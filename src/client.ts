@@ -1,5 +1,5 @@
 import { type Customer, CustomerApi } from "./customer.js";
-import { describe, knownScopes } from "./describe.js";
+import { type ClientDescription, describe, knownScopes } from "./describe.js";
 import { type ExpectedSnapshot, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
 import { principalOf, type TokenProvider, TokenSource } from "./tokens.js";
 import {
@@ -69,7 +69,7 @@ export interface EntitlerClient<K extends ClientKind = ClientKind> {
   /** Shows the base URL and the kind, never the credential. */
   toString(): string;
   /** Shows the base URL and the kind, never the credential. */
-  toJSON(): { baseUrl: string; kind: K };
+  toJSON(): ClientDescription<K>;
 }
 
 /** Builds an {@link EntitlerClient} from a customer token, or from a publishable key and an identity token. */
@@ -199,7 +199,7 @@ class InAppClient {
     return describe("EntitlerClient", this.#transport);
   }
 
-  toJSON(): { baseUrl: string; kind: ClientKind } {
+  toJSON(): ClientDescription<ClientKind> {
     return { baseUrl: this.#transport.baseUrl, kind: this.kind };
   }
 

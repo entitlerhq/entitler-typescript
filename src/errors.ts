@@ -76,6 +76,7 @@ export interface PaymentRequired {
 
 /** The base class of every error the SDK raises, so one `instanceof` check catches them all. */
 export class EntitlerError extends Error {
+  /** `EntitlerError`. */
   override name = "EntitlerError";
 }
 
@@ -115,6 +116,7 @@ export interface ApiErrorInit {
  * ```
  */
 export class ApiError extends EntitlerError {
+  /** `ApiError`. */
   override name = "ApiError";
   /** The HTTP status. */
   readonly status: number;
@@ -149,6 +151,7 @@ export class ApiError extends EntitlerError {
 
 /** No answer arrived: DNS, TLS, or a connection refused or reset. The cause is in `cause`. */
 export class ConnectionError extends EntitlerError {
+  /** `ConnectionError`. */
   override name = "ConnectionError";
   /** The idempotency key the request sent, when it sent one. */
   readonly idempotencyKey: string | undefined;
@@ -162,6 +165,7 @@ export class ConnectionError extends EntitlerError {
 
 /** An attempt took longer than the client's `timeout`. */
 export class TimeoutError extends EntitlerError {
+  /** `TimeoutError`. */
   override name = "TimeoutError";
   /** The idempotency key the request sent, when it sent one. */
   readonly idempotencyKey: string | undefined;
@@ -175,6 +179,7 @@ export class TimeoutError extends EntitlerError {
 
 /** A token provider failed, or answered a blank or unreadable token. The cause is in `cause`. */
 export class TokenError extends EntitlerError {
+  /** `TokenError`. */
   override name = "TokenError";
 }
 
@@ -183,6 +188,7 @@ export type SnapshotErrorCode = "snapshot_invalid" | "snapshot_expired";
 
 /** A snapshot failed verification. No request was made, so there is no HTTP status. */
 export class SnapshotError extends EntitlerError {
+  /** `SnapshotError`. */
   override name = "SnapshotError";
   /** `snapshot_expired` once the snapshot's `exp` has passed, else `snapshot_invalid`. */
   readonly code: SnapshotErrorCode;
@@ -199,6 +205,7 @@ export class SnapshotError extends EntitlerError {
  * else a refusal is an answer, not an error.
  */
 export class UsageRefusedError extends EntitlerError {
+  /** `UsageRefusedError`. */
   override name = "UsageRefusedError";
   /** The refused answer, with its `refusal` and the meter. */
   readonly result: UsageResult;
@@ -216,6 +223,7 @@ export class UsageRefusedError extends EntitlerError {
 
 /** A settlement failed after the work succeeded. Settle again with `holdId`; the cause is in `cause`. */
 export class SettleError extends EntitlerError {
+  /** `SettleError`. */
   override name = "SettleError";
   /** The hold that is still open. */
   readonly holdId: string;

@@ -3,9 +3,15 @@ import type { FeatureListing } from "./types.js";
 /** The catalogue a generated file is rendered from: what `features()` answers. */
 export interface FeatureSource {
   /** The environment read. */
-  readonly environment: { readonly name: string };
+  readonly environment: {
+    /** The environment's name. */
+    readonly name: string;
+  };
   /** The track read. */
-  readonly track: { readonly name: string };
+  readonly track: {
+    /** The track's name. */
+    readonly name: string;
+  };
   /** The release read, or `null`. */
   readonly release: number | null;
   /** The change read, or `null`. */

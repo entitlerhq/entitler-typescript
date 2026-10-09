@@ -1,6 +1,14 @@
 import type { Transport } from "./transport.js";
 import type { Scope } from "./types.js";
 
+/** A client's JSON form: its base URL and kind, never its credential. */
+export interface ClientDescription<K extends string = string> {
+  /** The API's base URL. */
+  readonly baseUrl: string;
+  /** The client's kind: `server`, `token` or `identity`. */
+  readonly kind: K;
+}
+
 const SCOPES: readonly Scope[] = [
   "plans:read",
   "entitlements:read",

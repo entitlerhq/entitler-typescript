@@ -1,7 +1,7 @@
 import { Entitlements } from "./entitlements.js";
 import { SnapshotError } from "./errors.js";
 import { parseAnswer } from "./transport.js";
-import type { Entitlement, SnapshotKey, SnapshotKeys, TrackRef } from "./types.js";
+import type { Entitlement, EnvironmentRef, SnapshotKey, SnapshotKeys, TrackRef } from "./types.js";
 import { base64UrlDecode, decodeJson, requireText } from "./util.js";
 
 /** What a snapshot must match to verify. */
@@ -25,7 +25,7 @@ export interface VerifiedSnapshot {
   /** The customer's external id. */
   readonly customer: string;
   /** The environment. */
-  readonly environment: { readonly id: string };
+  readonly environment: EnvironmentRef;
   /** The customer's track. */
   readonly track: TrackRef;
   /** The release signed, or `null`. */
@@ -37,7 +37,7 @@ export interface VerifiedSnapshot {
   /** When it stops verifying. */
   readonly expiresAt: Date;
   /** The entitlements, frozen when it was signed (meters included), with `asOf` the signing time. */
-  readonly entitlements: Entitlements<{ readonly id: string }>;
+  readonly entitlements: Entitlements<EnvironmentRef>;
 }
 
 const NOT_A_SNAPSHOT = "That is not an entitlements snapshot. Pass the token snapshot() returned.";

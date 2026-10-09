@@ -1,0 +1,12 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts", "src/generate.ts"],
+  "tsconfig": "tsconfig.build.json",
+  "out": "docs/api",
+  "name": "Entitler SDK for TypeScript and JavaScript",
+  "readme": "none",
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "treatWarningsAsErrors": true,
+  "validation": { "notExported": true, "invalidLink": true, "notDocumented": true }
+}
