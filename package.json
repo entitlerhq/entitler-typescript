@@ -53,13 +53,16 @@
     "docs": "typedoc && bun scripts/snippets.ts && tsc -p test/docs",
     "examples": "bun run build && tsc -p examples",
     "package:check": "bun run build && publint --pack npm && attw --pack . --profile esm-only && bun scripts/size.ts",
-    "check": "bun run lint && bun run typecheck && bun run test:coverage && bun run docs && bun run examples && bun run package:check"
+    "check": "bun run lint && bun run typecheck && bun run test:coverage && bun run docs && bun run examples && bun run package:check",
+    "smoke": "bun run build && bun test/smoke/browser.ts && bun test/smoke/workers.ts"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
     "@biomejs/biome": "2.5.15",
     "@types/node": "22.20.5",
     "@vitest/coverage-v8": "4.1.11",
+    "miniflare": "4.20260730.0",
+    "playwright-core": "1.63.0",
     "publint": "0.3.25",
     "typedoc": "0.28.20",
     "typescript": "6.0.3",

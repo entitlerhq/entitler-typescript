@@ -202,14 +202,14 @@ describe("entitler generate", () => {
   it("prints usage for --help and exits 0", async () => {
     const result = await run(["--help"]);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("Usage: entitler generate [options]");
+    expect(result.stdout).toContain("Usage: npx @entitlerhq/entitler generate [options]");
     expect((await run(["generate", "--help"])).code).toBe(0);
   });
 
   it("prints usage with no command and exits 1", async () => {
     const result = await run([]);
     expect(result).toMatchObject({ code: 1, stdout: "" });
-    expect(result.stderr).toContain("Usage: entitler generate");
+    expect(result.stderr).toContain("Usage: npx @entitlerhq/entitler generate");
     expect((await run(["make"])).stderr).toContain("Unknown command make.");
   });
 

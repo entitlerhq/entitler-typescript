@@ -5,11 +5,14 @@ and, for a group, its leaf members (`includes`). The type flows into the answer,
 `check(features.aiCredits)` is a `Check<"metered">` with its meter, and usage methods accept only
 metered features.
 
+Name the scoped package in `npx` and `bunx`, so no unscoped package called `entitler` is ever
+fetched.
+
 ## The generator
 
 ```sh
-ENTITLER_KEY=ent_test_… npx entitler generate --out src/entitler.gen.ts
-bunx entitler generate --out=src/entitler.gen.ts --check
+ENTITLER_KEY=ent_test_… npx @entitlerhq/entitler generate --out src/entitler.gen.ts
+bunx @entitlerhq/entitler generate --out=src/entitler.gen.ts --check
 ```
 
 | Option | Meaning |

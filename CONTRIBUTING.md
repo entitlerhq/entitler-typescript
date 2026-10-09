@@ -22,7 +22,8 @@ bun install
 | `bun run docs` | the API reference (warnings fail), then type-checks every snippet in the README and `docs/` |
 | `bun run examples` | type-checks the examples |
 | `bun run package:check` | packs the package, runs publint and Are the Types Wrong, and reports its size |
-| `bun run check` | everything above but the live API suite |
+| `bun run smoke` | builds, then runs the SDK in headless Chromium and in workerd (set `CHROMIUM_PATH` to use an installed Chromium; otherwise run `bunx playwright-core install chromium` once) |
+| `bun run check` | everything above but the smoke checks and the live API suite |
 
 ## Tests
 

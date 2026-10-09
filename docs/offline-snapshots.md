@@ -15,7 +15,8 @@ const verified = await verifySnapshot(snapshot.token, {
 if (verified.entitlements.has(features.exportPdf)) console.log("Export works offline.");
 ```
 
-`verifySnapshot` makes no request. It checks, in order: the token's shape and header, that one of the
+`verifySnapshot` makes no request. It checks, in order: the token's compact form and header (with no
+`crit` member), that one of the
 keys passed signed it, the signature, the claims' shape, the issuer (default
 `https://api.entitler.dev/customers`), that it was not signed in the future (by more than
 `clockSkewSeconds`, default 60, at most 300), that it has not expired, and that it is for the expected
@@ -33,6 +34,19 @@ import { writeFile } from "node:fs/promises";
 
 await writeFile("src/snapshot-keys.json", JSON.stringify(await server.snapshotKeys()));
 ```
+
+## Key rotation
+
+- Entitler publishes a new signing key before signing with it.
+- It keeps retired keys published for 30 days after their last use, longer than any snapshot lives.
+- An emergency replacement withdraws the old keys at once, and snapshots they signed stop verifying
+  once the app refetches.
+
+So refresh the keys from `snapshotKeys()` whenever the app is online, persist them in the app's own
+trusted storage, and verify offline against what it holds. A snapshot signed by a key the app has not
+fetched yet fails with `None of the keys passed signed this snapshot.` until the app is next online.
+Verification itself never makes a request, and `snapshotKeys()` sends no credential, so the keys stay
+reachable even while a token cannot be had.
 
 ## Frozen meters
 

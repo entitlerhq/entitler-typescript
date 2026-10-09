@@ -343,7 +343,6 @@ export interface ServerCustomer extends Customer {
   providers(options?: CallOptions): Promise<CustomerProviders>;
 }
 
-const NEVER = new AbortController().signal;
 const UNCHANGING = new Set(["/tokens", "/snapshots", "/checkout", "/billing-portal"]);
 const USAGE_AMOUNT = `Pass amount as a whole number from 1 to ${Number.MAX_SAFE_INTEGER}.`;
 const SETTLED_AMOUNT = "Pass amount as a whole number from 0 to the held amount.";
@@ -552,7 +551,10 @@ export class CustomerApi implements Customer {
     };
     let result: R;
     try {
-      result = await untilAborted(Promise.resolve(work({ hold, signal: signal ?? NEVER })), signal);
+      result = await untilAborted(
+        Promise.resolve(work({ hold, signal: signal ?? new AbortController().signal })),
+        signal,
+      );
     } catch (error) {
       const timeout = options?.timeout;
       try {

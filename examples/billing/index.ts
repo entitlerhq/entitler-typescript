@@ -5,12 +5,12 @@ const server = new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "" });
 const customer = server.customer(process.env.CUSTOMER_ID ?? `billing-${Date.now()}`);
 await customer.register({ name: "Billing example" });
 
-const change = await customer.subscribe("pro_basic");
+const change = await customer.subscribe("pro_basic", { period: "Monthly" });
 console.log(`Subscribed to ${change.subscription?.plan.name}.`);
 
-const space = await customer.planSpace();
-console.log(`Holds: ${space.held.map((held) => held.plan.name).join(", ")}`);
-for (const option of space.options) {
+const plans = await customer.plans();
+console.log(`Holds: ${plans.held.map((held) => held.plan.name).join(", ")}`);
+for (const option of plans.options) {
   console.log(`  Could ${option.move} to ${option.plan.name}${option.selfServe ? "" : " (contact sales)"}`);
 }
 

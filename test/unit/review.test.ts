@@ -52,7 +52,7 @@ describe("redirects", () => {
       .customer("u")
       .check("f")
       .catch((e: unknown) => e);
-    expect((mock.mock.calls[0]?.[1] as RequestInit).redirect).toBe("manual");
+    expect((mock.mock.calls[0]?.[1] as RequestInit | undefined)?.redirect).toBe("manual");
     expect(error).toMatchObject({ code: "http_error" });
     expect(sent.every((request) => request.url.startsWith("https://api.entitler.dev/"))).toBe(true);
   });

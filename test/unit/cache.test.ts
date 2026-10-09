@@ -201,7 +201,7 @@ describe("the answer cache", () => {
     expect(checks.every((check) => check.entitled)).toBe(true);
   });
 
-  it("caches entitlement lists, plan space, customer pricing, pricing and features", async () => {
+  it("caches entitlement lists, the customer's plans, customer pricing, pricing and features", async () => {
     const { fetch, sent } = fakeFetch((request) =>
       json(
         request.path.endsWith("/entitlements")

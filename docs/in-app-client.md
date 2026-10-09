@@ -36,9 +36,12 @@ await app.me.isEntitled(features.exportPdf, { default: false });
 
 ## Token providers
 
-A provider is called for the first request, again when the kept token expires within 60 seconds, and
-once after a `401`, which the request is retried with. Concurrent requests share one pending
-refresh. A provider that fails, or answers a blank or unreadable token, fails the call with a
+A provider is called for the first request, again when the kept token expires within 60 seconds
+(or half its lifetime, when that is shorter), and once after a `401`, which the request is retried
+with; it is asked at most once per request. Concurrent requests share one pending refresh, which
+belongs to the client: one caller cancelling stops only its own wait, the provider call has the
+client's `timeout` as its deadline, and a failed refresh is not kept, so the next request asks
+again. A provider that fails, or answers a blank or unreadable token, fails the call with a
 `TokenError` carrying the cause, never the token. A fixed token string cannot be refreshed, so a `401`
 fails the call. A `403 credential_not_allowed` means the route refuses that kind of credential, and
 is never refreshed.

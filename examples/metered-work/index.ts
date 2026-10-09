@@ -11,22 +11,21 @@ async function summarise(signal: AbortSignal): Promise<{ text: string; credits: 
 }
 
 const jobId = `summary-${Date.now()}`;
-let summary = "";
 try {
-  const used = await customer.withHold(
+  const summary = await customer.withHold(
     aiCredits,
     10,
-    async ({ signal }) => {
+    async ({ hold, signal }) => {
       const result = await summarise(signal);
-      summary = result.text;
-      return result.credits;
+      hold.use(result.credits);
+      return result;
     },
     { idempotencyKey: jobId },
   );
-  console.log(`${summary} (${used} credits)`);
+  console.log(`${summary.text} (${summary.credits} credits)`);
 } catch (error) {
   if (!(error instanceof UsageRefusedError)) throw error;
-  console.log(`Not enough credits: ${error.result.refusal}.`);
+  console.log(`Not enough credits: ${error.result.refusal ?? error.result.outcome}.`);
 }
 
 const streamed = await customer.recordUsage(aiCredits, 2, { mode: "observe", idempotencyKey: `${jobId}-stream` });
