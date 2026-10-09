@@ -5,8 +5,16 @@ import type { FeatureType, Limit, Value } from "./types.js";
 /** A JSON body, as the API sends it. */
 export type Body = Record<string, unknown>;
 
+/** A metered feature in {@link fakeCustomer}: its allowance and how much is used. */
+export interface FakeMeter {
+  /** The allowance. */
+  readonly value: Value;
+  /** How much is used. Defaults to 0. */
+  readonly used?: number;
+}
+
 /** A feature's value in {@link fakeCustomer}: on, an amount, unlimited, or a meter. */
-export type FakeValue = Value | { readonly value: Value; readonly used?: number };
+export type FakeValue = Value | FakeMeter;
 
 /** Options for {@link fakeCustomer}. */
 export interface FakeCustomerOptions {

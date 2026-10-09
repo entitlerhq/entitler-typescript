@@ -5,6 +5,7 @@ declare global {
   const customer: ServerCustomer;
   const job: { id: string; finishedAt: string };
   const run: (options: { signal: AbortSignal }) => Promise<{ tokens: number }>;
+  const streamModel: (options: { signal: AbortSignal }) => AsyncIterable<{ tokens: number }>;
   const session: { userId: string };
   const auth: { currentUser: { getIdToken(): Promise<string> } };
   const cookies: { get(name: string): string | undefined };

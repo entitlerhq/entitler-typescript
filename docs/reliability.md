@@ -35,14 +35,16 @@ attempt. A failed call's error carries the key it sent, so you can repeat the ca
 
 ## The answer cache
 
-Checks, entitlement lists, the customer's plans and customer pricing, and on the server `pricing()`
-and `features()`, go through the cache: an in-memory store of 1,000 answers by default. It is the
+Checks, entitlement lists, the customer's plans and customer pricing, the server's `pricing()` and
+`features()`, and a publishable client's `pricing()`, go through the cache: an in-memory store of 1,000 answers by default. It is the
 only cache: requests pass `cache: "no-store"` to `fetch`, so no browser or runtime HTTP cache
 answers in its place.
 
 - An answer is fresh while its age (the time since it arrived plus its `Age` header) is below its
-  `max-age` and it has no `no-cache`; a fresh answer answers without a request.
-- Every write to a customer (except `token`, `snapshot`, `checkout` and `billingPortal`, which
+  `max-age` and it has no `no-cache`; a fresh answer answers without a request, unless the read
+  passes `revalidate: true`, which revalidates it with its `ETag` so a page that knows the customer
+  just changed (back from paying, after a server-side upgrade) shows the change at once.
+- Every write to a customer (except `token`, `snapshot` and `billingPortal`, which
   change no answer) bumps that customer's write generation first, whether or not it succeeds.
   Answers kept before the bump are revalidated, and a read that was under way during a write is
   never kept as fresh.
@@ -54,7 +56,10 @@ Keys are SHA-256 hashes of the request and a fingerprint of the credential itsel
 claims, so a forged token can never read another customer's answers from a shared store. A refreshed
 token starts its own entries.
 
-Pass your own store to share answers between processes, or `cache: false` to turn it off:
+On the server, pass your own store to share answers between processes, or `cache: false` to turn it
+off. In-app clients take only a `MemoryCache` size or `false`: their principal changes with every
+token, so a store kept across launches would never be read again, and only snapshots survive a
+relaunch.
 
 ```ts
 import { type CacheEntry, type CacheStore, EntitlerServer } from "@entitlerhq/entitler";
@@ -99,12 +104,13 @@ a request for the next 30 seconds (or the failed answer's `Retry-After`, if long
 goes through to test the API. So an outage costs one slow read, not one per call. A 2xx answer the SDK
 cannot read counts as unreachable, since its usual cause is a proxy or captive portal.
 
-Stale answers never cross credentials, with one exception: when this client's token provider fails
-(typically offline), reads may answer stale entries kept under the token this same client held
-before.
+Stale answers never cross credentials, a token this same client held before included. So when the
+token provider fails (offline, typically), the read fails with its `TokenError`, and `isEntitled`
+answers its default. Apps that must work offline verify a [snapshot](offline-snapshots.md), falling
+back when `isUnreachable(error)` is true.
 
 `onError` is called with each error a fallback absorbed: a stale answer, an `isEntitled` default, a
-hold `withHold` could not release, and a custom store's failures. An `onError` that throws is caught
+hold's failed release or disposal, and a custom store's failures. An `onError` that throws is caught
 and ignored, so it can never change a call's answer or error.
 
 ## Redirects

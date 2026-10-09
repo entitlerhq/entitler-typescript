@@ -65,4 +65,20 @@ A group is in the list with the server's decision, so `has` never expands one it
 ## Customers not registered yet
 
 A customer who is not registered yet is answered from the default plan by every read, so you can
-check before `register()`. Writes to one answer `404 customer_not_found`.
+check before `register()`. Writes to one answer `404 customer_not_found`, except `recordUsage`,
+`subscribe` and `setPlan` given `register: true`, which register the customer first when the
+credential may register customers.
+
+## Showing a change at once
+
+Reads keep answers within their `max-age`. A page that knows the customer just changed (back from
+paying, after a server-side upgrade) passes `revalidate: true`, which skips the fresh kept answer and
+revalidates it with its `ETag`; a `304` still answers the kept body:
+
+```ts
+const fresh = await customer.check(features.exportPdf, { revalidate: true });
+console.log(fresh.entitled, fresh.upgrades.map((upgrade) => `${upgrade.move} to ${upgrade.name} (${upgrade.action})`));
+```
+
+A check's `upgrades` lists the plans that would entitle the customer, filled only when they are not
+entitled, with the same `move` and `action` as [billing pages](billing.md) use.

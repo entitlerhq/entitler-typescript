@@ -54,7 +54,7 @@
     "test": "vitest run test/unit",
     "test:coverage": "vitest run test/unit --coverage",
     "test:integration": "vitest run test/integration",
-    "docs": "typedoc && bun scripts/snippets.ts && tsc -p test/docs",
+    "docs": "bun run build && typedoc && bun scripts/snippets.ts && tsc -p test/docs",
     "examples": "bun run build && tsc -p examples",
     "package:check": "bun run build && publint --pack npm && attw --pack . --profile esm-only && bun scripts/size.ts",
     "check": "bun run lint && bun run typecheck && bun run test:coverage && bun run docs && bun run examples && bun run package:check",

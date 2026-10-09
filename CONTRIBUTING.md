@@ -32,7 +32,7 @@ against `https://api.entitler.dev` with the key in `ENTITLER_TEST_KEY`, and is s
 unset:
 
 ```sh
-ENTITLER_TEST_KEY=ent_test_… bun run test:integration
+ENTITLER_TEST_KEY=ent_test_… ENTITLER_TEST_PUBLISHABLE_KEY=ent_pk_test_… bun run test:integration
 ```
 
 It never writes the catalogue, tracks or keys. Each customer it creates is named

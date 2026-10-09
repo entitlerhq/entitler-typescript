@@ -1,13 +1,5 @@
 import { type CacheEntry, type CacheStore, MemoryCache } from "./cache.js";
-import {
-  ApiError,
-  ConnectionError,
-  type EntitlerError,
-  type ErrorCode,
-  TimeoutError,
-  TokenError,
-  unreachable,
-} from "./errors.js";
+import { ApiError, ConnectionError, type EntitlerError, type ErrorCode, TimeoutError, unreachable } from "./errors.js";
 import { encode, sha256Hex, sleep, wholeNumber } from "./util.js";
 import { VERSION } from "./version.js";
 
@@ -323,7 +315,6 @@ export class Transport {
   readonly #credentials: Credentials;
   readonly #headers: () => Record<string, string>;
   readonly #generations = new Map<string, { generation: number; at: number }>();
-  #lastAuth: Authorised | undefined;
   #downUntil = 0;
   #probing = false;
 
@@ -384,22 +375,9 @@ export class Transport {
     for (const customer of call.changes ?? []) this.#bump(customer);
     const url = this.#url(call);
     const headers = this.#requestHeaders(call);
-    let auth: Authorised;
-    if (call.open) {
-      auth = { headers: {}, kind: "key", credential: "" };
-    } else {
-      try {
-        auth = await this.#credentials.authorise(signal);
-      } catch (error) {
-        const previous = this.#lastAuth;
-        if (!(error instanceof TokenError) || !call.cached || !this.#cache || !previous) throw error;
-        const kept = await this.#get(this.#cache, await this.#key(call, url, headers, previous));
-        if (!kept || Date.now() - kept.receivedAt >= this.#staleFor) throw error;
-        this.report(error);
-        return { data: this.#decode<T>(kept.body), stale: true, replayed: false };
-      }
-      this.#lastAuth = auth;
-    }
+    const auth: Authorised = call.open
+      ? { headers: {}, kind: "key", credential: "" }
+      : await this.#credentials.authorise(signal);
     if (!call.cached || !this.#cache) {
       const received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304) throw apiError(received, call.idempotencyKey);
@@ -595,7 +573,6 @@ export class Transport {
           const next = await this.#credentials.refresh(current, signal);
           if (next) {
             current = next;
-            this.#lastAuth = next;
             continue;
           }
         }

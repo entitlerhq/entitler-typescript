@@ -14,19 +14,20 @@ if (scopes.includes("customers:write")) console.log("Show the billing controls."
 | Method | Scope |
 | --- | --- |
 | `check`, `isEntitled`, `entitlements`, `plans`, `customer.pricing`, `snapshot` | `entitlements:read` |
-| `usage`, `hold` | `usage:read` |
-| `recordUsage`, `holdUsage`, `settleUsage`, `releaseUsage`, `withHold`, `recordUsageBatch` | `usage:write` |
-| `server.pricing`, `features` | `plans:read` |
+| `usage` | `usage:read` |
+| `recordUsage`, `startHold`, `withHold`, `holdUsage`, `settleUsage`, `releaseUsage`, `recordUsageBatch` | `usage:write` |
+| `subscribe`, `cancel`, `undoPendingChange`, `billingPortal`, `syncBilling` | `customers:write`; in an app, `billing:self` |
+| `server.pricing`, `features`, a publishable client's `pricing` | `plans:read` |
 | `register` | `customers:register`; changing an existing customer's details needs `customers:write` or `customers:profile` |
-| `details`, `customers.list`, `billing`, `providers` | `customers:read` |
+| `details`, `customers.list`, `billing` | `customers:read` |
 | `update` | `customers:write` or `customers:profile` |
-| `customers.create`, `delete`, billing changes, `checkout`, `billingPortal`, every `vendor` method | `customers:write` |
+| `customers.create`, `erase`, `setPlan`, `setAddOn`, `grant`, `revokeGrant`, `adjustMeter`, `cancelUsage` | `customers:write` |
 | `token` | `tokens:mint` |
 | `setTrack` | `tracks:assign` |
 | `scopes`, `snapshotKeys`, `verifySnapshot`, `newVisitorId` | none |
 
 `scopes()` answers the scopes the SDK knows, in this order: `plans:read`, `entitlements:read`,
-`usage:read`, `usage:write`, `customers:register`, `customers:read`, `customers:write`,
+`usage:read`, `usage:write`, `billing:self`, `customers:register`, `customers:read`, `customers:write`,
 `customers:profile`, `customers:sample`, `tokens:mint`, `plans:write`, `plans:release`,
 `tracks:manage`, `tracks:promote`, `tracks:assign`, `keys:manage`, `members:manage`,
 `projects:manage`, `org:manage`. For an identity client it also answers `registration`, whether the

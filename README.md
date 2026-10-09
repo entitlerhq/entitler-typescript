@@ -44,15 +44,17 @@ await customer.recordUsage(features.aiCredits, 3, { idempotencyKey: "job_42" });
 
 | | |
 | --- | --- |
-| `new EntitlerServer({ key, ...options })` | `customer(id)`, `customers.list()`, `customers.create()`, `recordUsageBatch()`, `pricing()`, `features()`, `scopes()`, `snapshotKeys()`, `verifySnapshot()`, `newVisitorId()` |
-| `new EntitlerClient({ token })` or `({ key, identityToken })` | `me`, `register()` (identity clients), `scopes()`, `snapshotKeys()`, `verifySnapshot()`, `visitor` |
-| `Customer` (`server.customer(id)`, `client.me`) | `check()`, `isEntitled()`, `entitlements()`, `plans()`, `pricing()`, `usage()`, `recordUsage()`, `holdUsage()`, `settleUsage()`, `releaseUsage()`, `hold()`, `withHold()`, `snapshot()` |
-| `ServerCustomer` | adds `register()`, `details()`, `update()`, `delete()`, `token()`, `setTrack()`, the self-serve billing calls, and `vendor.*` |
-| Errors | `ApiError`, `ConnectionError`, `TimeoutError`, `TokenError`, `SnapshotError`, `UsageRefusedError`, `UsageSettlementError`, all `EntitlerError` |
-| Without a client | `defineFeature()`, `verifySnapshot()`, `newVisitorId()`, `VISITOR_ID_PATTERN`, `MemoryCache` |
+| `new EntitlerServer({ key, ...options })` | `customer(id)`, `customers.list()`, `customers.create()`, `recordUsageBatch()`, `pricing()`, `features()`, `scopes()`, `snapshotKeys()`, `verifySnapshot()`, `newVisitorId()`, `close()` |
+| `new EntitlerClient({ token })` or `({ key, identityToken })` | `me`, `register()` (identity clients), `scopes()`, `snapshotKeys()`, `verifySnapshot()`, `visitor`, `close()` |
+| `new EntitlerClient({ key })` | `pricing()`, `snapshotKeys()`, `verifySnapshot()`, `visitor`, `close()` |
+| `Customer` (`server.customer(id)`, `client.me`) | `check()`, `isEntitled()`, `entitlements()`, `plans()`, `pricing()`, `usage()`, `recordUsage()`, `startHold()`, `withHold()`, `holdUsage()`, `settleUsage()`, `releaseUsage()`, `snapshot()`, `subscribe()`, `cancel()`, `undoPendingChange()`, `billingPortal()`, `syncBilling()` |
+| `ServerCustomer` | adds `asOf` on reads, `register()`, `details()`, `update()`, `erase()`, `token()`, `setTrack()`, `billing()`, `setPlan()`, `setAddOn()`, `grant()`, `revokeGrant()`, `adjustMeter()`, `cancelUsage()` |
+| Errors | `ApiError`, `ConnectionError`, `TimeoutError`, `TokenError`, `SnapshotError`, `UsageRefusedError`, `UsageReplayedError`, `UsageSettlementError`, all `EntitlerError`; `isUnreachable()` |
+| Without a client | `defineFeature()`, `verifySnapshot()`, `newVisitorId()`, `storedVisitorId()`, `resetStoredVisitor()`, `VISITOR_ID_PATTERN`, `MemoryCache` |
+| `@entitlerhq/entitler/testing` | `fakeCustomer()`, `answers` |
 
 Every method's last argument is an options object taking `signal` and `timeout`, and on writes
-`idempotencyKey`.
+`idempotencyKey`, which usage reports, holds and `adjustMeter` require.
 
 ## Two clients
 
@@ -60,25 +62,28 @@ Every method's last argument is an options object taking `signal` and `timeout`,
 | --- | --- | --- | --- |
 | `EntitlerServer` | `{ key }`: a secret project key | your servers | any customer, with `server.customer(id)` |
 | `EntitlerClient` | `{ token }`: a customer token your server minted, or `{ key, identityToken }`: a publishable key and a sign-in provider's identity token | browsers, mobile and desktop apps | the signed-in customer, `client.me` |
+| `EntitlerClient` | `{ key }`: a publishable key alone | signed-out paywalls and pricing pages | nobody: `pricing()` only |
 
-Both answer the same `Customer` interface, so code that gates features and records usage is written
-once:
+Both answer the same `Customer` interface, so code that gates features, records usage and offers the
+customer's own billing choices is written once:
 
 ```ts
 import type { Customer } from "@entitlerhq/entitler";
 import { features } from "./entitler.gen.js";
 
-export async function exportDocument(customer: Customer): Promise<string> {
+export async function exportDocument(customer: Customer, requestId: string): Promise<string> {
   if (!(await customer.isEntitled(features.exportPdf, { default: false }))) return "upgrade";
-  await customer.recordUsage(features.aiCredits, 1);
+  await customer.recordUsage(features.aiCredits, 1, { idempotencyKey: `export-${requestId}` });
   return "exported";
 }
 ```
 
 A secret key never goes into an app. Anyone can read a key out of a browser bundle or an app binary,
 and a secret key acts on every customer in the environment. The in-app client takes only a customer
-token, which names one customer for at most an hour, or a publishable key holding product scopes
-alone, with an identity token that names the signed-in person.
+token, which names one customer for at most an hour, or a publishable key (`ent_pk_…`) holding
+product scopes alone. Each client refuses the other kind of key at construction, so a server key
+pasted into an app fails on your machine, never in a shipped app. Keep one in-app client per
+signed-in customer and close it at sign-out.
 
 ## Feature constants and the generator
 
@@ -92,16 +97,18 @@ npx @entitlerhq/entitler generate --check
 
 `check(features.aiCredits)` then answers a `Check<"metered">` with `used`, `held`, `remaining` and
 `resetsAt`, and usage methods accept only metered features. Without the generator, declare constants
-with `defineFeature(key, type)`. See [feature constants](docs/feature-constants.md).
+with `defineFeature(key, type)`. See [feature constants](docs/feature-constants.md). The same tool
+writes the snapshot keys an app ships: `npx @entitlerhq/entitler snapshot-keys --out <file>`.
 
 ## Guides
 
 - [Checking access](docs/checking-access.md): `check`, `isEntitled`, failing open or closed
-- [Recording usage](docs/recording-usage.md): modes, holds, `withHold`, idempotency keys
-- [Pricing pages and visitors](docs/pricing-and-visitors.md)
-- [Changing plans](docs/changing-plans.md): `plans()`, upgrades and downgrades
-- [Billing](docs/billing.md): self-serve changes, checkout, the billing portal, vendor actions
-- [The in-app client](docs/in-app-client.md): customer tokens, identity tokens, token providers
+- [Recording usage](docs/recording-usage.md): modes, idempotency keys, `startHold`, `withHold`, batches
+- [Pricing pages and visitors](docs/pricing-and-visitors.md): publishable keys, visitors through sign-up
+- [Billing pages](docs/billing.md): `plans()`, `subscribe` and its next step, return URLs, the billing portal
+- [Company decisions](docs/company-decisions.md): `setPlan`, `setAddOn`, grants, meter adjustments
+- [Store purchases](docs/store-purchases.md): App Store and Google Play recipes
+- [The in-app client](docs/in-app-client.md): customer tokens, identity tokens, one client per customer
 - [Offline snapshots](docs/offline-snapshots.md) and key pinning
 - [Reliability](docs/reliability.md): timeouts, retries, the cache, stale answers, `onError`
 - [Errors](docs/errors.md) and their codes
@@ -110,6 +117,7 @@ with `defineFeature(key, type)`. See [feature constants](docs/feature-constants.
 - [Scopes](docs/scopes.md)
 - [Configuration](docs/configuration.md)
 - [Feature constants](docs/feature-constants.md)
+- [Testing your app](docs/testing.md): `fakeCustomer` and answer builders
 - [Versioning and support](docs/versioning.md)
 - Frameworks: [Express](docs/express.md), [Next.js](docs/nextjs.md),
   [Cloudflare Workers](docs/cloudflare-workers.md), [React](docs/react.md)
@@ -119,8 +127,8 @@ with `defineFeature(key, type)`. See [feature constants](docs/feature-constants.
 [quickstart](examples/quickstart/index.ts), [pricing-page](examples/pricing-page/index.ts),
 [in-app](examples/in-app/index.ts), [metered-work](examples/metered-work/index.ts),
 [offline](examples/offline/index.ts), [billing](examples/billing/index.ts),
-[generated-features](examples/generated-features/index.ts) and
-[cloudflare-worker](examples/cloudflare-worker/index.ts). The [examples README](examples/README.md)
+[generated-features](examples/generated-features/index.ts),
+[cloudflare-worker](examples/cloudflare-worker/index.ts) and [testing](examples/testing/index.ts). The [examples README](examples/README.md)
 says how to run each one.
 
 ## Licence
