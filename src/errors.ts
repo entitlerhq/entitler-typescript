@@ -125,7 +125,10 @@ export interface ApiErrorInit {
 export class ApiError extends EntitlerError {
   /** `ApiError`. */
   override name = "ApiError";
-  /** The HTTP status. */
+  /**
+   * The HTTP status; `0` for a redirect a browser hides (an opaque redirect), the only status the
+   * platform gives.
+   */
   readonly status: number;
   /** The API's error code, or `http_error` when the answer had no readable error body. */
   readonly code: ErrorCode;
