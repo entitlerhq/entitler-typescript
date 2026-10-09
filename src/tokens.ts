@@ -37,9 +37,16 @@ export class TokenSource {
   #pending: Promise<string> | undefined;
 
   readonly #timeout: number;
+  readonly #closing: () => AbortSignal | undefined;
 
-  constructor(value: string | TokenProvider, blankMessage: string, timeout = 10_000) {
+  constructor(
+    value: string | TokenProvider,
+    blankMessage: string,
+    timeout = 10_000,
+    closing: () => AbortSignal | undefined = () => undefined,
+  ) {
     this.#timeout = timeout;
+    this.#closing = closing;
     if (typeof value === "function") this.#provider = value;
     else this.#current = requireText(value, blankMessage);
   }
@@ -67,18 +74,20 @@ export class TokenSource {
   }
 
   async #ask(): Promise<string> {
-    const deadline = AbortSignal.timeout(this.#timeout);
+    const timer = AbortSignal.timeout(this.#timeout);
+    const closing = this.#closing();
+    const deadline = closing ? AbortSignal.any([timer, closing]) : timer;
     let answer: unknown;
     try {
       answer = await abortable(Promise.resolve((this.#provider as TokenProvider)({ signal: deadline })), deadline);
     } catch (cause) {
+      if (closing?.aborted) throw closing.reason;
       throw new TokenError(
-        deadline.aborted
-          ? `The token provider did not answer within ${this.#timeout} ms.`
-          : "The token provider failed.",
+        timer.aborted ? `The token provider did not answer within ${this.#timeout} ms.` : "The token provider failed.",
         { cause },
       );
     }
+    if (closing?.aborted) throw closing.reason;
     const token = typeof answer === "string" ? trimCredential(answer) : "";
     if (token === "") throw new TokenError("The token provider answered a blank token.");
     if (!readable(token)) throw new TokenError("The token provider answered a token that is not a readable JWT.");

@@ -34,6 +34,29 @@ function storage(): Storage | undefined {
   }
 }
 
+/**
+ * In a browser, the visitor id kept in `localStorage` under `entitler.visitor`, created and kept
+ * when none is: read it on a signed-out screen to pass into your sign-up request, so the server's
+ * `register({ visitor })` keeps the experiment arm. Elsewhere, and where storage refuses access, a
+ * new id each call.
+ */
+export function storedVisitorId(): string {
+  return new Visitor(undefined).sent();
+}
+
+/**
+ * Removes the visitor id kept in a browser's `localStorage`, so the next read creates a new one.
+ * Call it at sign-out and at account deletion, so the next person on a shared device is never
+ * linked to the last.
+ */
+export function resetStoredVisitor(): void {
+  try {
+    storage()?.removeItem(STORAGE_KEY);
+  } catch {
+    return;
+  }
+}
+
 /** The in-app client's visitor: given, kept in a browser's `localStorage`, or for the client's lifetime. @internal */
 export class Visitor {
   readonly id: string;

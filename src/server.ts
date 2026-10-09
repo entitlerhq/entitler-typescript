@@ -1,9 +1,17 @@
-import { type ServerCustomer, ServerCustomerApi, usageAmount, usageLog } from "./customer.js";
+import type { CacheStore } from "./cache.js";
+import { type PricingOptions, type ServerCustomer, ServerCustomerApi, usageAmount, usageLog } from "./customer.js";
 import { type ClientDescription, describe, knownScopes } from "./describe.js";
 import { ApiError, TimeoutError } from "./errors.js";
 import { paged } from "./paging.js";
-import { type ExpectedSnapshot, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
-import { type CallOptions, type ClientOptions, Transport, type WriteOptions } from "./transport.js";
+import { type SnapshotExpectation, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
+import {
+  type CallOptions,
+  type ClientOptions,
+  isClosed,
+  type ReadOptions,
+  Transport,
+  type WriteOptions,
+} from "./transport.js";
 import type {
   CustomerDetails,
   CustomerSummary,
@@ -11,6 +19,7 @@ import type {
   Page,
   Paged,
   Pricing,
+  Replayed,
   Scopes,
   SnapshotKeys,
   UsageBatchResult,
@@ -18,13 +27,29 @@ import type {
   UsageEventInput,
   UsageEventResult,
 } from "./types.js";
-import { compact, featureKey, idempotencyKeyOf, instant, requireId, requireText } from "./util.js";
+import {
+  compact,
+  featureKey,
+  idempotencyKeyOf,
+  instant,
+  requiredKey,
+  requireId,
+  requireText,
+  sha256Hex,
+  trimCredential,
+} from "./util.js";
 import { newVisitorId, visitorOf } from "./visitor.js";
 
 /** Options for {@link EntitlerServer}. */
 export interface ServerOptions extends ClientOptions {
   /** A secret project key from the dashboard. Keep it on your servers; never ship it in an app. */
   key: string;
+  /**
+   * Where to keep answers: a {@link MemoryCache} of another size, any {@link CacheStore} (Workers KV,
+   * Redis) to share answers between processes, or `false` for none. Defaults to a
+   * {@link MemoryCache} of 1,000 answers.
+   */
+  cache?: CacheStore | false;
 }
 
 /** Options for {@link EntitlerServer.customers}' `list`. */
@@ -55,8 +80,8 @@ export interface CustomerCreate {
   metadata?: Record<string, string>;
 }
 
-/** Options for {@link EntitlerServer.recordUsageBatch}. */
-export interface UsageBatchOptions extends WriteOptions {
+/** Options for {@link EntitlerServer.recordUsageBatch}. Each request's idempotency key derives from its events. */
+export interface UsageBatchOptions extends CallOptions {
   /** Registers customers not registered yet. */
   register?: boolean;
 }
@@ -66,27 +91,62 @@ export interface Customers {
   /** Every customer matching the options, a page at a time. */
   list(options?: ListCustomersOptions): Paged<CustomerSummary>;
   /** Creates a customer, optionally on a plan. */
-  create(input: CustomerCreate, options?: WriteOptions): Promise<CustomerDetails>;
+  create(input: CustomerCreate, options?: WriteOptions): Promise<CustomerDetails & Replayed>;
 }
 
 const BATCH_SIZE = 500;
 
-function failedRequest(count: number, error: unknown): UsageBatchResult {
-  const code =
-    error instanceof ApiError ? error.code : error instanceof TimeoutError ? "timed_out" : "connection_failed";
-  const message = error instanceof Error ? error.message : "Entitler could not record these events.";
+interface Prepared {
+  readonly event?: { customer: string; feature: string; amount: number; occurredAt?: string; idempotencyKey: string };
+  readonly refused?: { code: string; message: string; idempotencyKey: string | null };
+}
+
+function prepare(event: UsageEventInput): Prepared {
+  const given = (event ?? {}) as Partial<Record<keyof UsageEventInput, unknown>>;
+  const idempotencyKey = typeof given.idempotencyKey === "string" ? given.idempotencyKey : null;
+  const step = (code: string, check: () => unknown) => {
+    try {
+      return { value: check() };
+    } catch (error) {
+      return { refused: { code, message: (error as Error).message, idempotencyKey } };
+    }
+  };
+  const checks = [
+    step("invalid_body", () => requireId(given.customer, "Provide the id your app uses for the customer.")),
+    step("invalid_body", () => featureKey(given.feature as string)),
+    step("invalid_amount", () => usageAmount(given.amount)),
+    step("invalid_body", () => instant(given.occurredAt as string | undefined, "Pass occurredAt as a valid date.")),
+    step("invalid_idempotency_key", () => requiredKey(given.idempotencyKey)),
+  ];
+  const refused = checks.find((check) => check.refused)?.refused;
+  if (refused) return { refused };
+  const [customer, feature, amount, occurredAt, key] = checks.map((check) => check.value);
   return {
-    results: Array.from({ length: count }, (_, index) => ({
-      index,
-      outcome: "error",
-      id: null,
-      late: false,
-      error: { code, message },
-      idempotencyKey: "",
-    })),
-    recorded: 0,
-    duplicates: 0,
-    errors: count,
+    event: {
+      customer: customer as string,
+      feature: feature as string,
+      amount: amount as number,
+      ...compact({ occurredAt: occurredAt as string | undefined }),
+      idempotencyKey: key as string,
+    },
+  };
+}
+
+async function batchKey(register: boolean, events: readonly NonNullable<Prepared["event"]>[]): Promise<string> {
+  const rows = events.map((event) => [
+    event.customer,
+    event.feature,
+    event.amount,
+    event.occurredAt ?? null,
+    event.idempotencyKey,
+  ]);
+  return `batch:${await sha256Hex(JSON.stringify(["entitler-batch-v1", register, rows]))}`;
+}
+
+function errorOf(error: unknown): { code: string; message: string } {
+  return {
+    code: error instanceof ApiError ? error.code : error instanceof TimeoutError ? "timed_out" : "connection_failed",
+    message: error instanceof Error ? error.message : "Entitler could not record these events.",
   };
 }
 
@@ -108,9 +168,14 @@ export class EntitlerServer {
   /** The customer list and creation. */
   readonly customers: Customers;
 
-  /** Creates a server client. Throws `TypeError` for a blank key. */
+  /** Creates a server client. Throws `TypeError` for a blank key, and for a publishable key, which belongs in an app. */
   constructor(options: ServerOptions) {
     const key = requireText(options?.key, "Provide an Entitler API key from the dashboard.");
+    if (trimCredential(key).startsWith("ent_pk_")) {
+      throw new TypeError(
+        "A publishable key belongs in EntitlerClient. Use a secret key from the dashboard on your server.",
+      );
+    }
     this.#transport = new Transport(options, {
       kind: "server",
       authorise: async () => ({ headers: { Authorization: `Bearer ${key}` }, kind: "key", credential: key }),
@@ -145,7 +210,11 @@ export class EntitlerServer {
           options,
         });
         const customer = new ServerCustomerApi(transport, externalId);
-        return { ...answer.data, usage: usageLog(answer.data.usage, (cursor) => customer.usagePage(cursor, options)) };
+        return {
+          ...answer.data,
+          usage: usageLog(answer.data.usage, (cursor) => customer.usagePage(cursor, options)),
+          replayed: answer.replayed,
+        };
       },
     };
   }
@@ -156,73 +225,91 @@ export class EntitlerServer {
   }
 
   /**
-   * Records many usage events in `observe` mode, in requests of at most 500 events sent in order.
-   * Answers one result per event, in input order, each with its idempotency key, and the totals.
-   * A request that fails after its retries answers its events with outcome `error` (code
-   * `connection_failed` or `timed_out` when no answer arrived) and the next request still goes:
-   * resend those events with the same keys. Keys derived from your own unit of work make any resend
-   * safe. Only argument errors and cancellation reject.
+   * Records many usage events in `observe` mode, each under its own required idempotency key, in
+   * requests of at most 500 events sent in order. Answers one result per event, in input order, and
+   * the totals. An event the SDK refuses itself is answered `error` and not sent; a request that
+   * fails after its retries answers its events `error` (code `connection_failed` or `timed_out`
+   * when no answer arrived) and the next request still goes. Each request's idempotency key derives
+   * from its events, so resending the events answered `error` is always safe. Only cancellation
+   * rejects.
    */
   async recordUsageBatch(events: readonly UsageEventInput[], options?: UsageBatchOptions): Promise<UsageBatchResult> {
     if (!Array.isArray(events)) throw new TypeError("Pass events as an array.");
-    const prepared = events.map(
-      (event) =>
-        compact({
-          customer: requireId(event?.customer, "Provide the id your app uses for the customer."),
-          feature: featureKey(event.feature),
-          amount: event.amount === undefined ? undefined : usageAmount(event.amount),
-          occurredAt: instant(event.occurredAt, "Pass occurredAt as a valid date."),
-          idempotencyKey: idempotencyKeyOf(event.idempotencyKey),
-        }) as { customer: string; idempotencyKey: string },
-    );
-    const requests = Math.ceil(prepared.length / BATCH_SIZE);
-    const keys = Array.from({ length: requests }, (_, index) =>
-      options?.idempotencyKey === undefined
-        ? idempotencyKeyOf(undefined)
-        : `${idempotencyKeyOf(options.idempotencyKey, 190)}:${index}`,
-    );
-    const results: UsageEventResult[] = [];
+    this.#transport.ensureOpen();
+    const register = options?.register === true;
+    const prepared = events.map(prepare);
+    const results: UsageEventResult[] = new Array(prepared.length);
     const totals = { recorded: 0, duplicates: 0, errors: 0 };
-    for (const [request, idempotencyKey] of keys.entries()) {
-      const start = request * BATCH_SIZE;
-      const chunk = prepared.slice(start, start + BATCH_SIZE);
+    const sendable: number[] = [];
+    for (const [index, item] of prepared.entries()) {
+      if (item.event) {
+        sendable.push(index);
+        continue;
+      }
+      const { code, message, idempotencyKey } = item.refused as NonNullable<Prepared["refused"]>;
+      results[index] = {
+        index,
+        outcome: "error",
+        id: null,
+        late: false,
+        error: { code, message },
+        idempotencyKey,
+        replayed: false,
+      };
+      totals.errors += 1;
+    }
+    for (let start = 0; start < sendable.length; start += BATCH_SIZE) {
+      const indexes = sendable.slice(start, start + BATCH_SIZE);
+      const chunk = indexes.map((index) => prepared[index]?.event as NonNullable<Prepared["event"]>);
       let answer: UsageBatchResult;
+      let replayed = false;
       try {
-        answer = (
-          await this.#transport.send<UsageBatchResult>({
-            method: "POST",
-            path: "/usage/events",
-            body: { ...compact({ register: options?.register }), events: chunk },
-            idempotencyKey,
-            changes: chunk.map((event) => `/customers/${encodeURIComponent(event.customer)}`),
-            options,
-          })
-        ).data;
+        const sent = await this.#transport.send<UsageBatchResult>({
+          method: "POST",
+          path: "/usage/events",
+          body: { ...(options?.register === undefined ? {} : { register: options.register }), events: chunk },
+          idempotencyKey: await batchKey(register, chunk),
+          changes: chunk.map((event) => `/customers/${encodeURIComponent(event.customer)}`),
+          options,
+        });
+        answer = sent.data;
+        replayed = sent.replayed;
       } catch (error) {
-        if (options?.signal?.aborted && error === options.signal.reason) throw error;
-        answer = failedRequest(chunk.length, error);
+        if ((options?.signal?.aborted && error === options.signal.reason) || isClosed(error)) throw error;
+        const failure = errorOf(error);
+        answer = {
+          results: chunk.map((_, index) => ({
+            index,
+            outcome: "error",
+            id: null,
+            late: false,
+            error: failure,
+            idempotencyKey: null,
+            replayed: false,
+          })),
+          recorded: 0,
+          duplicates: 0,
+          errors: chunk.length,
+        };
       }
       for (const result of answer.results) {
-        const index = start + result.index;
-        results.push({
-          ...result,
-          index,
-          idempotencyKey: (prepared[index] as { idempotencyKey: string }).idempotencyKey,
-        });
+        const index = indexes[result.index] as number;
+        results[index] = { ...result, index, idempotencyKey: chunk[result.index]?.idempotencyKey ?? null, replayed };
       }
       totals.recorded += answer.recorded;
       totals.duplicates += answer.duplicates;
       totals.errors += answer.errors;
     }
-    return { results: results.sort((a, b) => a.index - b.index), ...totals };
+    return { results, ...totals };
   }
 
   /** The pricing on sale, signed out, through the answer cache. Pass a visitor id to keep their experiment arm. */
-  async pricing(options?: CallOptions & { visitor?: string }): Promise<Pricing> {
+  async pricing(options?: PricingOptions): Promise<Pricing> {
     const answer = await this.#transport.send<Pricing>({
       method: "GET",
       path: "/pricing",
       cached: true,
+      revalidate: options?.revalidate,
       headers: { "Entitler-Visitor": visitorOf(options?.visitor) },
       options,
     });
@@ -230,11 +317,12 @@ export class EntitlerServer {
   }
 
   /** The catalogue's features, through the answer cache. */
-  async features(options?: CallOptions): Promise<FeatureList> {
+  async features(options?: ReadOptions): Promise<FeatureList> {
     const answer = await this.#transport.send<FeatureList>({
       method: "GET",
       path: "/pricing/features",
       cached: true,
+      revalidate: options?.revalidate,
       options,
     });
     return { ...answer.data, stale: answer.stale };
@@ -254,13 +342,22 @@ export class EntitlerServer {
   }
 
   /** Verifies a snapshot offline, with no request. See {@link verifySnapshot}. */
-  async verifySnapshot(token: string, expected: ExpectedSnapshot): Promise<VerifiedSnapshot> {
+  async verifySnapshot(token: string, expected: SnapshotExpectation): Promise<VerifiedSnapshot> {
     return verifySnapshot(token, expected);
   }
 
   /** Mints a new visitor id. See {@link newVisitorId}. */
   newVisitorId(): string {
     return newVisitorId();
+  }
+
+  /**
+   * Closes the client: aborts every call in flight, drops the in-memory cache (a custom store is
+   * left as it is), and makes every later call reject with a `DOMException` named
+   * `InvalidStateError`. Closing twice is safe.
+   */
+  close(): void {
+    this.#transport.close();
   }
 
   /** Shows the base URL and the kind, never the key. */

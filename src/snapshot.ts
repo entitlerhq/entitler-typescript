@@ -6,7 +6,7 @@ import type { Entitlement, EnvironmentRef, SnapshotKey, SnapshotKeys, TrackRef }
 import { base64UrlDecode, decodeJson, requireText } from "./util.js";
 
 /** What a snapshot must match to verify. */
-export interface ExpectedSnapshot {
+export interface SnapshotExpectation {
   /** The keys that may have signed it: the key set from `snapshotKeys()`, or its `keys`. Ship them with the app. */
   keys: SnapshotKeys | readonly SnapshotKey[];
   /** The signed-in customer's external id. */
@@ -121,7 +121,7 @@ function rfc3339(seconds: number): string {
  * if (snapshot.entitlements.has(features.exportPdf)) showExport();
  * ```
  */
-export async function verifySnapshot(token: string, expected: ExpectedSnapshot): Promise<VerifiedSnapshot> {
+export async function verifySnapshot(token: string, expected: SnapshotExpectation): Promise<VerifiedSnapshot> {
   const customer = requireText(expected?.customer, FOR_WHOM);
   const environment = requireText(expected?.environment, FOR_WHOM);
   const issuer = expected.issuer ?? "https://api.entitler.dev/customers";

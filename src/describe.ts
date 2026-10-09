@@ -5,7 +5,7 @@ import type { Scope } from "./types.js";
 export interface ClientDescription<K extends string = string> {
   /** The API's base URL. */
   readonly baseUrl: string;
-  /** The client's kind: `server`, `token` or `identity`. */
+  /** The client's kind: `server`, `token`, `identity` or `publishable`. */
   readonly kind: K;
 }
 
@@ -14,6 +14,7 @@ const SCOPES: readonly Scope[] = [
   "entitlements:read",
   "usage:read",
   "usage:write",
+  "billing:self",
   "customers:register",
   "customers:read",
   "customers:write",

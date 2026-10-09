@@ -59,6 +59,14 @@ export function wholeNumber(
   return value;
 }
 
+/** Checks a caller's required idempotency key. @internal */
+export function requiredKey(key: unknown, max = 200): string {
+  if (key === undefined || key === null) {
+    throw new TypeError("Pass idempotencyKey: a key from your own unit of work, such as a message or job id.");
+  }
+  return idempotencyKeyOf(key as string, max);
+}
+
 /** Checks a caller's idempotency key, or generates one. @internal */
 export function idempotencyKeyOf(key: string | undefined, max = 200): string {
   if (key === undefined) return crypto.randomUUID();

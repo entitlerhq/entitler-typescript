@@ -10,9 +10,11 @@ export type ErrorCode = Open<
   | "allowance_reached"
   | "already_connected"
   | "as_of_not_allowed"
+  | "billed_elsewhere"
   | "body_too_large"
   | "browser_not_allowed"
   | "cap_reached"
+  | "capability_required"
   | "carry_forward_conflict"
   | "catalogue_not_empty"
   | "change_locked"
@@ -57,7 +59,9 @@ export type ErrorCode = Open<
   | "provider_partial"
   | "publication_failed"
   | "rate_limited"
+  | "registration_closed"
   | "review_required"
+  | "return_url_required"
   | "scope_required"
   | "sign_ups_closed"
   | "stale"
@@ -211,24 +215,40 @@ export class SnapshotError extends EntitlerError {
 }
 
 /**
- * Raised only by `withHold` when Entitler refuses the hold, or a replay answers that it was already
- * settled or released, before the work runs. Everywhere else a refusal is an answer, not an error.
+ * Raised only by `startHold` and `withHold` when Entitler refuses the hold, before any work runs:
+ * the customer has no allowance for it. Everywhere else a refusal is an answer, not an error.
  */
 export class UsageRefusedError extends EntitlerError {
   /** `UsageRefusedError`. */
   override name = "UsageRefusedError";
-  /** The refused answer, with its `refusal` and the meter. */
+  /** The refused answer, with its `refusal`, the meter and `upgrades`. */
   readonly result: UsageResult;
 
   /** Creates a refusal error from the refused hold's answer. */
   constructor(result: UsageResult) {
     super(
-      result.outcome === "settled" || result.outcome === "released"
-        ? `This hold was already ${result.outcome}. Use a new idempotency key for new work.`
-        : result.refusal === "not_entitled"
-          ? `The customer is not entitled to ${result.feature}.`
-          : `The customer has too little ${result.feature} left for ${result.amount}.`,
+      result.refusal === "not_entitled"
+        ? `The customer is not entitled to ${result.feature}.`
+        : `The customer has too little ${result.feature} left for ${result.amount}.`,
     );
+    this.result = result;
+  }
+}
+
+/**
+ * Raised only by `startHold` and `withHold` when the idempotency key replays a hold already
+ * settled, released or expired: the work this key stands for already happened, so show that work's
+ * result, never an upgrade prompt.
+ */
+export class UsageReplayedError extends EntitlerError {
+  /** `UsageReplayedError`. */
+  override name = "UsageReplayedError";
+  /** The replayed answer. */
+  readonly result: UsageResult;
+
+  /** Creates a replay error from the hold's answer. */
+  constructor(result: UsageResult) {
+    super("This idempotency key's hold was already settled, released or expired. Use a new key for new work.");
     this.result = result;
   }
 }
@@ -241,16 +261,17 @@ export interface UsageSettlementErrorInit {
   amount: number;
   /** The excess over the hold still to record in `observe` mode, or `undefined`. */
   excess: number | undefined;
-  /** What `work` answered. */
+  /** What `work` answered, or `undefined` from `finish()`. */
   result: unknown;
   /** Why settling or recording the excess failed. */
   cause: unknown;
 }
 
 /**
- * Raised only by `withHold` when settling the hold or recording the excess fails after `work`
- * succeeded. Keep `result`, and settle again with `settleUsage(holdId, amount)` before the hold
- * expires.
+ * Raised only by a hold's `finish()`, and so by `withHold` after `work` succeeded, when settling the
+ * hold or recording the excess fails after its retries. Keep the work's output, settle again with
+ * `settleUsage(holdId, amount)` before the hold expires, and record `excess` under the hold's key
+ * plus `:excess`.
  */
 export class UsageSettlementError extends EntitlerError {
   /** `UsageSettlementError`. */
@@ -261,7 +282,7 @@ export class UsageSettlementError extends EntitlerError {
   readonly amount: number;
   /** The excess over the hold still to record in `observe` mode, or `undefined`. */
   readonly excess: number | undefined;
-  /** What `work` answered, so its output is not lost. */
+  /** What `withHold`'s `work` answered, so its output is not lost; `undefined` from `finish()`. */
   readonly result: unknown;
 
   /** Creates a settlement error. The SDK raises these; apps rarely need to. */
@@ -274,4 +295,33 @@ export class UsageSettlementError extends EntitlerError {
     this.excess = init.excess;
     this.result = init.result;
   }
+}
+
+/**
+ * True when `error` means Entitler could not be reached: a {@link ConnectionError}, a
+ * {@link TimeoutError}, a {@link TokenError} (a token provider failing, offline typically) and an
+ * {@link ApiError} with status 429, a 5xx status or code `invalid_response`. An offline-capable app
+ * falls back to its snapshot when it is true.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   return await customer.check(features.exportPdf);
+ * } catch (error) {
+ *   if (!isUnreachable(error)) throw error;
+ *   return (await verifySnapshot(saved, expected)).entitlements.get(features.exportPdf);
+ * }
+ * ```
+ */
+export function isUnreachable(error: unknown): boolean {
+  return error instanceof TokenError || unreachable(error);
+}
+
+/** The failures a kept answer may stand in for. @internal */
+export function unreachable(error: unknown): boolean {
+  return (
+    error instanceof ConnectionError ||
+    error instanceof TimeoutError ||
+    (error instanceof ApiError && (error.status === 429 || error.status >= 500 || error.code === "invalid_response"))
+  );
 }
