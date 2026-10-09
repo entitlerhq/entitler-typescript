@@ -1,6 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/index.ts", "src/generate.ts"],
+  "entryPoints": ["src/index.ts", "src/generate.ts", "src/testing.ts"],
   "tsconfig": "tsconfig.build.json",
   "out": "docs/api",
   "name": "Entitler SDK for TypeScript and JavaScript",
