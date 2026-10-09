@@ -149,12 +149,25 @@ export class EntitlerServer {
           amount: event.amount === undefined ? undefined : wholeNumber(event.amount, "amount", 1),
           occurredAt: instant(event.occurredAt, "Pass occurredAt as a valid date."),
           idempotencyKey: idempotencyKeyOf(event.idempotencyKey),
-        }) as { idempotencyKey: string },
+        }) as { customer: string; idempotencyKey: string },
     );
     const results: UsageEventResult[] = [];
-    let recorded = 0;
-    let duplicates = 0;
-    let errors = 0;
+    const totals = { recorded: 0, duplicates: 0, errors: 0 };
+    const customers = new Set(prepared.map((event) => `/customers/${encodeURIComponent(event.customer)}`));
+    try {
+      await this.#sendBatch(prepared, options, results, totals);
+    } finally {
+      this.#transport.wrote(customers);
+    }
+    return { results: results.sort((a, b) => a.index - b.index), ...totals };
+  }
+
+  async #sendBatch(
+    prepared: { idempotencyKey: string }[],
+    options: UsageBatchOptions | undefined,
+    results: UsageEventResult[],
+    totals: { recorded: number; duplicates: number; errors: number },
+  ): Promise<void> {
     for (let start = 0; start < prepared.length; start += BATCH_SIZE) {
       const chunk = prepared.slice(start, start + BATCH_SIZE);
       const answer = await this.#transport.send<UsageBatchResult>({
@@ -172,11 +185,10 @@ export class EntitlerServer {
           idempotencyKey: (prepared[index] as { idempotencyKey: string }).idempotencyKey,
         });
       }
-      recorded += answer.data.recorded;
-      duplicates += answer.data.duplicates;
-      errors += answer.data.errors;
+      totals.recorded += answer.data.recorded;
+      totals.duplicates += answer.data.duplicates;
+      totals.errors += answer.data.errors;
     }
-    return { results: results.sort((a, b) => a.index - b.index), recorded, duplicates, errors };
   }
 
   /** The pricing on sale, signed out, through the answer cache. Pass a visitor id to keep their experiment arm. */

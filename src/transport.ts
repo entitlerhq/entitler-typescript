@@ -294,6 +294,11 @@ export class Transport {
     return { data: parseAnswer(received.text) as T, stale: false };
   }
 
+  wrote(customers: Iterable<string>): void {
+    const now = Date.now();
+    for (const customer of customers) this.#writes.set(customer, now);
+  }
+
   #fresh(entry: CacheEntry, customer: string | undefined): boolean {
     if (entry.maxAge === undefined || Date.now() - entry.receivedAt >= entry.maxAge * 1000) return false;
     const wrote = customer === undefined ? undefined : this.#writes.get(customer);
@@ -341,7 +346,7 @@ export class Transport {
         );
         if (received.status < 300 || received.status === 304) return received;
         failure = apiError(received, call.idempotencyKey);
-        if (received.status === 401 && !refreshed && this.#credentials.refresh) {
+        if (received.status === 401 && !refreshed && !call.open && this.#credentials.refresh) {
           refreshed = true;
           const next = await this.#credentials.refresh(auth, signal);
           if (next) {
