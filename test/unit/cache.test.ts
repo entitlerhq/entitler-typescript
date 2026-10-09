@@ -308,3 +308,30 @@ describe("MemoryCache", () => {
     expect(() => new MemoryCache({ maxEntries: 0 })).toThrow(RangeError);
   });
 });
+
+describe("writes that touch many customers", () => {
+  it("revalidates each batch customer's answers", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1000 });
+    const { fetch, sent } = fakeFetch((request) => {
+      if (request.method === "POST") return json({ results: [], recorded: 0, duplicates: 0, errors: 0 });
+      return request.headers["if-none-match"]
+        ? new Response(null, { status: 304, headers: fresh })
+        : json(checkAnswer(), 200, fresh);
+    });
+    const server = new EntitlerServer({ key: "k", fetch });
+    await server.customer("a").check("f");
+    vi.setSystemTime(2000);
+    await server.recordUsageBatch([{ customer: "a", feature: "ai_credits" }]);
+    vi.setSystemTime(3000);
+    await server.customer("a").check("f");
+    expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');
+  });
+
+  it("never refreshes a token for a call that sends no credential", async () => {
+    const provider = vi.fn(() => jwt({ sub: "u" }));
+    const { fetch, sent } = fakeFetch(apiError(401, "unauthorised"));
+    await expect(new EntitlerClient({ token: provider, fetch }).snapshotKeys()).rejects.toMatchObject({ status: 401 });
+    expect(sent).toHaveLength(1);
+    expect(provider).not.toHaveBeenCalled();
+  });
+});
