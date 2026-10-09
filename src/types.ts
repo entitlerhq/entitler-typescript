@@ -131,9 +131,37 @@ export interface Upgrade {
   /** The plan's name. */
   readonly name: string;
   /** How the customer would move to it. */
-  readonly move: Open<"subscribe" | "upgrade" | "switch" | "add">;
-  /** True when the plan is sold by the vendor's sales team, not self-serve. */
-  readonly salesLed: boolean;
+  readonly move: Move;
+  /** `buy` when the customer can make the move alone, `contact` for a sales-led move, or `unavailable`. */
+  readonly action: MoveAction;
+  /** Why the move is unavailable, a sentence for the developer, else `null`. */
+  readonly reason: string | null;
+}
+
+/** How a customer would move to a plan or add-on. */
+export type Move = Open<"subscribe" | "upgrade" | "downgrade" | "switch" | "add" | "replace">;
+
+/**
+ * Who can make a move: `buy`, the customer alone; `contact`, only the company, as a sales-led move;
+ * `unavailable`, nobody now.
+ */
+export type MoveAction = Open<"buy" | "contact" | "unavailable">;
+
+/** A store or payment provider that bills a plan. */
+export type BilledBy = Open<"stripe" | "apple" | "google">;
+
+/** A billing period: the stable `key` that writes take, and the `label` to display. */
+export interface Period {
+  /** The period's key, such as `monthly`, which stays the same when its label changes. */
+  readonly key: string;
+  /** The period's label, such as `Monthly`: display copy. */
+  readonly label: string;
+}
+
+/** Whether a write's answer replays an earlier call's. */
+export interface Replayed {
+  /** True when the API answered a repeated idempotency key with the first call's answer, so this call changed nothing. */
+  readonly replayed: boolean;
 }
 
 /** The fields every check shares, whatever the feature's type. */
@@ -272,12 +300,12 @@ export interface ProviderPrice {
   readonly tax: Open<"inclusive" | "exclusive" | "unspecified">;
 }
 
-/** A SKU the customer can buy: a period of a plan on one payment connector. */
+/** A SKU the customer can buy: a period of a plan on one store or payment provider. */
 export interface OfferedSku {
-  /** The billing period's key. */
-  readonly period: string;
-  /** The payment connector. */
-  readonly connector: string;
+  /** The billing period. */
+  readonly period: Period;
+  /** `stripe`, `apple` or `google`. */
+  readonly connector: BilledBy;
   /** The provider's ids for it. */
   readonly ids: Readonly<Record<string, string>>;
   /** The provider's price, when known. */
@@ -286,16 +314,16 @@ export interface OfferedSku {
 
 /** A SKU the customer bought, named by its connector and the provider's ids. */
 export interface Sku {
-  /** The payment connector, such as `stripe` or `apple`. */
-  readonly connector: string;
+  /** `stripe`, `apple` or `google`. */
+  readonly connector: BilledBy;
   /** The provider's ids, such as `{ priceId: "price_123" }`. */
   readonly ids: Readonly<Record<string, string>>;
 }
 
 /** What a move would change for the customer. */
 export interface Impact {
-  /** `Gains`, `Loses`, `Changes` or `Same`. */
-  readonly kind: Open<"Gains" | "Loses" | "Changes" | "Same">;
+  /** `gains`, `loses`, `changes` or `same`. */
+  readonly kind: Open<"gains" | "loses" | "changes" | "same">;
   /** The change, in words. */
   readonly text: string;
 }
@@ -310,28 +338,57 @@ export interface HeldPlan {
   readonly version: number | null;
   /** True when held because it is the default plan. */
   readonly byDefault: boolean;
+  /** The billing period, or `null` when Entitler sets none. */
+  readonly period: Period | null;
+  /** When it renews, or `null`. */
+  readonly renewsAt: Date | null;
+  /** The change booked for `renewsAt`, or `null`. */
+  readonly pending: PendingPlanChange | null;
+  /** Who bills it, or `null` when nothing does. The store's own page manages `apple` and `google`; the billing portal manages `stripe`. */
+  readonly billedBy: BilledBy | null;
+}
+
+/** A change booked for a held plan's renewal: a move to another plan, or a cancel. */
+export type PendingPlanChange =
+  | {
+      /** A move to another plan. */
+      readonly type: "move";
+      /** The plan it moves to. */
+      readonly plan: PlanInfo;
+    }
+  | {
+      /** A cancel. */
+      readonly type: "cancel";
+      /** The default plan the cancel leads to, or `null`. */
+      readonly movingTo: PlanInfo | null;
+    };
+
+/** A plan or add-on the customer could move to. */
+export interface OptionPlan extends PlanInfo {
+  /** Its description. */
+  readonly description: string;
+  /** True for the default plan. */
+  readonly default: boolean;
 }
 
 /** A plan the customer could move to. */
 export interface MoveOption {
   /** The plan. */
-  readonly plan: PlanInfo;
+  readonly plan: OptionPlan;
   /** Its product, or `null`. */
   readonly product: ProductSummary | null;
-  /** How the customer would move to it. */
-  readonly move: Open<"subscribe" | "move" | "add" | "replace">;
   /** The plan it moves from, or `null`. */
   readonly from: PlanSummary | null;
-  /** Up, down or across. */
-  readonly direction: Open<"up" | "down" | "cross">;
-  /** `self-serve` or `sales-led`. */
-  readonly mode: Open<"self-serve" | "sales-led">;
-  /** True when the customer may choose it for themselves. */
-  readonly selfServe: boolean;
-  /** Why it cannot be chosen now, or `null`. */
-  readonly disabledReason: string | null;
+  /** How the customer would move to it. */
+  readonly move: Move;
+  /** `buy` decides a buy button, `contact` a contact-sales link, `unavailable` neither. */
+  readonly action: MoveAction;
+  /** Why the move is unavailable, a sentence for the developer, else `null`. */
+  readonly reason: string | null;
   /** When the move takes effect. */
   readonly when: Open<"now" | "end">;
+  /** The billing periods it is sold in. */
+  readonly periods: readonly Period[];
   /** What the move changes. */
   readonly impact: readonly Impact[];
   /** The SKUs that sell it. */
@@ -353,9 +410,7 @@ export interface CustomerPlans extends AnswerContext {
 }
 
 /** A billing period of a plan. */
-export interface BillingPeriod {
-  /** The period's label, such as `Monthly`. */
-  readonly label: string;
+export interface BillingPeriod extends Period {
   /** How many units. */
   readonly count: number;
   /** The unit. */
@@ -388,8 +443,8 @@ export interface ChannelListing {
 
 /** A period of a plan, as listed on each channel. */
 export interface PeriodListing {
-  /** The period's key. */
-  readonly period: string;
+  /** The billing period. */
+  readonly period: Period;
   /** Each channel's listing. */
   readonly channels: readonly ChannelListing[];
 }
@@ -595,7 +650,7 @@ export type UsageOutcome = Open<
 >;
 
 /** The answer to a usage write: the check fields, then what the write did. */
-export interface UsageResult extends AnswerContext {
+export interface UsageResult extends AnswerContext, Replayed {
   /** The customer's external id. */
   readonly customer: string;
   /** The instant the answer was computed for. */
@@ -646,40 +701,18 @@ export interface UsageResult extends AnswerContext {
   readonly reportedAs: UsageSource;
 }
 
-/** A usage hold. */
-export interface UsageHold {
-  /** The hold's id. */
-  readonly id: string;
-  /** The customer's external id. */
-  readonly customer: string;
-  /** The feature's key. */
-  readonly feature: string;
-  /** The amount held. */
-  readonly amount: number;
-  /** `open`, `settled`, `released` or `expired`. */
-  readonly state: Open<"open" | "settled" | "released" | "expired">;
-  /** When it expires. */
-  readonly expiresAt: Date;
-  /** The amount settled, or `null`. */
-  readonly settledAmount: number | null;
-  /** The usage report the settlement created, or `null`. */
-  readonly usageId: string | null;
-  /** When it was created. */
-  readonly createdAt: Date;
-}
-
-/** One event of a usage batch. */
+/** One event of a usage batch, always recorded in `observe` mode. */
 export interface UsageEventInput {
   /** The customer's external id. */
   readonly customer: string;
   /** The metered feature. */
-  readonly feature: Feature<"metered"> | string;
-  /** The amount, a whole number; 1 when left out. */
-  readonly amount?: number;
+  readonly feature: Feature<"metered">;
+  /** The amount, a whole number from 1. */
+  readonly amount: number;
   /** When the usage happened. */
   readonly occurredAt?: Date | string;
-  /** A key from your own unit of work; the SDK generates one when left out. */
-  readonly idempotencyKey?: string;
+  /** A key naming the event in your own system, such as a message or job id. Required. */
+  readonly idempotencyKey: string;
 }
 
 /** Why one batch event failed. */
@@ -702,8 +735,10 @@ export interface UsageEventResult {
   readonly late: boolean;
   /** Why the event failed, or `null`. */
   readonly error: UsageEventError | null;
-  /** The idempotency key the event was sent with. */
-  readonly idempotencyKey: string;
+  /** The idempotency key the event was sent with, or `null` when it had none. */
+  readonly idempotencyKey: string | null;
+  /** True when the event's request replayed an earlier one with the same events. */
+  readonly replayed: boolean;
 }
 
 /** The answer to a usage batch: one result per event, in input order, and the totals. */
@@ -719,7 +754,7 @@ export interface UsageBatchResult {
 }
 
 /** A customer that a register call created or found. */
-export interface RegisteredCustomer {
+export interface RegisteredCustomer extends Replayed {
   /** Entitler's id for the customer. */
   readonly id: string;
   /** The customer's external id. */
@@ -903,6 +938,8 @@ export interface Grant {
   readonly reason: string;
   /** Who granted it. */
   readonly by: string;
+  /** The person or system that decided, or `null`. */
+  readonly actor: string | null;
 }
 
 /** A product, with the customer's subscription to it. */
@@ -953,14 +990,8 @@ export interface CustomerDetails {
   readonly environment: Environment;
 }
 
-/** A customer's details after a plan change, with whether the change was self-serve. */
-export interface CustomerChange extends CustomerDetails {
-  /** True when the change was made as the customer choosing for themselves. */
-  readonly selfServe: boolean;
-}
-
 /** The customer's track after `setTrack`. */
-export interface CustomerTrack {
+export interface CustomerTrack extends Replayed {
   /** The customer's external id. */
   readonly customer: string;
   /** The track. */
@@ -972,7 +1003,7 @@ export interface CustomerTrack {
 }
 
 /** The scopes a customer token can hold. */
-export type CustomerTokenScope = Open<"entitlements:read" | "usage:read" | "usage:write">;
+export type CustomerTokenScope = Open<"entitlements:read" | "usage:read" | "usage:write" | "billing:self">;
 
 /** A customer token minted by the server, for an in-app client. */
 export interface IssuedCustomerToken {
@@ -1026,6 +1057,7 @@ export type Scope =
   | "entitlements:read"
   | "usage:read"
   | "usage:write"
+  | "billing:self"
   | "customers:register"
   | "customers:read"
   | "customers:write"
@@ -1103,148 +1135,73 @@ export interface ProviderPage {
   readonly url: string;
 }
 
-/** A sale a provider item comes from. */
-export interface ProviderSale {
-  /** The plan's key. */
-  readonly plan: string;
-  /** The version, or `null`. */
-  readonly version: number | null;
-  /** The period. */
-  readonly period: string;
-  /** `plan` or `addon`. */
-  readonly kind: Open<"plan" | "addon">;
+/** A plan change: the plan or add-on it leaves the customer on, and when it takes effect. */
+export interface PlanChange extends Replayed {
   /** The product, or `null`. */
-  readonly product: string | null;
+  readonly product: ProductSummary | null;
+  /** The plan or add-on the change leaves the customer on, or `null` when they are left with no plan in that product. */
+  readonly plan: PlanInfo | null;
+  /** An add-on's quantity after the change, `0` when it is removed, or `null` for a plan. */
+  readonly quantity: number | null;
+  /** `now`, or `renewal` when it takes effect at the period's end. */
+  readonly effective: Open<"now" | "renewal">;
+  /** When it takes effect. */
+  readonly at: Date;
+  /** When the plan ends unless renewed, from `setPlan`'s `until`, or `null`. */
+  readonly until: Date | null;
+  /** False when nothing changed: a cancel with nothing to cancel, an undo with nothing pending, a plan already held. */
+  readonly changed: boolean;
 }
 
-/** A provider connection, by id, name and provider. */
-export interface ConnectionRef {
-  /** The connection's id. */
-  readonly id: string;
-  /** Its name. */
-  readonly name: string;
-  /** The provider. */
-  readonly provider: Open<"stripe" | "apple" | "google">;
+/** `subscribe`'s step when the change is made: the {@link PlanChange} fields. */
+export interface SubscribeDone extends PlanChange {
+  /** `done`. */
+  readonly next: "done";
 }
 
-/** The customer an alert is about. */
-export interface AlertCustomer {
-  /** The customer's external id. */
-  readonly externalId: string;
-  /** The customer's name. */
-  readonly name: string;
+/** `subscribe`'s step when the customer pays first: send them to `url`. The plan changes once they pay. */
+export interface SubscribePay {
+  /** `pay`. */
+  readonly next: "pay";
+  /** The provider's page: Stripe Checkout, or a confirmation such as 3-D Secure. */
+  readonly url: string;
 }
 
-/** An alert about the customer's billing. */
-export interface Alert {
-  /** The alert's id. */
-  readonly id: string;
-  /** The rule that raised it. */
-  readonly rule: string;
-  /** Its title. */
-  readonly title: string;
-  /** Its message. */
-  readonly message: string;
-  /** The facts behind it. */
-  readonly facts: Readonly<Record<string, unknown>>;
-  /** The customer, or `null`. */
-  readonly customer: AlertCustomer | null;
-  /** The connection. */
-  readonly connection: ConnectionRef;
-  /** When it opened. */
-  readonly openedAt: Date;
-  /** When it was last seen. */
-  readonly seenAt: Date;
-  /** When it was resolved, or `null`. */
-  readonly resolvedAt: Date | null;
-  /** Who resolved it, or `null`. */
-  readonly resolvedBy: Open<"provider" | "person"> | null;
+/** `subscribe`'s step while the provider confirms a payment (a bank debit): show the change as pending. */
+export interface SubscribeConfirming {
+  /** `confirming`. */
+  readonly next: "confirming";
 }
 
-/** An item of a provider subscription. */
-export interface ProviderItem {
-  /** The item's id. */
-  readonly id: string;
-  /** The provider's ids. */
-  readonly ids: Readonly<Record<string, string>>;
-  /** How many. */
-  readonly quantity: number;
-  /** The sale it comes from, or `null`. */
-  readonly sale: ProviderSale | null;
+/** `subscribe`'s step when a store bills the product, so the customer changes it there. */
+export interface SubscribeManage {
+  /** `manage`. */
+  readonly next: "manage";
+  /** `apple` or `google`. */
+  readonly billedBy: BilledBy;
 }
 
-/** A subscription on the payment provider. */
-export interface ProviderSubscription {
-  /** The subscription's id. */
-  readonly id: string;
-  /** Its status on the provider. */
-  readonly status: string;
-  /** True when it bills the customer. */
-  readonly billing: boolean;
-  /** The current period, or `null`. */
-  readonly period: {
-    /** When the period started. */
-    readonly startsAt: Date;
-    /** When it ends. */
-    readonly endsAt: Date;
-  } | null;
-  /** When the trial ends, or `null`. */
-  readonly trialEndsAt: Date | null;
-  /** When it cancels, or `null`. */
-  readonly cancelsAt: Date | null;
-  /** Its items. */
-  readonly items: readonly ProviderItem[];
+/** A step this SDK does not know yet, kept with its raw answer. */
+export interface SubscribeUnknown {
+  /** `unknown`. */
+  readonly next: "unknown";
+  /** The step's name as the API sent it. */
+  readonly raw: string;
 }
 
-/** An amount of money. */
-export interface MoneyAmount {
-  /** The amount in the currency's smallest unit. */
-  readonly value: number;
-  /** The ISO 4217 currency code. */
-  readonly currency: string;
+/** The next step after `subscribe`, by `next`: `done`, `pay`, `confirming`, `manage`, or `unknown`. */
+export type SubscribeStep = SubscribeDone | SubscribePay | SubscribeConfirming | SubscribeManage | SubscribeUnknown;
+
+/** The answer to `syncBilling()`. */
+export interface BillingSync {
+  /** True when the provider's state moved the customer. */
+  readonly changed: boolean;
 }
 
-/** A one-time payment on the payment provider. */
-export interface ProviderPayment {
-  /** The payment's id. */
-  readonly id: string;
-  /** The provider's ids. */
-  readonly ids: Readonly<Record<string, string>>;
-  /** How many. */
-  readonly quantity: number;
-  /** The amount paid, or `null`. */
-  readonly amount: MoneyAmount | null;
-  /** `paid`, `refunded` or `partially_refunded`. */
-  readonly status: Open<"paid" | "refunded" | "partially_refunded">;
-  /** When it was paid. */
-  readonly paidAt: Date;
-  /** The sale it comes from, or `null`. */
-  readonly sale: ProviderSale | null;
-}
-
-/** What one payment provider connection holds for the customer. */
-export interface ProviderConnectionState {
-  /** The connection. */
-  readonly connection: ConnectionRef;
-  /** When it was read. */
-  readonly readAt: Date;
-  /** What it holds. */
-  readonly state: {
-    /** The subscriptions. */
-    readonly subscriptions: readonly ProviderSubscription[];
-    /** The one-time payments. */
-    readonly payments: readonly ProviderPayment[];
-  };
-}
-
-/** What each payment provider holds for the customer. */
-export interface CustomerProviders {
-  /** Each connection's state. */
-  readonly connections: readonly ProviderConnectionState[];
-  /** Open alerts. */
-  readonly alerts: readonly Alert[];
-  /** The connections the customer is linked on. */
-  readonly linked?: readonly string[];
+/** A grant made or revoked. */
+export interface GrantChange extends Replayed {
+  /** The grant, so a support tool keeps its id. */
+  readonly grant: Grant;
 }
 
 /** A gap a rollout would leave, from `409 listing_gaps`. */

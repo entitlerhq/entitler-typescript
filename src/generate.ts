@@ -187,6 +187,11 @@ export function renderFeatures(source: FeatureSource, options: RenderOptions = {
   return `${lines.join("\n")}\n`;
 }
 
+/** True when a generated file holds at least one constant. @internal */
+export function holdsConstants(text: string): boolean {
+  return /^ {2}[A-Za-z_$][\w$]*: defineFeature\(/m.test(text);
+}
+
 /** True when two generated files hold the same features, whichever release they were read from. */
 export function sameFeatures(a: string, b: string): boolean {
   return a.replace(READ_FROM, "") === b.replace(READ_FROM, "");

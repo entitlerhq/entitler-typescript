@@ -1,6 +1,14 @@
 import { type CacheEntry, type CacheStore, MemoryCache } from "./cache.js";
-import { ApiError, ConnectionError, type EntitlerError, type ErrorCode, TimeoutError, TokenError } from "./errors.js";
-import { encode, instant, sha256Hex, sleep, wholeNumber } from "./util.js";
+import {
+  ApiError,
+  ConnectionError,
+  type EntitlerError,
+  type ErrorCode,
+  TimeoutError,
+  TokenError,
+  unreachable,
+} from "./errors.js";
+import { encode, sha256Hex, sleep, wholeNumber } from "./util.js";
 import { VERSION } from "./version.js";
 
 /** Options both clients take. */
@@ -13,21 +21,13 @@ export interface ClientOptions {
   maxRetries?: number;
   /** The longest `Retry-After` the SDK waits for, in milliseconds. Defaults to 10,000. */
   maxRetryDelay?: number;
-  /** Where to keep answers: a {@link CacheStore}, or `false` for none. Defaults to a {@link MemoryCache} of 1,000 answers. */
-  cache?: CacheStore | false;
   /** How long a kept answer may stand in while Entitler is unreachable, in milliseconds. Defaults to 24 hours. */
   staleFor?: number;
   /**
-   * Called with each error a fallback absorbed: a stale answer, an `isEntitled` default, a hold
-   * `withHold` could not release, and a custom cache store's own failures.
+   * Called with each error a fallback absorbed: a stale answer, an `isEntitled` default, a hold's
+   * failed release or disposal, and a custom cache store's own failures.
    */
   onError?: (error: unknown) => void;
-  /**
-   * Reads the API at another instant. Needs the organisation's `as_of` capability
-   * (`409 limit_reached` otherwise); pricing is always computed now, and writes take it only in a
-   * test environment.
-   */
-  asOf?: Date | string;
   /** The `fetch` to send requests with, for tests, proxies and instrumentation. Defaults to the global `fetch`. */
   fetch?: typeof fetch;
 }
@@ -40,12 +40,22 @@ export interface CallOptions {
   timeout?: number;
 }
 
+/** Options every read through the answer cache takes. */
+export interface ReadOptions extends CallOptions {
+  /**
+   * Skips a fresh kept answer and revalidates it with its `ETag`, so a page that knows the
+   * customer just changed shows the change without waiting for `max-age`.
+   */
+  revalidate?: boolean;
+}
+
 /** Options every write method takes. */
 export interface WriteOptions extends CallOptions {
   /**
-   * The idempotency key, 1 to 200 printable ASCII characters, not starting or ending with a space. Derive it from your own unit of
-   * work (a job id, a message id) so a retry from another process is recognised; the SDK
-   * generates one when it is left out.
+   * The idempotency key, 1 to 200 printable ASCII characters, not starting or ending with a
+   * space. Name the event (this webhook delivery, this request), never an object whose state
+   * changes: a key is never freed, so reusing it replays the first answer. The SDK generates one
+   * when it is left out.
    */
   idempotencyKey?: string;
 }
@@ -77,10 +87,12 @@ export interface Call {
   readonly headers?: Record<string, string | undefined>;
   readonly idempotencyKey?: string;
   readonly cached?: boolean;
+  readonly revalidate?: boolean | undefined;
   readonly shape?: (data: Record<string, unknown>) => boolean;
   readonly customer?: string;
   readonly changes?: readonly string[];
   readonly open?: boolean;
+  readonly empty?: boolean;
   readonly options?: CallOptions | undefined;
 }
 
@@ -88,6 +100,19 @@ export interface Call {
 export interface Answer<T> {
   readonly data: T;
   readonly stale: boolean;
+  readonly replayed: boolean;
+}
+
+const CLOSED = "This Entitler client is closed. Create a new one.";
+
+/** The error every call of a closed client fails with. @internal */
+export function closedError(): DOMException {
+  return new DOMException(CLOSED, "InvalidStateError");
+}
+
+/** True for the error a closed client's calls fail with. @internal */
+export function isClosed(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "InvalidStateError" && error.message === CLOSED;
 }
 
 interface Received {
@@ -95,6 +120,11 @@ interface Received {
   readonly headers: Headers;
   readonly text: string;
   readonly redirect?: boolean;
+}
+
+/** The options each client adds to {@link ClientOptions}, resolved. @internal */
+export interface TransportOptions extends ClientOptions {
+  readonly cache?: CacheStore | false | undefined;
 }
 
 const DATE_KEYS = new Set([
@@ -244,15 +274,6 @@ function apiError(received: Received, idempotencyKey: string | undefined): ApiEr
   });
 }
 
-/** True for failures that mean Entitler is unreachable, which a kept answer may stand in for. @internal */
-export function isUnreachable(error: unknown): boolean {
-  return (
-    error instanceof ConnectionError ||
-    error instanceof TimeoutError ||
-    (error instanceof ApiError && (error.status === 429 || error.status >= 500 || error.code === "invalid_response"))
-  );
-}
-
 let noStore: boolean | undefined;
 
 function bypassesHttpCache(): boolean {
@@ -294,8 +315,10 @@ export class Transport {
   readonly #maxRetries: number;
   readonly #maxRetryDelay: number;
   readonly #staleFor: number;
-  readonly #cache: CacheStore | undefined;
-  readonly #asOf: string | undefined;
+  #cache: CacheStore | undefined;
+  readonly #ownsCache: boolean;
+  #closing: AbortController | undefined;
+  #closed = false;
   readonly #fetch: typeof fetch;
   readonly #credentials: Credentials;
   readonly #headers: () => Record<string, string>;
@@ -304,14 +327,14 @@ export class Transport {
   #downUntil = 0;
   #probing = false;
 
-  constructor(options: ClientOptions, credentials: Credentials, headers: () => Record<string, string> = () => ({})) {
+  constructor(options: TransportOptions, credentials: Credentials, headers: () => Record<string, string> = () => ({})) {
     this.baseUrl = (options.baseUrl ?? "https://api.entitler.dev").replace(/\/+$/, "");
     this.timeout = positive(options.timeout ?? 10_000, "timeout");
     this.#maxRetries = wholeNumber(options.maxRetries ?? 2, "maxRetries", 0);
     this.#maxRetryDelay = wholeNumber(options.maxRetryDelay ?? 10_000, "maxRetryDelay", 0);
     this.#staleFor = wholeNumber(options.staleFor ?? 86_400_000, "staleFor", 0);
     this.#cache = options.cache === false ? undefined : (options.cache ?? new MemoryCache());
-    this.#asOf = instant(options.asOf, "Pass asOf as a valid date.");
+    this.#ownsCache = options.cache === undefined || options.cache instanceof MemoryCache;
     this.#fetch = options.fetch ?? ((input, init) => fetch(input, init));
     this.#onError = options.onError;
     this.#credentials = credentials;
@@ -320,6 +343,25 @@ export class Transport {
 
   get kind(): string {
     return this.#credentials.kind;
+  }
+
+  /** Aborts every call in flight and the pending refresh, drops the in-memory cache, and refuses later calls. */
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#closing?.abort(closedError());
+    if (this.#ownsCache) this.#cache = undefined;
+  }
+
+  /** The signal a close aborts, or `undefined` before the first call. */
+  get closing(): AbortSignal | undefined {
+    if (this.#closed) return AbortSignal.abort(closedError());
+    return this.#closing?.signal;
+  }
+
+  /** Throws the closed error once the client is closed. */
+  ensureOpen(): void {
+    if (this.#closed) throw closedError();
   }
 
   /** Passes an absorbed error to `onError`, which can never change the call's outcome. */
@@ -331,9 +373,14 @@ export class Transport {
     }
   }
 
-  async send<T>(call: Call): Promise<Answer<T>> {
-    const signal = call.options?.signal;
-    signal?.throwIfAborted();
+  async send<T>(given: Call): Promise<Answer<T>> {
+    this.ensureOpen();
+    given.options?.signal?.throwIfAborted();
+    this.#closing ??= new AbortController();
+    const signal = given.options?.signal
+      ? AbortSignal.any([given.options.signal, this.#closing.signal])
+      : this.#closing.signal;
+    const call: Call = { ...given, options: { ...given.options, signal } };
     for (const customer of call.changes ?? []) this.#bump(customer);
     const url = this.#url(call);
     const headers = this.#requestHeaders(call);
@@ -349,14 +396,19 @@ export class Transport {
         const kept = await this.#get(this.#cache, await this.#key(call, url, headers, previous));
         if (!kept || Date.now() - kept.receivedAt >= this.#staleFor) throw error;
         this.report(error);
-        return { data: this.#decode<T>(kept.body), stale: true };
+        return { data: this.#decode<T>(kept.body), stale: true, replayed: false };
       }
       this.#lastAuth = auth;
     }
     if (!call.cached || !this.#cache) {
       const received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304) throw apiError(received, call.idempotencyKey);
-      return { data: this.#decode<T>(received.text, received, call.shape), stale: false };
+      return {
+        data:
+          call.empty && received.text === "" ? (undefined as T) : this.#decode<T>(received.text, received, call.shape),
+        stale: false,
+        replayed: received.headers.get("idempotent-replayed")?.trim().toLowerCase() === "true",
+      };
     }
     return this.#cached<T>(call, url, headers, auth, this.#cache);
   }
@@ -373,9 +425,11 @@ export class Transport {
     const generation = this.#generationOf(call.customer);
     const kept = await this.#get(cache, key);
     const usable = kept !== undefined && Date.now() - kept.receivedAt < this.#staleFor;
-    if (kept && this.#fresh(kept, call.customer)) return { data: this.#decode<T>(kept.body), stale: false };
+    if (kept && !call.revalidate && this.#fresh(kept, call.customer)) {
+      return { data: this.#decode<T>(kept.body), stale: false, replayed: false };
+    }
     if (usable && (Date.now() < this.#downUntil || (this.#downUntil > 0 && this.#probing))) {
-      return { data: this.#decode<T>(kept.body), stale: true };
+      return { data: this.#decode<T>(kept.body), stale: true, replayed: false };
     }
     if (kept?.etag) headers["If-None-Match"] = kept.etag;
     const probe = this.#downUntil > 0;
@@ -388,13 +442,13 @@ export class Transport {
       data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received, call.shape);
       this.#downUntil = 0;
     } catch (error) {
-      if (isUnreachable(error)) {
+      if (unreachable(error)) {
         const retryAfter = error instanceof ApiError ? (error.retryAfter ?? 0) : 0;
         this.#downUntil = Date.now() + Math.max(30_000, retryAfter);
       }
-      if (usable && isUnreachable(error)) {
+      if (usable && unreachable(error)) {
         this.report(error);
-        return { data: this.#decode<T>(kept.body), stale: true };
+        return { data: this.#decode<T>(kept.body), stale: true, replayed: false };
       }
       throw error;
     } finally {
@@ -428,7 +482,7 @@ export class Transport {
     ) {
       await this.#set(cache, key, entry);
     }
-    return { data, stale: false };
+    return { data, stale: false, replayed: false };
   }
 
   async #key(call: Call, url: string, headers: Record<string, string>, auth: Authorised): Promise<string> {
@@ -511,7 +565,6 @@ export class Transport {
     if (RUNTIME) headers["User-Agent"] = `entitler-typescript/${VERSION} ${RUNTIME}`;
     if (call.body !== undefined) headers["Content-Type"] = "application/json";
     if (call.idempotencyKey !== undefined) headers["Idempotency-Key"] = call.idempotencyKey;
-    if (this.#asOf && !call.open) headers["Entitler-As-Of"] = this.#asOf;
     for (const [name, value] of Object.entries(call.headers ?? {})) if (value !== undefined) headers[name] = value;
     return headers;
   }
