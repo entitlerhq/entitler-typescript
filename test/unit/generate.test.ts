@@ -64,8 +64,14 @@ async function golden(name: string, content: string) {
 
 function formatted(source: string): string {
   return execFileSync(
-    join(process.cwd(), "node_modules/.bin/biome"),
-    ["format", "--stdin-file-path=features.ts", "--line-width=80", "--indent-style=space"],
+    process.execPath,
+    [
+      join(process.cwd(), "node_modules/@biomejs/biome/bin/biome"),
+      "format",
+      "--stdin-file-path=features.ts",
+      "--line-width=80",
+      "--indent-style=space",
+    ],
     { input: source, encoding: "utf8" },
   );
 }

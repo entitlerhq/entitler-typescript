@@ -10,3 +10,4 @@ coverage/
 docs/api/
 *.tgz
 .pack/
+test/docs/out/

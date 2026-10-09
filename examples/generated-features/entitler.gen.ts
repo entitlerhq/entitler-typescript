@@ -20,7 +20,10 @@ export const features = {
    *
    * Includes team_seats, shared_folders.
    */
-  collaboration: defineFeature("collaboration", "group", ["team_seats", "shared_folders"]),
+  collaboration: defineFeature("collaboration", "group", [
+    "team_seats",
+    "shared_folders",
+  ]),
   /**
    * Export to PDF
    *
@@ -28,7 +31,67 @@ export const features = {
    */
   exportPdf: defineFeature("export_pdf", "boolean"),
   /**
+   * Priority support
+   *
+   * Jump the support queue.
+   */
+  prioritySupport: defineFeature("priority_support", "boolean"),
+  /**
+   * Shared folders
+   *
+   * Folders the whole workspace can see.
+   */
+  sharedFolders: defineFeature("shared_folders", "boolean"),
+  /**
+   * Single sign-on
+   *
+   * Log in through the customer's identity provider.
+   */
+  sso: defineFeature("sso", "boolean"),
+  /**
+   * Support contacts
+   *
+   * People who can open tickets.
+   *
+   * Counted in contacts.
+   */
+  supportContacts: defineFeature("support_contacts", "config"),
+  /**
+   * Support extras
+   *
+   * Priority queue plus a reply-time promise.
+   *
+   * Includes priority_support, support_sla_hours.
+   */
+  supportExtras: defineFeature("support_extras", "group", [
+    "priority_support",
+    "support_sla_hours",
+  ]),
+  /**
+   * Support SLA
+   *
+   * Hours until the first reply.
+   *
+   * Counted in hours.
+   */
+  supportSlaHours: defineFeature("support_sla_hours", "config"),
+  /**
+   * Team essentials
+   *
+   * Everything a team needs, as one unit.
+   *
+   * Includes collaboration, support_extras.
+   */
+  teamEssentials: defineFeature("team_essentials", "group", [
+    "team_seats",
+    "shared_folders",
+    "priority_support",
+    "support_sla_hours",
+  ]),
+  /**
    * Team seats
+   *
+   * People who can join a workspace.
    *
    * Counted in seats.
    */

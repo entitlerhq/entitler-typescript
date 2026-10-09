@@ -44,15 +44,16 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p examples",
+    "typecheck": "tsc --noEmit",
     "lint": "biome ci .",
     "format": "biome check --write .",
     "test": "vitest run test/unit",
     "test:coverage": "vitest run test/unit --coverage",
     "test:integration": "vitest run test/integration",
-    "docs": "typedoc",
-    "size": "bun scripts/size.ts",
-    "package:check": "bun run build && bun scripts/package-check.ts"
+    "docs": "typedoc && bun scripts/snippets.ts && tsc -p test/docs",
+    "examples": "bun run build && tsc -p examples",
+    "package:check": "bun run build && publint --pack npm && attw --pack . --profile esm-only && bun scripts/size.ts",
+    "check": "bun run lint && bun run typecheck && bun run test:coverage && bun run docs && bun run examples && bun run package:check"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
@@ -63,5 +64,6 @@
     "typedoc": "0.28.20",
     "typescript": "6.0.3",
     "vitest": "4.1.11"
-  }
+  },
+  "packageManager": "bun@1.4.2"
 }

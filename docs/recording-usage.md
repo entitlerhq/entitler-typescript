@@ -1,0 +1,122 @@
+# Recording usage
+
+Usage is recorded on metered features only (others answer `400 not_metered`). Amounts are whole
+numbers in the feature's unit, from 1 to 2^53 − 1.
+
+## Idempotency keys from your own work
+
+Every usage write carries an idempotency key, and Entitler keeps it for good. Pass a key derived
+from your own unit of work, such as a job id or a message id, so a retry from another process or
+after a restart is recognised as the same report. Without one, the SDK generates a key, which only
+protects its own retries. Reusing a key for a different request answers `422 idempotency_mismatch`.
+
+```ts
+const result = await customer.recordUsage(features.aiCredits, 3, { idempotencyKey: `job-${job.id}` });
+console.log(result.outcome);
+```
+
+## Modes
+
+- `gate` (the default) records only if the amount fits the allowance; otherwise it records nothing
+  and answers `outcome: "refused"` with a `refusal` of `not_entitled` or `over_allowance`. Use it
+  before work that must not start without allowance.
+- `observe` always records what happened. The meter may pass the allowance, and `overBy` says by how
+  much. Use it for work that already happened: streamed tokens, bandwidth, minutes.
+
+```ts
+const gated = await customer.recordUsage(features.aiCredits, 50);
+if (gated.outcome === "refused") console.log(`Refused: ${gated.refusal}`);
+
+const observed = await customer.recordUsage(features.aiCredits, 1200, { mode: "observe" });
+console.log(`Over the allowance by ${observed.overBy}.`);
+```
+
+A refusal is an answer, not an error, and a refused report stores no key, so it can be retried with
+the same key once there is allowance. A replay of the same key records nothing and answers
+`duplicate`.
+
+### When it happened
+
+`occurredAt` counts the usage in the period it happened in. Entitler refuses an instant more than the
+project's offline days back, more than 5 minutes ahead, or before the customer registered
+(`400 invalid_occurred_at`).
+
+```ts
+await customer.recordUsage(features.aiCredits, 2, { mode: "observe", occurredAt: new Date(job.finishedAt) });
+```
+
+`register: true` registers a customer not registered yet with the report, if the credential may
+register customers.
+
+## Holds
+
+A hold reserves an amount against `remaining` until it is settled, released or expires
+(`ttlSeconds` 1 to 3,600, default 300). Settle with the real amount, from 0 to the amount held.
+
+```ts
+const hold = await customer.holdUsage(features.aiCredits, 500, { ttlSeconds: 120 });
+if (hold.outcome === "held" && hold.holdId) {
+  await customer.settleUsage(hold.holdId, 320);
+}
+```
+
+A hold that was settled, released or expired answers `409 hold_settled`, `hold_released` or
+`hold_expired`. Releasing twice is safe, and `hold(holdId)` reads one back.
+
+## `withHold`
+
+`withHold(feature, amount, work)` holds the amount, runs `work`, and settles the amount `work`
+answers. Any excess over the hold is recorded in `observe` mode with the hold's key plus `:excess`.
+
+```ts
+import { UsageRefusedError } from "@entitlerhq/entitler";
+
+try {
+  await customer.withHold(features.aiCredits, 500, async ({ signal }) => (await run({ signal })).tokens, {
+    idempotencyKey: `job-${job.id}`,
+  });
+} catch (error) {
+  if (error instanceof UsageRefusedError) console.log(`Refused: ${error.result.refusal}`);
+  else throw error;
+}
+```
+
+- A refused hold never runs `work`: the call fails with `UsageRefusedError`, carrying the answer.
+- When `work` fails, the hold is released and `work`'s error propagates. A failed release goes to
+  `onError`, since the hold expires on its own.
+- A failed settlement fails with `SettleError`, carrying `holdId` and `amount`, so you can settle
+  again with `settleUsage`.
+
+Keep a `withHold` key to 193 characters or fewer, so the `:excess` key fits in 200.
+
+## The usage log
+
+`usage()` answers each metered feature's meter and the usage log, fetched a page at a time:
+
+```ts
+const usage = await customer.usage();
+for (const meter of usage.features) console.log(meter.feature, meter.used, meter.remaining);
+for await (const event of usage.log) console.log(event.at, event.feature, event.amount);
+```
+
+## Batches
+
+On a server, `recordUsageBatch` records many events in `observe` mode, in requests of at most 500
+events sent in order. Each event's idempotency key is yours, or a generated one, and each result
+carries the key it was sent with.
+
+```ts
+const batch = await server.recordUsageBatch([
+  { customer: "user_1", feature: features.aiCredits, amount: 3, idempotencyKey: "msg-1" },
+  { customer: "user_2", feature: features.aiCredits, amount: 1, idempotencyKey: "msg-2" },
+]);
+console.log(batch.recorded, batch.duplicates, batch.errors);
+```
+
+## Corrections
+
+The vendor corrects usage with `vendor.cancelUsage(usageId)` and `vendor.setMeter(feature, used)`.
+See [billing](billing.md).
+
+Customer and identity tokens may report 100 times every 10 seconds per customer; more answers
+`429 rate_limited`, which the SDK retries.
