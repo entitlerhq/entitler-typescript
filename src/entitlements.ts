@@ -1,13 +1,25 @@
-import type { AnswerContext, Entitlement, Environment, Experiment, Feature, TrackRef } from "./types.js";
+import type {
+  AnswerContext,
+  Entitlement,
+  Environment,
+  EnvironmentRef,
+  Experiment,
+  Feature,
+  TrackRef,
+} from "./types.js";
 import { featureKey } from "./util.js";
 
-/** The fields an {@link Entitlements} value is built from. @internal */
-export interface EntitlementsInit<E extends { readonly id: string } = Environment>
-  extends Omit<AnswerContext, "environment"> {
+/** The fields an {@link Entitlements} value is built from. */
+export interface EntitlementsInit<E extends EnvironmentRef = Environment> extends Omit<AnswerContext, "environment"> {
+  /** The environment the answer comes from. */
   readonly environment: E;
+  /** The customer's external id. */
   readonly customer: string;
+  /** The instant the answer was computed for. */
   readonly asOf: Date;
+  /** Every entitlement, groups included. */
   readonly entitlements: readonly Entitlement[];
+  /** True only when answered from a kept copy because Entitler was unreachable. */
   readonly stale: boolean;
 }
 
@@ -20,7 +32,7 @@ export interface EntitlementsInit<E extends { readonly id: string } = Environmen
  * if (entitlements.has(features.collaboration)) showSharing();
  * ```
  */
-export class Entitlements<E extends { readonly id: string } = Environment> implements Iterable<Entitlement> {
+export class Entitlements<E extends EnvironmentRef = Environment> implements Iterable<Entitlement> {
   /** The customer's external id. */
   readonly customer: string;
   /** The instant the answer was computed for. */

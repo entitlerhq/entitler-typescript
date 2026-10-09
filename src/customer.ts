@@ -170,7 +170,13 @@ export interface TokenOptions extends WriteOptions {
 }
 
 /** A plan by key or public id, or a SKU the customer bought, which names its own period. */
-export type PlanChoice = string | { readonly sku: SkuRef };
+export type PlanChoice = string | SkuChoice;
+
+/** A SKU the customer bought, in place of a plan. */
+export interface SkuChoice {
+  /** The SKU: its connector and the provider's ids. */
+  readonly sku: SkuRef;
+}
 
 /** Options for subscribing. */
 export interface SubscribeOptions extends WriteOptions {
@@ -231,7 +237,7 @@ export interface Vendor {
   /** Moves the customer to any plan, sales-led ones included (`selfServe` false). */
   subscribe(plan: string, options?: SubscribeOptions): Promise<CustomerChange>;
   /** Moves the customer to a SKU they bought (`selfServe` false). */
-  subscribe(purchase: { readonly sku: SkuRef }, options?: Omit<SubscribeOptions, "period">): Promise<CustomerChange>;
+  subscribe(purchase: SkuChoice, options?: Omit<SubscribeOptions, "period">): Promise<CustomerChange>;
   /** Moves the customer in Entitler only, while the payment provider keeps billing the plan they held. */
   override(plan: string, options?: SubscribeOptions): Promise<CustomerChange>;
   /** Ends an override. */
@@ -279,7 +285,7 @@ export interface ServerCustomer extends Customer {
   /** Subscribes the customer to a plan, as their own choice (`selfServe` true). */
   subscribe(plan: string, options?: SubscribeOptions): Promise<CustomerChange>;
   /** Subscribes the customer to a SKU they bought, as their own choice (`selfServe` true). */
-  subscribe(purchase: { readonly sku: SkuRef }, options?: Omit<SubscribeOptions, "period">): Promise<CustomerChange>;
+  subscribe(purchase: SkuChoice, options?: Omit<SubscribeOptions, "period">): Promise<CustomerChange>;
   /** Starts a checkout on the payment provider (`selfServe` true). */
   checkout(plan: PlanChoice, options: CheckoutOptions): Promise<ProviderPage>;
   /** Cancels the subscription. */

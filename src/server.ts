@@ -1,5 +1,5 @@
 import { type ServerCustomer, ServerCustomerApi } from "./customer.js";
-import { describe, knownScopes } from "./describe.js";
+import { type ClientDescription, describe, knownScopes } from "./describe.js";
 import { paged } from "./paging.js";
 import { type ExpectedSnapshot, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
 import { type CallOptions, type ClientOptions, Transport, type WriteOptions } from "./transport.js";
@@ -231,8 +231,8 @@ export class EntitlerServer {
   }
 
   /** Shows the base URL and the kind, never the key. */
-  toJSON(): { baseUrl: string; kind: string } {
-    return { baseUrl: this.#transport.baseUrl, kind: this.#transport.kind };
+  toJSON(): ClientDescription<"server"> {
+    return { baseUrl: this.#transport.baseUrl, kind: "server" };
   }
 
   /** Shows the base URL and the kind in Node's `console.log`, never the key. */

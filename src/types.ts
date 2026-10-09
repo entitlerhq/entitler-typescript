@@ -23,6 +23,12 @@ export interface Environment {
   readonly kind: Open<"test" | "live">;
 }
 
+/** An environment named by its id alone, as a snapshot names it. */
+export interface EnvironmentRef {
+  /** The environment's id. */
+  readonly id: string;
+}
+
 /** A track, by id and name. */
 export interface TrackRef {
   /** The track's id. */
@@ -55,27 +61,68 @@ export interface AnswerContext {
   readonly experiment: Experiment | null;
 }
 
+/** A plan's share of a feature's value. */
+export interface PlanSource {
+  /** `plan`. */
+  readonly type: "plan";
+  /** The plan's key. */
+  readonly plan: string;
+  /** The plan's name. */
+  readonly name: string;
+  /** The plan version held. */
+  readonly version: number;
+  /** True when held because it is the default plan. */
+  readonly byDefault: boolean;
+  /** The plan's share of the value. */
+  readonly value: Value;
+}
+
+/** An add-on's share of a feature's value. */
+export interface AddOnSource {
+  /** `addon`. */
+  readonly type: "addon";
+  /** The add-on's key. */
+  readonly plan: string;
+  /** The add-on's name. */
+  readonly name: string;
+  /** The add-on version held. */
+  readonly version: number;
+  /** How many are held. */
+  readonly quantity: number;
+  /** The add-on's share of the value. */
+  readonly value: Value;
+}
+
+/** A grant's share of a feature's value. */
+export interface GrantSource {
+  /** `grant`. */
+  readonly type: "grant";
+  /** The grant's id. */
+  readonly grant: string;
+  /** When the grant ends, or `null`. */
+  readonly until: Date | null;
+  /** The grant's share of the value. */
+  readonly value: Value;
+}
+
+/** Banked credits' share of a metered feature's value. */
+export interface BankedSource {
+  /** `banked`. */
+  readonly type: "banked";
+  /** The credits banked. */
+  readonly value: number;
+}
+
+/** A group's members, which decide it. */
+export interface GroupSource {
+  /** `group`. */
+  readonly type: "group";
+  /** The member features' keys. */
+  readonly features: readonly string[];
+}
+
 /** Where part of a feature's value comes from. */
-export type EntitlementSource =
-  | {
-      readonly type: "plan";
-      readonly plan: string;
-      readonly name: string;
-      readonly version: number;
-      readonly byDefault: boolean;
-      readonly value: Value;
-    }
-  | {
-      readonly type: "addon";
-      readonly plan: string;
-      readonly name: string;
-      readonly version: number;
-      readonly quantity: number;
-      readonly value: Value;
-    }
-  | { readonly type: "grant"; readonly grant: string; readonly until: Date | null; readonly value: Value }
-  | { readonly type: "banked"; readonly value: number }
-  | { readonly type: "group"; readonly features: readonly string[] };
+export type EntitlementSource = PlanSource | AddOnSource | GrantSource | BankedSource | GroupSource;
 
 /** A plan move that would give the customer a feature they lack. */
 export interface Upgrade {
@@ -323,19 +370,28 @@ export interface Channel {
   readonly connectionId: string;
 }
 
+/** A period of a plan as one channel lists it. */
+export interface ChannelListing {
+  /** The channel. */
+  readonly channel: Channel;
+  /** The channel's name. */
+  readonly name: string;
+  /** `live` or `test` money, or `null`. */
+  readonly mode: Open<"live" | "test"> | null;
+  /** True when the customer can buy it there now. */
+  readonly purchasable: boolean;
+  /** The provider's ids, or `null`. */
+  readonly ids: Readonly<Record<string, string>> | null;
+  /** The provider's price, when known. */
+  readonly price?: ProviderPrice | null;
+}
+
 /** A period of a plan, as listed on each channel. */
 export interface PeriodListing {
   /** The period's key. */
   readonly period: string;
   /** Each channel's listing. */
-  readonly channels: readonly {
-    readonly channel: Channel;
-    readonly name: string;
-    readonly mode: Open<"live" | "test"> | null;
-    readonly purchasable: boolean;
-    readonly ids: Readonly<Record<string, string>> | null;
-    readonly price?: ProviderPrice | null;
-  }[];
+  readonly channels: readonly ChannelListing[];
 }
 
 /** A product on sale. */
@@ -620,6 +676,14 @@ export interface UsageEventInput {
   readonly idempotencyKey?: string;
 }
 
+/** Why one batch event failed. */
+export interface UsageEventError {
+  /** The error code. */
+  readonly code: string;
+  /** The error message. */
+  readonly message: string;
+}
+
 /** What one batch event did. */
 export interface UsageEventResult {
   /** The event's position in the input. */
@@ -631,7 +695,7 @@ export interface UsageEventResult {
   /** True when the event's period had closed when it arrived. */
   readonly late: boolean;
   /** Why the event failed, or `null`. */
-  readonly error: { readonly code: string; readonly message: string } | null;
+  readonly error: UsageEventError | null;
   /** The idempotency key the event was sent with. */
   readonly idempotencyKey: string;
 }
@@ -668,6 +732,12 @@ export interface VersionedPlan extends PlanSummary {
   readonly version: number;
 }
 
+/** A plan held in one product. */
+export interface ProductPlan extends VersionedPlan {
+  /** The product's key. */
+  readonly product: string;
+}
+
 /** What a customer is: on a recurring plan, a one-time plan, changing, on the default, or none. */
 export type CustomerKind = Open<"recurring" | "one_time" | "changing" | "default" | "none">;
 
@@ -690,7 +760,7 @@ export interface CustomerSummary {
   /** The main plan held, or `null`. */
   readonly plan: VersionedPlan | null;
   /** Every plan held, one per product. */
-  readonly plans: readonly (VersionedPlan & { readonly product: string })[];
+  readonly plans: readonly ProductPlan[];
   /** The default plan, or `null`. */
   readonly defaultPlan: PlanSummary | null;
   /** The subscription's status. */
@@ -765,6 +835,22 @@ export interface PlanOverride {
   readonly by: string;
 }
 
+/** A move to another plan, booked for the period's end. */
+export interface PendingMove {
+  /** `move`. */
+  readonly type: "move";
+  /** The plan the customer moves to. */
+  readonly plan: PlanSummary;
+}
+
+/** A cancellation, booked for the period's end. */
+export interface PendingCancel {
+  /** `cancel`. */
+  readonly type: "cancel";
+  /** The plan the customer falls back to, or `null`. */
+  readonly movingTo: PlanSummary | null;
+}
+
 /** A subscription. */
 export interface Subscription {
   /** Its product. */
@@ -786,10 +872,7 @@ export interface Subscription {
   /** The add-ons held. */
   readonly addOns: readonly HeldAddOn[];
   /** A change booked for the period's end, or `null`. */
-  readonly pending:
-    | { readonly type: "move"; readonly plan: PlanSummary }
-    | { readonly type: "cancel"; readonly movingTo: PlanSummary | null }
-    | null;
+  readonly pending: PendingMove | PendingCancel | null;
   /** How it was bought. */
   readonly purchase: Purchase;
   /** A plan held apart from the plan billed, or `null`. */
@@ -816,6 +899,24 @@ export interface Grant {
   readonly by: string;
 }
 
+/** A product, with the customer's subscription to it. */
+export interface ProductHolding {
+  /** The product. */
+  readonly product: ProductSummary;
+  /** Its default plan, or `null`. */
+  readonly defaultPlan: PlanSummary | null;
+  /** The customer's subscription, or `null`. */
+  readonly subscription: Subscription | null;
+}
+
+/** An entry in a customer's activity. */
+export interface Activity {
+  /** What happened, in words. */
+  readonly text: string;
+  /** When it happened. */
+  readonly at: Date;
+}
+
 /** A customer's details: plans, add-ons, grants, entitlements and usage log. */
 export interface CustomerDetails {
   /** The customer. */
@@ -827,11 +928,7 @@ export interface CustomerDetails {
   /** The default plan, or `null`. */
   readonly defaultPlan: PlanSummary | null;
   /** Each product's plan. */
-  readonly products: readonly {
-    readonly product: ProductSummary;
-    readonly defaultPlan: PlanSummary | null;
-    readonly subscription: Subscription | null;
-  }[];
+  readonly products: readonly ProductHolding[];
   /** The add-ons held. */
   readonly addOns: readonly HeldAddOn[];
   /** The entitlements. */
@@ -845,7 +942,7 @@ export interface CustomerDetails {
   /** The usage log, fetched a page at a time. */
   readonly usage: Paged<UsageEvent>;
   /** Recent activity. */
-  readonly activity: readonly { readonly text: string; readonly at: Date }[];
+  readonly activity: readonly Activity[];
   /** The environment. */
   readonly environment: Environment;
 }
@@ -962,6 +1059,20 @@ export interface BillingDrift {
   readonly observedAt: Date;
 }
 
+/** One product's billing on the payment provider. */
+export interface ProductBilling {
+  /** The product's key, or `null`. */
+  readonly product: string | null;
+  /** The subscription's status, or `null`. */
+  readonly status: ProviderStatus | null;
+  /** The SKU billed, or `null`. */
+  readonly sku: OfferedSku | null;
+  /** How many items are billed. */
+  readonly items: number;
+  /** A difference between billed and held, or `null`. */
+  readonly drift: BillingDrift | null;
+}
+
 /** The customer's billing on the payment provider. */
 export interface CustomerBilling {
   /** The provider, or `null`. */
@@ -975,13 +1086,7 @@ export interface CustomerBilling {
   /** A difference between billed and held, or `null`. */
   readonly drift: BillingDrift | null;
   /** Each product's billing. */
-  readonly products?: readonly {
-    readonly product: string | null;
-    readonly status: ProviderStatus | null;
-    readonly sku: OfferedSku | null;
-    readonly items: number;
-    readonly drift: BillingDrift | null;
-  }[];
+  readonly products?: readonly ProductBilling[];
 }
 
 /** A page on the payment provider: a checkout or the billing portal. */
@@ -1016,6 +1121,14 @@ export interface ConnectionRef {
   readonly provider: Open<"stripe" | "apple" | "google">;
 }
 
+/** The customer an alert is about. */
+export interface AlertCustomer {
+  /** The customer's external id. */
+  readonly externalId: string;
+  /** The customer's name. */
+  readonly name: string;
+}
+
 /** An alert about the customer's billing. */
 export interface Alert {
   /** The alert's id. */
@@ -1029,7 +1142,7 @@ export interface Alert {
   /** The facts behind it. */
   readonly facts: Readonly<Record<string, unknown>>;
   /** The customer, or `null`. */
-  readonly customer: { readonly externalId: string; readonly name: string } | null;
+  readonly customer: AlertCustomer | null;
   /** The connection. */
   readonly connection: ConnectionRef;
   /** When it opened. */
@@ -1042,38 +1155,86 @@ export interface Alert {
   readonly resolvedBy: Open<"provider" | "person"> | null;
 }
 
+/** An item of a provider subscription. */
+export interface ProviderItem {
+  /** The item's id. */
+  readonly id: string;
+  /** The provider's ids. */
+  readonly ids: Readonly<Record<string, string>>;
+  /** How many. */
+  readonly quantity: number;
+  /** The sale it comes from, or `null`. */
+  readonly sale: ProviderSale | null;
+}
+
+/** A subscription on the payment provider. */
+export interface ProviderSubscription {
+  /** The subscription's id. */
+  readonly id: string;
+  /** Its status on the provider. */
+  readonly status: string;
+  /** True when it bills the customer. */
+  readonly billing: boolean;
+  /** The current period, or `null`. */
+  readonly period: {
+    /** When the period started. */
+    readonly startsAt: Date;
+    /** When it ends. */
+    readonly endsAt: Date;
+  } | null;
+  /** When the trial ends, or `null`. */
+  readonly trialEndsAt: Date | null;
+  /** When it cancels, or `null`. */
+  readonly cancelsAt: Date | null;
+  /** Its items. */
+  readonly items: readonly ProviderItem[];
+}
+
+/** An amount of money. */
+export interface MoneyAmount {
+  /** The amount in the currency's smallest unit. */
+  readonly value: number;
+  /** The ISO 4217 currency code. */
+  readonly currency: string;
+}
+
+/** A one-time payment on the payment provider. */
+export interface ProviderPayment {
+  /** The payment's id. */
+  readonly id: string;
+  /** The provider's ids. */
+  readonly ids: Readonly<Record<string, string>>;
+  /** How many. */
+  readonly quantity: number;
+  /** The amount paid, or `null`. */
+  readonly amount: MoneyAmount | null;
+  /** `paid`, `refunded` or `partially_refunded`. */
+  readonly status: Open<"paid" | "refunded" | "partially_refunded">;
+  /** When it was paid. */
+  readonly paidAt: Date;
+  /** The sale it comes from, or `null`. */
+  readonly sale: ProviderSale | null;
+}
+
+/** What one payment provider connection holds for the customer. */
+export interface ProviderConnectionState {
+  /** The connection. */
+  readonly connection: ConnectionRef;
+  /** When it was read. */
+  readonly readAt: Date;
+  /** What it holds. */
+  readonly state: {
+    /** The subscriptions. */
+    readonly subscriptions: readonly ProviderSubscription[];
+    /** The one-time payments. */
+    readonly payments: readonly ProviderPayment[];
+  };
+}
+
 /** What each payment provider holds for the customer. */
 export interface CustomerProviders {
   /** Each connection's state. */
-  readonly connections: readonly {
-    readonly connection: ConnectionRef;
-    readonly readAt: Date;
-    readonly state: {
-      readonly subscriptions: readonly {
-        readonly id: string;
-        readonly status: string;
-        readonly billing: boolean;
-        readonly period: { readonly startsAt: Date; readonly endsAt: Date } | null;
-        readonly trialEndsAt: Date | null;
-        readonly cancelsAt: Date | null;
-        readonly items: readonly {
-          readonly id: string;
-          readonly ids: Readonly<Record<string, string>>;
-          readonly quantity: number;
-          readonly sale: ProviderSale | null;
-        }[];
-      }[];
-      readonly payments: readonly {
-        readonly id: string;
-        readonly ids: Readonly<Record<string, string>>;
-        readonly quantity: number;
-        readonly amount: { readonly value: number; readonly currency: string } | null;
-        readonly status: Open<"paid" | "refunded" | "partially_refunded">;
-        readonly paidAt: Date;
-        readonly sale: ProviderSale | null;
-      }[];
-    };
-  }[];
+  readonly connections: readonly ProviderConnectionState[];
   /** Open alerts. */
   readonly alerts: readonly Alert[];
   /** The connections the customer is linked on. */

@@ -22,12 +22,14 @@ export type {
   RecordUsageOptions,
   RegisterOptions,
   ServerCustomer,
+  SkuChoice,
   SnapshotOptions,
   SubscribeOptions,
   TokenOptions,
   UpdateOptions,
   Vendor,
 } from "./customer.js";
+export type { ClientDescription } from "./describe.js";
 export { Entitlements, type EntitlementsInit } from "./entitlements.js";
 export {
   ApiError,
