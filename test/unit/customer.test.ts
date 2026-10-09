@@ -734,7 +734,7 @@ describe("batches", () => {
       { ...event(4), idempotencyKey: "bad key " },
       { ...event(5), feature: "" as never },
     ]);
-    expect((sent[0]?.body as { events: unknown[] }).events).toHaveLength(1);
+    expect((sent[0]?.body as { events: unknown[] } | undefined)?.events).toHaveLength(1);
     expect(batch.results.map((result) => [result.outcome, result.error?.code])).toEqual([
       ["duplicate", undefined],
       ["error", "invalid_body"],

@@ -523,7 +523,7 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): 
 
 /** A usage log from its first page. @internal */
 export function usageLog(first: Page<UsageEvent>, fetchPage: (cursor: string) => Promise<Page<UsageEvent>>): UsageLog {
-  const all = paged((cursor) => (cursor === undefined ? Promise.resolve(first) : fetchPage(cursor)));
+  const all = paged<UsageEvent>((cursor) => (cursor === undefined ? Promise.resolve(first) : fetchPage(cursor)));
   return { items: first.items, next: first.next, pages: all.pages, [Symbol.asyncIterator]: all[Symbol.asyncIterator] };
 }
 
