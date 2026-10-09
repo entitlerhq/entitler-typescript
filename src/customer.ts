@@ -425,7 +425,7 @@ export class CustomerApi implements Customer {
     return { ...first, log: paged(async (cursor) => (await page(cursor)).log, first.log) };
   }
 
-  recordUsage(
+  async recordUsage(
     feature: Feature<"metered"> | string,
     amount: number,
     options?: RecordUsageOptions,
@@ -441,7 +441,7 @@ export class CustomerApi implements Customer {
     });
   }
 
-  holdUsage(feature: Feature<"metered"> | string, amount: number, options?: HoldOptions): Promise<UsageResult> {
+  async holdUsage(feature: Feature<"metered"> | string, amount: number, options?: HoldOptions): Promise<UsageResult> {
     return this.write("POST", "/usage/holds", options, {
       feature: featureKey(feature),
       amount: wholeNumber(amount, "amount", 1),
@@ -449,17 +449,17 @@ export class CustomerApi implements Customer {
     });
   }
 
-  settleUsage(holdId: string, amount: number, options?: WriteOptions): Promise<UsageResult> {
+  async settleUsage(holdId: string, amount: number, options?: WriteOptions): Promise<UsageResult> {
     return this.write("POST", `/usage/holds/${idOf(holdId, "Provide the id of the hold.")}/settle`, options, {
       amount: wholeNumber(amount, "amount", 0),
     });
   }
 
-  releaseUsage(holdId: string, options?: WriteOptions): Promise<UsageResult> {
+  async releaseUsage(holdId: string, options?: WriteOptions): Promise<UsageResult> {
     return this.write("DELETE", `/usage/holds/${idOf(holdId, "Provide the id of the hold.")}`, options);
   }
 
-  hold(holdId: string, options?: CallOptions): Promise<UsageHold> {
+  async hold(holdId: string, options?: CallOptions): Promise<UsageHold> {
     return this.read(`/usage/holds/${idOf(holdId, "Provide the id of the hold.")}`, options);
   }
 
@@ -503,7 +503,7 @@ export class CustomerApi implements Customer {
     return used;
   }
 
-  snapshot(options?: SnapshotOptions): Promise<IssuedSnapshot> {
+  async snapshot(options?: SnapshotOptions): Promise<IssuedSnapshot> {
     return this.write("POST", "/snapshots", options, compact({ ttlSeconds: options?.ttlSeconds }));
   }
 
@@ -520,7 +520,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
   }
   readonly vendor: Vendor = new VendorApi(this);
 
-  register(options?: RegisterOptions): Promise<RegisteredCustomer> {
+  async register(options?: RegisterOptions): Promise<RegisteredCustomer> {
     const details = compact({ name: options?.name, email: options?.email, metadata: options?.metadata });
     const visitor = visitorOf(options?.visitor);
     return this.write("PUT", "", options, Object.keys(details).length ? details : undefined, undefined, {
@@ -542,7 +542,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     return this.read<CustomerDetails & { usage: Page<UsageEvent> }>("", options, { query: { cursor } });
   }
 
-  update(options: UpdateOptions): Promise<CustomerDetails["customer"]> {
+  async update(options: UpdateOptions): Promise<CustomerDetails["customer"]> {
     return this.write(
       "PATCH",
       "",
@@ -551,11 +551,11 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     );
   }
 
-  delete(options?: WriteOptions & { erase?: boolean }): Promise<CustomerDetails["customer"]> {
+  async delete(options?: WriteOptions & { erase?: boolean }): Promise<CustomerDetails["customer"]> {
     return this.write("DELETE", "", options, undefined, { erase: options?.erase ? "true" : undefined });
   }
 
-  token(options?: TokenOptions): Promise<IssuedCustomerToken> {
+  async token(options?: TokenOptions): Promise<IssuedCustomerToken> {
     return this.write(
       "POST",
       "/tokens",
@@ -564,18 +564,18 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     );
   }
 
-  setTrack(trackId: string | null, options?: WriteOptions): Promise<CustomerTrack> {
+  async setTrack(trackId: string | null, options?: WriteOptions): Promise<CustomerTrack> {
     const track =
       trackId === null ? null : requireText(trackId, "Provide the id of the track, or null for All customers.");
     return this.write("PUT", "/track", options, { trackId: track });
   }
 
-  subscribe(plan: PlanChoice, options?: SubscribeOptions): Promise<CustomerChange> {
+  async subscribe(plan: PlanChoice, options?: SubscribeOptions): Promise<CustomerChange> {
     return this.subscription(plan, options, true, false);
   }
 
   /** @internal */
-  subscription(plan: PlanChoice, options: SubscribeOptions | undefined, selfServe: boolean, override: boolean) {
+  async subscription(plan: PlanChoice, options: SubscribeOptions | undefined, selfServe: boolean, override: boolean) {
     return this.write<CustomerChange>("POST", "/subscription", options, {
       ...choice(plan),
       ...compact({ period: options?.period, when: options?.when }),
@@ -584,12 +584,12 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     });
   }
 
-  checkout(plan: PlanChoice, options: CheckoutOptions): Promise<ProviderPage> {
+  async checkout(plan: PlanChoice, options: CheckoutOptions): Promise<ProviderPage> {
     return this.checkoutAs(plan, options, true);
   }
 
   /** @internal */
-  checkoutAs(plan: PlanChoice, options: CheckoutOptions, selfServe: boolean): Promise<ProviderPage> {
+  async checkoutAs(plan: PlanChoice, options: CheckoutOptions, selfServe: boolean): Promise<ProviderPage> {
     return this.write("POST", "/checkout", options, {
       ...choice(plan),
       ...compact({ period: options?.period }),
@@ -603,23 +603,23 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     });
   }
 
-  cancel(options?: CancelOptions): Promise<CustomerDetails> {
+  async cancel(options?: CancelOptions): Promise<CustomerDetails> {
     return this.write("DELETE", "/subscription", options, undefined, {
       when: options?.when,
       product: options?.product,
     });
   }
 
-  undoPendingChange(options?: ProductOptions): Promise<CustomerDetails> {
+  async undoPendingChange(options?: ProductOptions): Promise<CustomerDetails> {
     return this.write("DELETE", "/subscription/pending", options, undefined, { product: options?.product });
   }
 
-  addAddOn(plan: PlanChoice, options?: AddOnOptions): Promise<CustomerChange> {
+  async addAddOn(plan: PlanChoice, options?: AddOnOptions): Promise<CustomerChange> {
     return this.addOn(plan, options, true);
   }
 
   /** @internal */
-  addOn(plan: PlanChoice, options: AddOnOptions | undefined, selfServe: boolean): Promise<CustomerChange> {
+  async addOn(plan: PlanChoice, options: AddOnOptions | undefined, selfServe: boolean): Promise<CustomerChange> {
     return this.write("POST", "/subscription/add-ons", options, {
       ...choice(plan),
       ...compact({
@@ -631,12 +631,12 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     });
   }
 
-  setAddOnQuantity(plan: string, quantity: number, options?: WriteOptions): Promise<CustomerChange> {
+  async setAddOnQuantity(plan: string, quantity: number, options?: WriteOptions): Promise<CustomerChange> {
     return this.quantity(plan, quantity, options, true);
   }
 
   /** @internal */
-  quantity(
+  async quantity(
     plan: string,
     quantity: number,
     options: WriteOptions | undefined,
@@ -648,25 +648,25 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     });
   }
 
-  removeAddOn(plan: string, options?: WriteOptions): Promise<CustomerDetails> {
+  async removeAddOn(plan: string, options?: WriteOptions): Promise<CustomerDetails> {
     return this.write("DELETE", `/subscription/add-ons/${encodeURIComponent(planKey(plan))}`, options);
   }
 
-  undoAddOnChange(plan: string, options?: WriteOptions): Promise<CustomerDetails> {
+  async undoAddOnChange(plan: string, options?: WriteOptions): Promise<CustomerDetails> {
     return this.write("DELETE", `/subscription/add-ons/${encodeURIComponent(planKey(plan))}/pending`, options);
   }
 
-  billing(options?: CallOptions): Promise<CustomerBilling> {
+  async billing(options?: CallOptions): Promise<CustomerBilling> {
     return this.read("/billing", options);
   }
 
-  billingPortal(options: WriteOptions & { returnUrl: string }): Promise<ProviderPage> {
+  async billingPortal(options: WriteOptions & { returnUrl: string }): Promise<ProviderPage> {
     return this.write("POST", "/billing-portal", options, {
       returnUrl: requireText(options?.returnUrl, "Pass returnUrl as the page to send the customer back to."),
     });
   }
 
-  providers(options?: CallOptions): Promise<CustomerProviders> {
+  async providers(options?: CallOptions): Promise<CustomerProviders> {
     return this.read("/providers", options);
   }
 }
@@ -678,31 +678,31 @@ class VendorApi implements Vendor {
     this.#customer = customer;
   }
 
-  subscribe(plan: PlanChoice, options?: SubscribeOptions): Promise<CustomerChange> {
+  async subscribe(plan: PlanChoice, options?: SubscribeOptions): Promise<CustomerChange> {
     return this.#customer.subscription(plan, options, false, false);
   }
 
-  override(plan: string, options?: SubscribeOptions): Promise<CustomerChange> {
+  async override(plan: string, options?: SubscribeOptions): Promise<CustomerChange> {
     return this.#customer.subscription(planKey(plan), options, false, true);
   }
 
-  undoOverride(options?: ProductOptions): Promise<CustomerDetails> {
+  async undoOverride(options?: ProductOptions): Promise<CustomerDetails> {
     return this.#customer.write("DELETE", "/subscription/override", options, undefined, { product: options?.product });
   }
 
-  checkout(plan: PlanChoice, options: CheckoutOptions): Promise<ProviderPage> {
+  async checkout(plan: PlanChoice, options: CheckoutOptions): Promise<ProviderPage> {
     return this.#customer.checkoutAs(plan, options, false);
   }
 
-  addAddOn(plan: PlanChoice, options?: AddOnOptions): Promise<CustomerChange> {
+  async addAddOn(plan: PlanChoice, options?: AddOnOptions): Promise<CustomerChange> {
     return this.#customer.addOn(plan, options, false);
   }
 
-  setAddOnQuantity(plan: string, quantity: number, options?: WriteOptions): Promise<CustomerChange> {
+  async setAddOnQuantity(plan: string, quantity: number, options?: WriteOptions): Promise<CustomerChange> {
     return this.#customer.quantity(plan, quantity, options, false);
   }
 
-  grant(feature: Feature | string, options?: GrantOptions): Promise<CustomerDetails> {
+  async grant(feature: Feature | string, options?: GrantOptions): Promise<CustomerDetails> {
     const value = options?.value;
     if (value !== undefined && value !== "unlimited") wholeNumber(value, "value", 0);
     return this.#customer.write("POST", "/grants", options, {
@@ -715,17 +715,17 @@ class VendorApi implements Vendor {
     });
   }
 
-  revokeGrant(grantId: string, options?: WriteOptions): Promise<CustomerDetails> {
+  async revokeGrant(grantId: string, options?: WriteOptions): Promise<CustomerDetails> {
     return this.#customer.write("DELETE", `/grants/${idOf(grantId, "Provide the id of the grant.")}`, options);
   }
 
-  setMeter(feature: Feature<"metered"> | string, used: number, options?: WriteOptions): Promise<UsageResult> {
+  async setMeter(feature: Feature<"metered"> | string, used: number, options?: WriteOptions): Promise<UsageResult> {
     return this.#customer.write("PUT", `/meters/${encodeURIComponent(featureKey(feature))}`, options, {
       used: wholeNumber(used, "used", 0),
     });
   }
 
-  cancelUsage(usageId: string, options?: WriteOptions): Promise<UsageResult> {
+  async cancelUsage(usageId: string, options?: WriteOptions): Promise<UsageResult> {
     return this.#customer.write("DELETE", `/usage/${idOf(usageId, "Provide the id of the usage report.")}`, options);
   }
 }

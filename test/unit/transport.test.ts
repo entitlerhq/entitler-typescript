@@ -1,18 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  ApiError,
-  ConnectionError,
-  EntitlerError,
-  EntitlerServer,
-  TimeoutError,
-  VERSION,
-} from "../../src/index.js";
+import { ApiError, ConnectionError, EntitlerError, EntitlerServer, TimeoutError, VERSION } from "../../src/index.js";
 import { apiError, checkAnswer, fakeFetch, json, usageAnswer } from "./fake.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
+
+const g = globalThis as { Deno?: { version: { deno: string } } };
+const runtime = g.Deno
+  ? `deno/${g.Deno.version.deno}`
+  : process.versions.bun
+    ? `bun/${process.versions.bun}`
+    : `node/${process.versions.node}`;
 
 function server(fetch: typeof globalThis.fetch, options: Record<string, unknown> = {}) {
   return new EntitlerServer({ key: "ent_test_secret", fetch, cache: false, ...options });
@@ -30,7 +30,7 @@ describe("requests", () => {
     expect(request?.headers["content-type"]).toBeUndefined();
     expect(request?.headers["idempotency-key"]).toBeUndefined();
     expect(request?.headers["entitler-visitor"]).toBeUndefined();
-    expect(request?.headers["user-agent"]).toBe(`entitler-typescript/${VERSION} node/${process.versions.node}`);
+    expect(request?.headers["user-agent"]).toBe(`entitler-typescript/${VERSION} ${runtime}`);
     expect(request?.body).toBeUndefined();
   });
 
@@ -81,9 +81,9 @@ describe("requests", () => {
 
   it.each(["", "x".repeat(201), "tab\there", "é"])("refuses the idempotency key %j before any request", async (key) => {
     const { fetch, mock } = fakeFetch(json(usageAnswer()));
-    await expect(
-      server(fetch).customer("u").recordUsage("ai_credits", 3, { idempotencyKey: key }),
-    ).rejects.toThrow(new TypeError("Pass idempotencyKey as 1 to 200 printable ASCII characters."));
+    await expect(server(fetch).customer("u").recordUsage("ai_credits", 3, { idempotencyKey: key })).rejects.toThrow(
+      new TypeError("Pass idempotencyKey as 1 to 200 printable ASCII characters."),
+    );
     expect(mock).not.toHaveBeenCalled();
   });
 
@@ -139,13 +139,19 @@ describe("errors", () => {
     const { fetch } = fakeFetch(
       json({ error: { code: "payment_required", message: "m", payment: { status: "odd", url: null } } }, 402),
     );
-    const error = (await server(fetch).customer("u").subscribe("pro").catch((e: unknown) => e)) as ApiError;
+    const error = (await server(fetch)
+      .customer("u")
+      .subscribe("pro")
+      .catch((e: unknown) => e)) as ApiError;
     expect(error.payment).toBeUndefined();
   });
 
   it("answers http_error for an answer without an error body", async () => {
     const { fetch } = fakeFetch(new Response("<html>bad gateway</html>", { status: 418 }));
-    const error = (await server(fetch).customer("u").check("f").catch((e: unknown) => e)) as ApiError;
+    const error = (await server(fetch)
+      .customer("u")
+      .check("f")
+      .catch((e: unknown) => e)) as ApiError;
     expect(error).toMatchObject({ status: 418, code: "http_error", message: "Entitler request failed with HTTP 418." });
     expect(error.requestId).toBeUndefined();
     expect(error.idempotencyKey).toBeUndefined();
@@ -305,7 +311,10 @@ describe("retries", () => {
       return original(fn, ms);
     }) as typeof setTimeout);
     const { fetch } = fakeFetch(apiError(503, "unavailable"));
-    const result = server(fetch, { maxRetries: 7 }).customer("u").check("f").catch(() => undefined);
+    const result = server(fetch, { maxRetries: 7 })
+      .customer("u")
+      .check("f")
+      .catch(() => undefined);
     await vi.runAllTimersAsync();
     await result;
     expect(Math.max(...delays)).toBeLessThanOrEqual(8000);
@@ -320,7 +329,10 @@ describe("retries", () => {
       delays.push(ms);
       return original(fn, ms);
     }) as typeof setTimeout);
-    const { fetch } = fakeFetch(apiError(429, "rate_limited", "Slow down.", { "retry-after": "3" }), json(checkAnswer()));
+    const { fetch } = fakeFetch(
+      apiError(429, "rate_limited", "Slow down.", { "retry-after": "3" }),
+      json(checkAnswer()),
+    );
     const result = server(fetch).customer("u").check("f");
     await vi.runAllTimersAsync();
     await result;
@@ -350,14 +362,20 @@ describe("retries", () => {
       apiError(503, "unavailable", "Much later.", { "retry-after": "120" }),
       json(checkAnswer()),
     );
-    const error = (await server(fetch).customer("u").check("f").catch((e: unknown) => e)) as ApiError;
+    const error = (await server(fetch)
+      .customer("u")
+      .check("f")
+      .catch((e: unknown) => e)) as ApiError;
     expect(error.retryAfter).toBe(120_000);
     expect(sent).toHaveLength(1);
   });
 
   it("honours a larger maxRetryDelay", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const { fetch, sent } = fakeFetch(apiError(503, "unavailable", "Later.", { "retry-after": "20" }), json(checkAnswer()));
+    const { fetch, sent } = fakeFetch(
+      apiError(503, "unavailable", "Later.", { "retry-after": "20" }),
+      json(checkAnswer()),
+    );
     const result = server(fetch, { maxRetryDelay: 30_000 }).customer("u").check("f");
     await vi.runAllTimersAsync();
     await result;
@@ -367,13 +385,19 @@ describe("retries", () => {
   it("ignores an unreadable Retry-After", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
     const { fetch } = fakeFetch(apiError(503, "unavailable", "?", { "retry-after": "soon" }), apiError(400, "x"));
-    const error = (await server(fetch).customer("u").check("f").catch((e: unknown) => e)) as ApiError;
+    const error = (await server(fetch)
+      .customer("u")
+      .check("f")
+      .catch((e: unknown) => e)) as ApiError;
     expect(error.status).toBe(400);
   });
 
   it("ends a retry wait at once when the caller aborts", async () => {
     const controller = new AbortController();
-    const { fetch, sent } = fakeFetch(apiError(503, "unavailable", "Later.", { "retry-after": "5" }), json(checkAnswer()));
+    const { fetch, sent } = fakeFetch(
+      apiError(503, "unavailable", "Later.", { "retry-after": "5" }),
+      json(checkAnswer()),
+    );
     const started = Date.now();
     const result = server(fetch).customer("u").check("f", { signal: controller.signal });
     setTimeout(() => controller.abort(), 10);

@@ -216,7 +216,7 @@ export class EntitlerServer {
   }
 
   /** Verifies a snapshot offline, with no request. See {@link verifySnapshot}. */
-  verifySnapshot(token: string, expected: ExpectedSnapshot): Promise<VerifiedSnapshot> {
+  async verifySnapshot(token: string, expected: ExpectedSnapshot): Promise<VerifiedSnapshot> {
     return verifySnapshot(token, expected);
   }
 
