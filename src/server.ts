@@ -36,6 +36,7 @@ import {
   requiredKey,
   requireId,
   requireText,
+  segment,
   sha256Hex,
   trimCredential,
 } from "./util.js";
@@ -115,7 +116,11 @@ function prepare(event: UsageEventInput): Prepared {
     }
   };
   const checks = [
-    step("invalid_body", () => requireId(given.customer, "Provide the id your app uses for the customer.")),
+    step("invalid_body", () => {
+      const id = requireId(given.customer, "Provide the id your app uses for the customer.");
+      segment(id);
+      return id;
+    }),
     step("invalid_body", () => featureKey(given.feature as string)),
     step("invalid_amount", () => usageAmount(given.amount)),
     step("invalid_body", () => instant(given.occurredAt as string | undefined, "Pass occurredAt as a valid date.")),

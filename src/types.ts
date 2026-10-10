@@ -302,14 +302,14 @@ export interface ProviderPrice {
 
 /** A SKU the customer can buy: a period of a plan on one store or payment provider. */
 export interface OfferedSku {
-  /** The billing period. */
-  readonly period: Period;
-  /** `stripe`, `apple` or `google`. */
-  readonly connector: BilledBy;
-  /** The provider's ids for it. */
+  /** The billing period, or `null`. */
+  readonly period: Period | null;
+  /** Where it is bought, as the API names it, such as `stripe`, `apple` or `google`. */
+  readonly connector: string;
+  /** The connector's ids, by field. */
   readonly ids: Readonly<Record<string, string>>;
-  /** The provider's price, when known. */
-  readonly price?: ProviderPrice | null;
+  /** The price, or `null` when the answer gives none. */
+  readonly price: ProviderPrice | null;
 }
 
 /** A SKU the customer bought, named by its connector and the provider's ids. */
@@ -354,13 +354,13 @@ export type PendingPlanChange =
       /** A move to another plan. */
       readonly type: "move";
       /** The plan it moves to. */
-      readonly plan: PlanInfo;
+      readonly plan: PlanSummary;
     }
   | {
       /** A cancel. */
       readonly type: "cancel";
-      /** The default plan the cancel leads to, or `null`. */
-      readonly movingTo: PlanInfo | null;
+      /** The default plan the cancel leads to, or `null` when the product has none. */
+      readonly movingTo: PlanSummary | null;
     };
 
 /** A plan or add-on the customer could move to. */
@@ -934,8 +934,8 @@ export interface Grant {
   readonly id: string;
   /** The feature's key. */
   readonly feature: string;
-  /** The value granted. */
-  readonly value: string;
+  /** The value granted: on, an amount, or unlimited. */
+  readonly value: Value;
   /** When it starts. */
   readonly from: Date;
   /** When it ends, or `null`. */
@@ -1148,7 +1148,7 @@ export interface PlanChange extends Replayed {
   /** The product, or `null`. */
   readonly product: ProductSummary | null;
   /** The plan or add-on the change leaves the customer on, or `null` when they are left with no plan in that product. */
-  readonly plan: PlanInfo | null;
+  readonly plan: PlanSummary | null;
   /** An add-on's quantity after the change, `0` when it is removed, or `null` for a plan. */
   readonly quantity: number | null;
   /** `now`, or `renewal` when it takes effect at the period's end. */
@@ -1210,34 +1210,6 @@ export interface BillingSync {
 export interface GrantChange extends Replayed {
   /** The grant, so a support tool keeps its id. */
   readonly grant: Grant;
-}
-
-/** A gap a rollout would leave, from `409 listing_gaps`. */
-export interface ListingGap {
-  /** `stops_selling` or `unlisted`. */
-  readonly kind: Open<"stops_selling" | "unlisted">;
-  /** The plan's key. */
-  readonly plan: string;
-  /** The listing key. */
-  readonly key: string;
-  /** The period. */
-  readonly period: string;
-  /** The channel, or `null`. */
-  readonly channel: Channel | null;
-}
-
-/** A listing whose provider price fails the checks, from `409 listing_invalid`. */
-export interface ListingProblem {
-  /** The channel. */
-  readonly channel: Channel;
-  /** The plan's key. */
-  readonly plan: string;
-  /** The period. */
-  readonly period: string;
-  /** The provider's ids. */
-  readonly ids: Readonly<Record<string, string>>;
-  /** What is wrong. */
-  readonly problem: Open<"price_not_found" | "price_inactive" | "interval_mismatch">;
 }
 
 /**

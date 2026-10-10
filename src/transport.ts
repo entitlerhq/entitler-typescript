@@ -81,6 +81,7 @@ export interface Call {
   readonly cached?: boolean;
   readonly revalidate?: boolean | undefined;
   readonly shape?: (data: Record<string, unknown>) => boolean;
+  readonly map?: (data: Record<string, unknown>) => unknown;
   readonly customer?: string;
   readonly changes?: readonly string[];
   readonly open?: boolean;
@@ -261,8 +262,6 @@ function apiError(received: Received, idempotencyKey: string | undefined): ApiEr
             url: typeof payment.url === "string" ? payment.url : null,
           }
         : undefined,
-    listingGaps: Array.isArray(error.listingGaps) ? error.listingGaps : [],
-    listingProblems: Array.isArray(error.listingProblems) ? error.listingProblems : [],
   });
 }
 
@@ -297,6 +296,13 @@ function fingerprint(credential: string): Promise<string> {
     fingerprints.set(credential, digest);
   }
   return digest;
+}
+
+let keyObserver: ((key: string) => void) | undefined;
+
+/** Test-only: observes the cache key each read through the cache asks for. Never public API. @internal */
+export function observeCacheKeys(observer: ((key: string) => void) | undefined): void {
+  keyObserver = observer;
 }
 
 /** The one transport both clients share: headers, retries, timeouts, idempotency and the cache. @internal */
@@ -382,10 +388,9 @@ export class Transport {
       const received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304) throw apiError(received, call.idempotencyKey);
       return {
-        data:
-          call.empty && received.text === "" ? (undefined as T) : this.#decode<T>(received.text, received, call.shape),
+        data: call.empty && received.text === "" ? (undefined as T) : this.#decode<T>(received.text, received, call),
         stale: false,
-        replayed: received.headers.get("idempotent-replayed")?.trim().toLowerCase() === "true",
+        replayed: received.headers.get("idempotent-replayed") === "true",
       };
     }
     return this.#cached<T>(call, url, headers, auth, this.#cache);
@@ -399,15 +404,16 @@ export class Transport {
     cache: CacheStore,
   ): Promise<Answer<T>> {
     const key = await this.#key(call, url, headers, auth);
+    keyObserver?.(key);
     const started = Date.now();
     const generation = this.#generationOf(call.customer);
     const kept = await this.#get(cache, key);
     const usable = kept !== undefined && Date.now() - kept.receivedAt < this.#staleFor;
     if (kept && !call.revalidate && this.#fresh(kept, call.customer)) {
-      return { data: this.#decode<T>(kept.body), stale: false, replayed: false };
+      return { data: this.#decode<T>(kept.body, undefined, call), stale: false, replayed: false };
     }
     if (usable && (Date.now() < this.#downUntil || (this.#downUntil > 0 && this.#probing))) {
-      return { data: this.#decode<T>(kept.body), stale: true, replayed: false };
+      return { data: this.#decode<T>(kept.body, undefined, call), stale: true, replayed: false };
     }
     if (kept?.etag) headers["If-None-Match"] = kept.etag;
     const probe = this.#downUntil > 0;
@@ -417,7 +423,7 @@ export class Transport {
     try {
       received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304 && !kept) throw apiError(received, undefined);
-      data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received, call.shape);
+      data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received, call);
       this.#downUntil = 0;
     } catch (error) {
       if (unreachable(error)) {
@@ -426,7 +432,7 @@ export class Transport {
       }
       if (usable && unreachable(error)) {
         this.report(error);
-        return { data: this.#decode<T>(kept.body), stale: true, replayed: false };
+        return { data: this.#decode<T>(kept.body, undefined, call), stale: true, replayed: false };
       }
       throw error;
     } finally {
@@ -513,20 +519,23 @@ export class Transport {
     }
   }
 
-  #decode<T>(text: string, received?: Received, check?: (data: Record<string, unknown>) => boolean): T {
+  #decode<T>(text: string, received: Received | undefined, call: Call): T {
     try {
       const data = parseAnswer(text);
       if (data === null || typeof data !== "object" || Array.isArray(data)) {
         throw new TypeError("The answer is not a JSON object.");
       }
-      if (check && !check(data as Record<string, unknown>)) throw new TypeError("The answer lacks a required field.");
-      return data as T;
+      if (call.shape && !call.shape(data as Record<string, unknown>)) {
+        throw new TypeError("The answer lacks a required field, or holds one of another type.");
+      }
+      return (call.map ? call.map(data as Record<string, unknown>) : data) as T;
     } catch (cause) {
       throw new ApiError({
         status: received?.status ?? 200,
         code: "invalid_response",
         message: "Entitler sent an answer this SDK cannot read.",
         requestId: received?.headers.get("x-request-id") ?? undefined,
+        idempotencyKey: received ? call.idempotencyKey : undefined,
         cause,
       });
     }

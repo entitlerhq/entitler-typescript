@@ -1,5 +1,5 @@
 {
-  "description": "Feature value and check answer decoding (sections 6.2 and 8). Serve answer with headers as a 200 for request, a check on a server client with an empty cache, and compare the decoded check with outcome. Value cases give one feature value and its decoded kind, or null when it does not decode and the check fails with an ApiError, code invalid_response; check cases give the fields an SDK exposes, with absent naming the fields the answer lacks; instant cases give one instant of the answer, at field, and its decoded instant, or the decoding failure.",
+  "description": "Feature value and check answer decoding (sections 6.2 and 8). Serve answer with headers as a 200 for request, a check on a server client with an empty cache, and compare the decoded check with outcome. Value cases give one feature value and its decoded kind, or null when it does not decode and the check fails with an ApiError, code invalid_response; check cases give the fields an SDK exposes, with absent naming the fields the answer lacks and an enum value this version does not know as { \"unknown\": raw }; instant cases give one instant of the answer, at field, and its decoded instant, or the decoding failure; field cases put json, a JSON value of a type the schema does not take (a quoted number or boolean included), at field, a dotted path into answer, or leave field out of answer when missing is true, so the check fails with the ApiError invalid_response.",
   "spec": "6.2, 8",
   "cases": [
     {
@@ -1436,6 +1436,490 @@
         "remaining": 750,
         "held": 0,
         "resetsAt": "0000-06-01T00:00:00.000Z"
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "check-environment-kind-in-capitals",
+      "why": "Enum values are matched exactly, so Live is a kind this version does not know, kept as its raw string.",
+      "kind": "check",
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "export_pdf",
+        "type": "boolean",
+        "entitled": true,
+        "value": true,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_live",
+          "name": "Production",
+          "kind": "Live"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "customer": "user_42",
+        "feature": "export_pdf",
+        "type": "boolean",
+        "entitled": true,
+        "value": {
+          "kind": "on"
+        },
+        "environment": {
+          "id": "env_conformance_live",
+          "name": "Production",
+          "kind": {
+            "unknown": "Live"
+          }
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null,
+        "asOf": {
+          "instant": "2026-07-01T09:30:00.000Z",
+          "epochMillis": 1782898200000
+        },
+        "stale": false,
+        "absent": [
+          "used",
+          "remaining",
+          "held",
+          "resetsAt"
+        ]
+      }
+    },
+    {
+      "name": "entitled-a-quoted-boolean",
+      "why": "A quoted boolean is a string, not a boolean, so entitled \"true\" does not decode.",
+      "kind": "field",
+      "field": "entitled",
+      "json": "true",
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "export_pdf",
+        "type": "boolean",
+        "entitled": "true",
+        "value": true,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": "test"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "entitled-missing",
+      "why": "A check without entitled lacks a field the document requires, so it does not decode.",
+      "kind": "field",
+      "field": "entitled",
+      "missing": true,
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "export_pdf",
+        "type": "boolean",
+        "value": true,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": "test"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "release-a-quoted-number",
+      "why": "A quoted number is a string, not an integer, so release \"2\" does not decode.",
+      "kind": "field",
+      "field": "release",
+      "json": "2",
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "export_pdf",
+        "type": "boolean",
+        "entitled": true,
+        "value": true,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": "test"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": "2",
+        "change": null,
+        "testers": true,
+        "experiment": null
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "testers-a-number",
+      "why": "testers must be a boolean, so 1 does not decode.",
+      "kind": "field",
+      "field": "testers",
+      "json": 1,
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "export_pdf",
+        "type": "boolean",
+        "entitled": true,
+        "value": true,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": "test"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": 1,
+        "experiment": null
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "used-a-quoted-number",
+      "why": "A meter's used given as the quoted number \"250\" does not decode.",
+      "kind": "field",
+      "field": "used",
+      "json": "250",
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/ai_credits"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "ai_credits",
+        "type": "metered",
+        "entitled": true,
+        "value": 1000,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": "test"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null,
+        "used": "250",
+        "remaining": 700,
+        "held": 50,
+        "resetsAt": "2026-08-01T00:00:00.000Z"
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "remaining-a-quoted-number",
+      "why": "remaining is an amount or unlimited, so the quoted number \"700\" does not decode.",
+      "kind": "field",
+      "field": "remaining",
+      "json": "700",
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/ai_credits"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "ai_credits",
+        "type": "metered",
+        "entitled": true,
+        "value": 1000,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": "test"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null,
+        "used": 250,
+        "remaining": "700",
+        "held": 50,
+        "resetsAt": "2026-08-01T00:00:00.000Z"
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "environment-kind-a-number",
+      "why": "An enum is an open set of strings, so a kind that is a number is another JSON type and does not decode.",
+      "kind": "field",
+      "field": "environment.kind",
+      "json": 1,
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "export_pdf",
+        "type": "boolean",
+        "entitled": true,
+        "value": true,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": 1
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "as-of-a-number",
+      "why": "An instant is an RFC 3339 string, so asOf given as milliseconds since 1970 does not decode.",
+      "kind": "field",
+      "field": "asOf",
+      "json": 1782898200000,
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": 1782898200000,
+        "feature": "export_pdf",
+        "type": "boolean",
+        "entitled": true,
+        "value": true,
+        "sources": [],
+        "upgrades": [],
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": "test"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null
+      },
+      "headers": {
+        "Content-Type": "application/json",
+        "ETag": "\"conformance-1\"",
+        "Cache-Control": "private, no-cache"
+      },
+      "outcome": {
+        "kind": "ApiError",
+        "status": 200,
+        "code": "invalid_response",
+        "message": "Entitler sent an answer this SDK cannot read."
+      }
+    },
+    {
+      "name": "upgrades-an-object",
+      "why": "upgrades is an array, so an object in its place does not decode.",
+      "kind": "field",
+      "field": "upgrades",
+      "json": {},
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answer": {
+        "customer": "user_42",
+        "asOf": "2026-07-01T09:30:00.000Z",
+        "feature": "export_pdf",
+        "type": "boolean",
+        "entitled": true,
+        "value": true,
+        "sources": [],
+        "upgrades": {},
+        "environment": {
+          "id": "env_conformance_test",
+          "name": "Development",
+          "kind": "test"
+        },
+        "track": {
+          "id": "trk_all_customers",
+          "name": "All customers"
+        },
+        "release": 2,
+        "change": null,
+        "testers": true,
+        "experiment": null
       },
       "headers": {
         "Content-Type": "application/json",
