@@ -1,7 +1,19 @@
 import { Entitlements, type EntitlementsInit } from "./entitlements.js";
 import { ApiError, UsageRefusedError, UsageReplayedError, UsageSettlementError } from "./errors.js";
 import { paged } from "./paging.js";
-import { isCheck } from "./shapes.js";
+import {
+  grantChangeOf,
+  isBillingSync,
+  isCheck,
+  isEntitlements,
+  isGrantChange,
+  isPlanChange,
+  isPlans,
+  isProviderPage,
+  isStep,
+  isUsageResult,
+  plansOf,
+} from "./shapes.js";
 import {
   type Call,
   type CallOptions,
@@ -300,7 +312,7 @@ export interface Customer {
   undoPendingChange(options?: PlanTargetOptions): Promise<PlanChange>;
   /**
    * Opens the provider's page for payment details and invoices. It changes no plan, and a customer
-   * the provider has never billed answers `409 stale`.
+   * the provider has never billed answers `404 not_found`.
    */
   billingPortal(options: BillingPortalOptions): Promise<ProviderPage>;
   /**
@@ -551,14 +563,6 @@ function stepOf(data: Raw, replayed: boolean): SubscribeStep {
   return { next: "unknown", raw: String(next) };
 }
 
-function isStep(data: Raw): boolean {
-  if (typeof data.next !== "string") return false;
-  if (data.next === "pay") return typeof data.url === "string";
-  if (data.next === "manage") return typeof data.billedBy === "string";
-  if (data.next === "done") return typeof data.changed === "boolean" && typeof data.effective === "string";
-  return true;
-}
-
 function asOfHeader(options: AsOfOptions | undefined): Record<string, string | undefined> {
   return { "Entitler-As-Of": instant(options?.asOf, "Pass asOf as a valid date.") };
 }
@@ -616,6 +620,21 @@ export class CustomerApi implements Customer {
   }
 
   /** @internal */
+  usageWrite(...[method, path, options, body, extra]: Parameters<CustomerApi["write"]>): Promise<UsageResult> {
+    return this.write<UsageResult>(method, path, options, body, { shape: isUsageResult, ...extra });
+  }
+
+  /** @internal */
+  planWrite(...[method, path, options, body, extra]: Parameters<CustomerApi["write"]>): Promise<PlanChange> {
+    return this.write<PlanChange>(method, path, options, body, { shape: isPlanChange, ...extra });
+  }
+
+  /** @internal */
+  grantWrite(...[method, path, options, body, extra]: Parameters<CustomerApi["write"]>): Promise<GrantChange> {
+    return this.write<GrantChange>(method, path, options, body, { shape: isGrantChange, map: grantChangeOf, ...extra });
+  }
+
+  /** @internal */
   async read<T>(path: string, options: CallOptions | undefined, extra: Partial<Call> = {}): Promise<T> {
     return (await this.send<T>({ method: "GET", path, options, ...extra })).data;
   }
@@ -661,12 +680,15 @@ export class CustomerApi implements Customer {
 
   async entitlements(options?: ServerReadOptions): Promise<Entitlements> {
     return new Entitlements(
-      await this.cached<EntitlementsInit>("/entitlements", options, { headers: this.asOf(options) }),
+      await this.cached<EntitlementsInit>("/entitlements", options, {
+        shape: isEntitlements,
+        headers: this.asOf(options),
+      }),
     );
   }
 
   async plans(options?: ServerReadOptions): Promise<CustomerPlans> {
-    return this.cached<CustomerPlans>("/plans", options, { headers: this.asOf(options) });
+    return this.cached<CustomerPlans>("/plans", options, { shape: isPlans, map: plansOf, headers: this.asOf(options) });
   }
 
   async pricing(options?: PricingOptions): Promise<Pricing> {
@@ -683,7 +705,7 @@ export class CustomerApi implements Customer {
 
   async recordUsage(feature: Feature<"metered">, amount: number, options: RecordUsageOptions): Promise<UsageResult> {
     const key = requiredKey(options?.idempotencyKey);
-    return this.write<UsageResult>(
+    return this.usageWrite(
       "POST",
       "/usage",
       options,
@@ -702,7 +724,7 @@ export class CustomerApi implements Customer {
 
   async holdUsage(feature: Feature<"metered">, amount: number, options: HoldOptions): Promise<UsageResult> {
     const key = requiredKey(options?.idempotencyKey);
-    return this.write<UsageResult>(
+    return this.usageWrite(
       "POST",
       "/usage/holds",
       options,
@@ -712,18 +734,13 @@ export class CustomerApi implements Customer {
   }
 
   async settleUsage(holdId: string, amount: number, options?: WriteOptions): Promise<UsageResult> {
-    return this.write<UsageResult>(
-      "POST",
-      `/usage/holds/${idOf(holdId, "Provide the id of the hold.")}/settle`,
-      options,
-      {
-        amount: wholeNumber(amount, "amount", 0, Number.MAX_SAFE_INTEGER, SETTLED_AMOUNT),
-      },
-    );
+    return this.usageWrite("POST", `/usage/holds/${idOf(holdId, "Provide the id of the hold.")}/settle`, options, {
+      amount: wholeNumber(amount, "amount", 0, Number.MAX_SAFE_INTEGER, SETTLED_AMOUNT),
+    });
   }
 
   async releaseUsage(holdId: string, options?: WriteOptions): Promise<UsageResult> {
-    return this.write<UsageResult>("DELETE", `/usage/holds/${idOf(holdId, "Provide the id of the hold.")}`, options);
+    return this.usageWrite("DELETE", `/usage/holds/${idOf(holdId, "Provide the id of the hold.")}`, options);
   }
 
   async startHold(feature: Feature<"metered">, amount: number, options: HoldOptions): Promise<Hold> {
@@ -869,26 +886,28 @@ export class CustomerApi implements Customer {
       throw new TypeError("Pass either addOn or product, not both.");
     }
     if (options?.addOn !== undefined) {
-      return this.write<PlanChange>(
-        "DELETE",
-        `/subscription/add-ons/${segment(planKey(options.addOn))}${suffix}`,
-        options,
-      );
+      return this.planWrite("DELETE", `/subscription/add-ons/${segment(planKey(options.addOn))}${suffix}`, options);
     }
-    return this.write<PlanChange>("DELETE", `/subscription${suffix}`, options, undefined, {
+    return this.planWrite("DELETE", `/subscription${suffix}`, options, undefined, {
       query: { product: options?.product },
     });
   }
 
   async billingPortal(options: BillingPortalOptions): Promise<ProviderPage> {
-    const { replayed: _, ...page } = await this.write<ProviderPage>("POST", "/billing-portal", options, {
-      returnUrl: requireText(options?.returnUrl, "Pass returnUrl as the page to send the customer back to."),
-    });
+    const { replayed: _, ...page } = await this.write<ProviderPage>(
+      "POST",
+      "/billing-portal",
+      options,
+      { returnUrl: requireText(options?.returnUrl, "Pass returnUrl as the page to send the customer back to.") },
+      { shape: isProviderPage },
+    );
     return page;
   }
 
   async syncBilling(options?: CallOptions): Promise<BillingSync> {
-    const { replayed: _, ...sync } = await this.write<BillingSync>("POST", "/billing/sync", options);
+    const { replayed: _, ...sync } = await this.write<BillingSync>("POST", "/billing/sync", options, undefined, {
+      shape: isBillingSync,
+    });
     return sync;
   }
 
@@ -969,7 +988,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
   }
 
   async setPlan(plan: PlanChoice, options?: SetPlanOptions): Promise<PlanChange> {
-    return this.write<PlanChange>("PUT", "/plan", options, {
+    return this.planWrite("PUT", "/plan", options, {
       ...choice(plan),
       ...compact({
         period: options?.period,
@@ -984,7 +1003,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
   }
 
   async setAddOn(addOn: string, options: SetAddOnOptions): Promise<PlanChange> {
-    return this.write<PlanChange>("PUT", `/add-ons/${segment(planKey(addOn))}`, options, {
+    return this.planWrite("PUT", `/add-ons/${segment(planKey(addOn))}`, options, {
       quantity: wholeNumber(options?.quantity, "quantity", 0, 10_000),
       ...compact({ when: options.when, reason: options.reason, actor: options.actor }),
     });
@@ -993,7 +1012,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
   async grant(feature: Feature | string, options?: GrantOptions): Promise<GrantChange> {
     const value = options?.value;
     if (value !== undefined && value !== "unlimited") wholeNumber(value, "value", 0, 999_999_999);
-    return this.write<GrantChange>("POST", "/grants", options, {
+    return this.grantWrite("POST", "/grants", options, {
       feature: featureKey(feature),
       ...compact({
         value: value === undefined ? undefined : String(value),
@@ -1005,7 +1024,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
   }
 
   async revokeGrant(grantId: string, options?: CompanyOptions): Promise<GrantChange> {
-    return this.write<GrantChange>(
+    return this.grantWrite(
       "DELETE",
       `/grants/${idOf(grantId, "Provide the id of the grant.")}`,
       options,
@@ -1022,7 +1041,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
         ? to === undefined && Number.isInteger(by) && by !== 0 && Math.abs(by as number) <= max
         : Number.isInteger(to) && (to as number) >= 0 && (to as number) <= max;
     if (!valid) throw new TypeError(ADJUSTMENT);
-    return this.write<UsageResult>(
+    return this.usageWrite(
       "POST",
       `/meters/${segment(featureKey(feature))}/adjustments`,
       options,
@@ -1032,7 +1051,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
   }
 
   async cancelUsage(usageId: string, options?: CompanyOptions): Promise<UsageResult> {
-    return this.write<UsageResult>(
+    return this.usageWrite(
       "DELETE",
       `/usage/${idOf(usageId, "Provide the id of the usage report.")}`,
       options,

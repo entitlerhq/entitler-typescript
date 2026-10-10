@@ -13,7 +13,7 @@ import {
   type UsageResult,
   UsageSettlementError,
 } from "../../src/index.js";
-import { apiError, checkAnswer, context, detailsAnswer, fakeFetch, json, usageAnswer } from "./fake.js";
+import { answerFor, apiError, checkAnswer, context, detailsAnswer, fakeFetch, json, usageAnswer } from "./fake.js";
 
 const aiCredits = defineFeature("ai_credits", "metered");
 
@@ -107,7 +107,7 @@ describe("Customer requests", () => {
       undefined,
     ],
   ] as const)("%s", async (_name, call, method, path, body) => {
-    const { customer, sent } = setup(json(checkAnswer()));
+    const { customer, sent } = setup((request) => json(answerFor(request)));
     await call(customer as never);
     expect(sent[0]).toMatchObject({ method, path });
     expect(sent[0]?.body).toEqual(body);
@@ -213,7 +213,7 @@ describe("isEntitled", () => {
   });
 
   it("throws for a blank feature or a missing default", async () => {
-    const { customer } = setup(json(checkAnswer()));
+    const { customer } = setup((request) => json(answerFor(request)));
     await expect(customer.isEntitled("", { default: false })).rejects.toThrow(
       new TypeError("Name the feature by its key."),
     );
@@ -976,11 +976,7 @@ describe("ServerCustomer requests", () => {
     ],
   ] as const)("%s", async (_name, call, method, path, body, query) => {
     const { customer, sent } = setup((request) =>
-      json(
-        request.method === "GET" && request.path === "/customers/user_1"
-          ? detailsAnswer()
-          : { next: "done", ...planChange },
-      ),
+      json(request.method === "GET" && request.path === "/customers/user_1" ? detailsAnswer() : answerFor(request)),
     );
     await call(customer as never);
     expect(sent).toHaveLength(1);
@@ -1072,7 +1068,7 @@ describe("billing", () => {
     const grant = {
       id: "grt_1",
       feature: "sso",
-      value: "true",
+      value: "",
       from: "2026-10-01T00:00:00Z",
       until: null,
       revokedAt: null,

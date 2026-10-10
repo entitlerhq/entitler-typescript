@@ -142,3 +142,45 @@ export function detailsAnswer(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+const change = {
+  product: { key: "app", name: "App" },
+  plan: { id: "pln_pro", key: "pro", name: "Pro" },
+  quantity: null,
+  effective: "now",
+  at: "2026-10-09T01:00:00.000Z",
+  until: null,
+  changed: true,
+};
+
+/** A complete answer for whichever customer route a request names. */
+export function answerFor(request: Sent): unknown {
+  const { method, path } = request;
+  if (/\/entitlements\/[^/]+$/.test(path)) return checkAnswer();
+  if (path.endsWith("/entitlements")) {
+    return { customer: "user_1", ...context, asOf: "2026-10-09T01:00:00.000Z", entitlements: [] };
+  }
+  if (path.endsWith("/plans")) {
+    return { customer: "user_1", ...context, asOf: "2026-10-09T01:00:00.000Z", held: [], options: [] };
+  }
+  if (path.includes("/usage") || path.includes("/meters/")) return usageAnswer();
+  if (path.includes("/grants")) {
+    const grant = {
+      id: "grt_1",
+      feature: "sso",
+      value: "",
+      from: "2026-10-09T01:00:00.000Z",
+      until: null,
+      revokedAt: null,
+      reason: "",
+      by: "Server key",
+      actor: null,
+    };
+    return { grant };
+  }
+  if (method === "POST" && path.endsWith("/subscription")) return { next: "done", ...change };
+  if (path.endsWith("/plan") || path.includes("/add-ons") || path.includes("/subscription")) return change;
+  if (path.endsWith("/billing-portal")) return { provider: "stripe", url: "https://billing.stripe.com/p/1" };
+  if (path.endsWith("/billing/sync")) return { changed: false };
+  return { ...checkAnswer(), ...detailsAnswer() };
+}

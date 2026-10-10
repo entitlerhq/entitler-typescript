@@ -129,7 +129,6 @@ describe("errors", () => {
             code: "payment_required",
             message: "The customer must confirm the payment.",
             payment: { status: "requires_action", url: "https://pay.example/1" },
-            listingGaps: [{ kind: "unlisted", plan: "pro", key: "k", period: "monthly", channel: null }],
           },
         },
         402,
@@ -151,9 +150,8 @@ describe("errors", () => {
       retryAfter: undefined,
       idempotencyKey: "change-1",
       payment: { status: "requires_action", url: "https://pay.example/1" },
-      listingProblems: [],
     });
-    expect((error as ApiError).listingGaps).toHaveLength(1);
+    expect("listingGaps" in (error as object)).toBe(false);
   });
 
   it("drops a payment with an unknown status", async () => {

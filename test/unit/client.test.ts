@@ -9,7 +9,7 @@ import {
   TokenError,
   VISITOR_ID_PATTERN,
 } from "../../src/index.js";
-import { apiError, checkAnswer, fakeFetch, json, jwt } from "./fake.js";
+import { answerFor, apiError, checkAnswer, fakeFetch, json, jwt } from "./fake.js";
 
 const aiCredits = defineFeature("ai_credits", "metered");
 
@@ -97,7 +97,7 @@ describe("construction", () => {
   });
 
   it("validates asOf on server reads before any request", async () => {
-    const { fetch, mock } = fakeFetch(json(checkAnswer()));
+    const { fetch, mock } = fakeFetch((request) => json(answerFor(request)));
     const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
     for (const asOf of ["yesterday", "2026-13-01T00:00:00Z", "2026-07-01", new Date(Number.NaN)]) {
       await expect(customer.check("f", { asOf })).rejects.toThrow(new TypeError("Pass asOf as a valid date."));
@@ -156,7 +156,7 @@ describe("credentials on the wire", () => {
   });
 
   it("sends the publishable key and the identity token on every request", async () => {
-    const { fetch, sent } = fakeFetch(json(checkAnswer()));
+    const { fetch, sent } = fakeFetch((request) => json(answerFor(request)));
     const client = new EntitlerClient({ key: "ent_pk_test_1", identityToken: "idt", fetch });
     await client.me.check("f");
     expect(sent[0]?.headers.authorization).toBe("Bearer ent_pk_test_1");
@@ -205,7 +205,7 @@ describe("credentials on the wire", () => {
   });
 
   it("sends Entitler-As-Of only on the server reads given it, as UTC with milliseconds", async () => {
-    const { fetch, sent } = fakeFetch(json(checkAnswer()));
+    const { fetch, sent } = fakeFetch((request) => json(answerFor(request)));
     const server = new EntitlerServer({ key: "k", fetch, cache: false });
     const customer = server.customer("u");
     await customer.check("f", { asOf: "2026-07-01T19:30:00+10:00" });
@@ -228,7 +228,7 @@ describe("credentials on the wire", () => {
 describe("token providers", () => {
   it("asks the provider for the first request and keeps the answer", async () => {
     const provider = vi.fn((_context: { signal: AbortSignal }) => token());
-    const { fetch, sent } = fakeFetch(json(checkAnswer()));
+    const { fetch, sent } = fakeFetch((request) => json(answerFor(request)));
     const client = new EntitlerClient({ token: provider, fetch, cache: false });
     await client.me.check("f");
     await client.me.check("f");
@@ -240,7 +240,7 @@ describe("token providers", () => {
   it("refreshes a token that expires within 60 seconds", async () => {
     vi.useFakeTimers({ toFake: ["Date"], now: 1_000_000_000 });
     const provider = vi.fn(() => token({ exp: Math.floor(Date.now() / 1000) + 120 }));
-    const { fetch } = fakeFetch(json(checkAnswer()));
+    const { fetch } = fakeFetch((request) => json(answerFor(request)));
     const client = new EntitlerClient({ token: provider, fetch, cache: false });
     await client.me.check("f");
     vi.setSystemTime(1_000_000_000 + 59_000);
@@ -289,7 +289,7 @@ describe("token providers", () => {
   it("shares one refresh between concurrent calls", async () => {
     let resolve: (value: string) => void = () => {};
     const provider = vi.fn(() => new Promise<string>((r) => (resolve = r)));
-    const { fetch, sent } = fakeFetch(json(checkAnswer()));
+    const { fetch, sent } = fakeFetch((request) => json(answerFor(request)));
     const client = new EntitlerClient({ token: provider, fetch, cache: false });
     const calls = Promise.all([
       client.me.check("a"),
@@ -318,7 +318,7 @@ describe("token providers", () => {
 
   it("wraps a failing provider in a TokenError carrying the cause", async () => {
     const cause = new Error("server down");
-    const { fetch, mock } = fakeFetch(json(checkAnswer()));
+    const { fetch, mock } = fakeFetch((request) => json(answerFor(request)));
     const error = await new EntitlerClient({
       token: () => {
         throw cause;
@@ -338,7 +338,7 @@ describe("token providers", () => {
     ["a non-string", 42],
     ["an unreadable", "not-a-jwt"],
   ])("refuses %s token without showing it", async (_name, answer) => {
-    const { fetch } = fakeFetch(json(checkAnswer()));
+    const { fetch } = fakeFetch((request) => json(answerFor(request)));
     const error = (await new EntitlerClient({ token: () => answer as string, fetch }).me
       .check("f")
       .catch((e: unknown) => e)) as Error;
@@ -425,7 +425,7 @@ describe("visitors", () => {
   });
 
   it("never sends a visitor from the server unless given", async () => {
-    const { fetch, sent } = fakeFetch(json(checkAnswer()));
+    const { fetch, sent } = fakeFetch((request) => json(answerFor(request)));
     const server = new EntitlerServer({ key: "k", fetch, cache: false });
     await server.customer("u").check("f");
     await server.pricing();
@@ -439,7 +439,7 @@ describe("visitors", () => {
   });
 
   it("generates one visitor per in-app client and sends it on every request", async () => {
-    const { fetch, sent } = fakeFetch(json(checkAnswer()));
+    const { fetch, sent } = fakeFetch((request) => json(answerFor(request)));
     const client = new EntitlerClient({ token: "t", fetch, cache: false });
     expect(client.visitor).toMatch(VISITOR_ID_PATTERN);
     await client.me.check("f");
@@ -455,7 +455,7 @@ describe("visitors", () => {
 
   it("uses a given visitor", async () => {
     const visitor = "given_visitor_0001";
-    const { fetch, sent } = fakeFetch(json(checkAnswer()));
+    const { fetch, sent } = fakeFetch((request) => json(answerFor(request)));
     await new EntitlerClient({ token: "t", fetch, visitor }).me.check("f");
     expect(sent[0]?.headers["entitler-visitor"]).toBe(visitor);
   });
@@ -470,7 +470,7 @@ describe("visitors", () => {
       const store = new Map<string, string>();
       const setItem = vi.fn((key: string, value: string) => void store.set(key, value));
       browser({ getItem: (key) => store.get(key) ?? null, setItem });
-      const { fetch } = fakeFetch(json(checkAnswer()));
+      const { fetch } = fakeFetch((request) => json(answerFor(request)));
       const client = new EntitlerClient({ token: "t", fetch, cache: false });
       expect(setItem).not.toHaveBeenCalled();
       await client.me.check("f");
@@ -484,7 +484,7 @@ describe("visitors", () => {
       const getItem = vi.fn(() => null);
       const setItem = vi.fn();
       browser({ getItem, setItem });
-      const { fetch } = fakeFetch(json(checkAnswer()));
+      const { fetch } = fakeFetch((request) => json(answerFor(request)));
       await new EntitlerClient({ token: "t", fetch, visitor: "given_visitor_0001" }).me.check("f");
       expect(getItem).not.toHaveBeenCalled();
       expect(setItem).not.toHaveBeenCalled();
@@ -504,7 +504,7 @@ describe("visitors", () => {
           throw new DOMException("denied", "SecurityError");
         },
       });
-      const { fetch, sent } = fakeFetch(json(checkAnswer()));
+      const { fetch, sent } = fakeFetch((request) => json(answerFor(request)));
       const client = new EntitlerClient({ token: "t", fetch });
       await client.me.check("f");
       expect(sent[0]?.headers["entitler-visitor"]).toBe(client.visitor);

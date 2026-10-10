@@ -40,7 +40,7 @@ try {
   const portal = await customer.billingPortal({ returnUrl: "https://example.com/account" });
   console.log(`Send the customer to ${portal.url}`);
 } catch (error) {
-  if (!(error instanceof ApiError && error.code === "stale")) throw error;
+  if (!(error instanceof ApiError && error.code === "not_found")) throw error;
   console.log("No provider has billed this customer yet, so there is no billing portal.");
 }
 

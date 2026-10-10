@@ -1,5 +1,5 @@
 {
-  "description": "Retry timing and attempt counts (sections 7.2, 7.5 and 3.5), run with the fake transport and fake clock, every wait in seconds. retryAfter cases answer a 503 carrying retryAfter (null for no header), then a 200, at now with maxRetryDelay: the SDK waits exactly seconds (wait), waits a random time within retry 0's backoff bounds (backoff), or fails at once with the 503's ApiError (fail). backoff cases give the full-jitter bounds before retry n, counted from 0, and limits the most attempts a call makes. attempts cases build the client credential names (a server key, a fixed customer token, or a token provider answering tokens in order, each valid for an hour from now), make request with the transport giving answers in order, and compare the attempts made, the provider's calls, the bounds of each wait between attempts and the result.",
+  "description": "Retry timing and attempt counts (sections 7.2, 7.5 and 3.5), run with the fake transport and fake clock, every wait in seconds. retryAfter cases answer a 503 carrying retryAfter (null for no header), then a 200, at now with maxRetryDelay: the SDK waits exactly seconds (wait), waits a random time within retry 0's backoff bounds (backoff), or fails at once with the 503's ApiError (fail). backoff cases give the full-jitter bounds before retry n, counted from 0, and limits the most attempts a call makes. attempts cases build the client credential names (a server key, a fixed customer token, or a token provider answering tokens in order, each valid for an hour from now), make request with the transport giving answers in order, and compare the attempts made, the provider's calls, the bounds of each wait between attempts and the result. A GET request is check(feature) on the customer its path names (me on the in-app client); the POST request is recordUsage(body.feature, body.amount, { idempotencyKey }) with the request's idempotencyKey. An answer is { status, headers?, body? }, where body is JSON and an answer without one has an empty body, or a failure: connection (no answer arrives), timeout (the attempt runs past its timeout) or cut-off (the transport sends a 200's status, its Content-Type application/json header and the first part of a JSON body, then fails the body read with its own I/O or connection error, which is a ConnectionError and retried like one; a complete body that is not valid JSON is a different failure, invalid_response, never retried).",
   "spec": "7.2, 7.5, 3.5",
   "cases": [
     {
@@ -1602,7 +1602,8 @@
         "body": {
           "feature": "ai_credits",
           "amount": 1
-        }
+        },
+        "idempotencyKey": "usage-2026-07-01-0042"
       },
       "answers": [
         {
@@ -2198,6 +2199,108 @@
         ],
         "result": {
           "status": 200
+        }
+      }
+    },
+    {
+      "name": "answer-cut-off-retried",
+      "why": "An answer cut off while it is read is a ConnectionError, so it is retried like one.",
+      "kind": "attempts",
+      "now": "2026-07-01T09:30:00.000Z",
+      "maxRetries": 2,
+      "maxRetryDelay": 10,
+      "credential": {
+        "kind": "key",
+        "key": "ent_test_conformance_server_key"
+      },
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answers": [
+        {
+          "failure": "cut-off"
+        },
+        {
+          "status": 200,
+          "body": {
+            "customer": "user_42",
+            "asOf": "2026-07-01T09:30:00.000Z",
+            "feature": "export_pdf",
+            "type": "boolean",
+            "entitled": true,
+            "value": true,
+            "sources": [],
+            "upgrades": [],
+            "environment": {
+              "id": "env_conformance_test",
+              "name": "Development",
+              "kind": "test"
+            },
+            "track": {
+              "id": "trk_all_customers",
+              "name": "All customers"
+            },
+            "release": 2,
+            "change": null,
+            "testers": true,
+            "experiment": null
+          }
+        }
+      ],
+      "outcome": {
+        "attempts": 2,
+        "waits": [
+          {
+            "minSeconds": 0,
+            "maxSeconds": 0.5
+          }
+        ],
+        "result": {
+          "status": 200
+        }
+      }
+    },
+    {
+      "name": "answers-cut-off-exhausted",
+      "why": "Answers cut off on every attempt spend the retries and fail with the last ConnectionError.",
+      "kind": "attempts",
+      "now": "2026-07-01T09:30:00.000Z",
+      "maxRetries": 2,
+      "maxRetryDelay": 10,
+      "credential": {
+        "kind": "key",
+        "key": "ent_test_conformance_server_key"
+      },
+      "request": {
+        "method": "GET",
+        "path": "/customers/user_42/entitlements/export_pdf"
+      },
+      "answers": [
+        {
+          "failure": "cut-off"
+        },
+        {
+          "failure": "cut-off"
+        },
+        {
+          "failure": "cut-off"
+        }
+      ],
+      "outcome": {
+        "attempts": 3,
+        "waits": [
+          {
+            "minSeconds": 0,
+            "maxSeconds": 0.5
+          },
+          {
+            "minSeconds": 0,
+            "maxSeconds": 1
+          }
+        ],
+        "result": {
+          "kind": "ConnectionError"
         }
       }
     }

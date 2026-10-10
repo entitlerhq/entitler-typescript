@@ -4,7 +4,7 @@ Every failure the SDK raises is an `EntitlerError`:
 
 | Error | When | Fields |
 | --- | --- | --- |
-| `ApiError` | Entitler answered with a status other than 2xx, a redirect, or a 2xx this SDK cannot read | `status`, `code`, `message`, `requestId`, `retryAfter` (ms), `idempotencyKey`, `payment`, `listingGaps`, `listingProblems` |
+| `ApiError` | Entitler answered with a status other than 2xx, a redirect, or a 2xx this SDK cannot read | `status`, `code`, `message`, `requestId`, `retryAfter` (ms), `idempotencyKey`, `payment` |
 | `ConnectionError` | no answer arrived (DNS, TLS, refused or reset) | `cause`, `idempotencyKey` |
 | `TimeoutError` | an attempt passed its `timeout` | `idempotencyKey` |
 | `TokenError` | a token provider failed or answered an unusable token | `cause` |

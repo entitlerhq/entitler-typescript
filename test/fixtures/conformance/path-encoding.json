@@ -1,6 +1,6 @@
 {
-  "description": "Path segment and query value encoding (section 6.1), and the ids refused before any request (sections 4.3 and 5.5). Run every case on a server client with the fake transport and compare the URL it receives. Segment cases pass id as the parameter request names, with the other params as given: customer is the id given to customer(id), and /customers/{id}/entitlements/{feature} is check, DELETE /customers/{id}/subscription/add-ons/{plan} is removeAddOn, /customers/{id}/usage/holds/{holdId} is hold, /customers/{id}/grants/{grantId} is vendor.revokeGrant and /customers/{id}/usage/{usageId} is vendor.cancelUsage. baseUrl cases build the client with baseUrl, null for the default. Query cases call customers.list with q set to value and read its first page. outcome is the encoded segment or query value with the final request URL, or the exact argument error. An id or query value that is not valid Unicode is given as UTF-16 code units (idUtf16, valueUtf16), only for languages whose strings can hold lone surrogates, and request leaves it out.",
-  "spec": "6.1, 4.3, 5.5",
+  "description": "Path segment and query value encoding (section 6.1), and the ids and arguments refused before any request (sections 4.3, 5.4 and 5.5). Run every case on a server client with the fake transport and compare the URL it receives. Segment cases pass id as the parameter request names, with the other params as given, on customer(id) when the parameter is customer and on customer(params.id) otherwise. The route names the method: GET /customers/{id}/entitlements/{feature} is check(feature), DELETE /customers/{id}?erase=true is erase(), DELETE /customers/{id}/subscription/add-ons/{addOn} is cancel({ addOn }), DELETE /customers/{id}/subscription/add-ons/{addOn}/pending is undoPendingChange({ addOn }), PUT /customers/{id}/add-ons/{addOn} is setAddOn(addOn, { quantity }), POST /customers/{id}/meters/{feature}/adjustments is adjustMeter(feature, { by, idempotencyKey }), POST /customers/{id}/usage/holds/{holdId}/settle is settleUsage(holdId, amount), DELETE /customers/{id}/usage/holds/{holdId} is releaseUsage(holdId), DELETE /customers/{id}/grants/{grantId} is revokeGrant(grantId) and DELETE /customers/{id}/usage/{usageId} is cancelUsage(usageId), each with the other arguments request.options holds. baseUrl cases build the client with baseUrl, null for the default. Query cases set the query parameter to value: GET /customers is customers.list({ q }) or customers.list({ cursor }), reading its first page, DELETE /customers/{id}/subscription is cancel({ product }) and DELETE /customers/{id}/subscription/pending is undoPendingChange({ product }). Arguments cases make call on customer(call.customer) with call.options. outcome is the encoded segment or query value with the final request URL, or the exact argument error, raised before any request. Ids and query values are sent exactly as given, never trimmed. An id or query value that is not valid Unicode is given as UTF-16 code units (idUtf16, valueUtf16), only where strings can hold lone surrogates, and request leaves it out.",
+  "spec": "6.1, 4.3, 5.2, 5.3, 5.4, 5.5",
   "cases": [
     {
       "name": "single-dot",
@@ -98,32 +98,13 @@
       }
     },
     {
-      "name": "single-dot-as-plan",
-      "why": "The rule applies to the plan parameter.",
-      "kind": "segment",
-      "parameter": "plan",
-      "id": ".",
-      "request": {
-        "method": "DELETE",
-        "route": "/customers/{id}/subscription/add-ons/{plan}",
-        "params": {
-          "id": "user_42",
-          "plan": "."
-        }
-      },
-      "outcome": {
-        "kind": "ArgumentError",
-        "message": "Pass an id that is not made only of dots."
-      }
-    },
-    {
       "name": "two-dots-as-hold-id",
       "why": "The rule applies to hold ids.",
       "kind": "segment",
       "parameter": "holdId",
       "id": "..",
       "request": {
-        "method": "GET",
+        "method": "DELETE",
         "route": "/customers/{id}/usage/holds/{holdId}",
         "params": {
           "id": "user_42",
@@ -668,32 +649,13 @@
       }
     },
     {
-      "name": "blank-plan",
-      "why": "An empty plan would change the route, so it fails with its own argument error.",
-      "kind": "segment",
-      "parameter": "plan",
-      "id": "",
-      "request": {
-        "method": "DELETE",
-        "route": "/customers/{id}/subscription/add-ons/{plan}",
-        "params": {
-          "id": "user_42",
-          "plan": ""
-        }
-      },
-      "outcome": {
-        "kind": "ArgumentError",
-        "message": "Name the plan by its id or its key."
-      }
-    },
-    {
       "name": "blank-hold-id",
       "why": "An empty hold id would change the route, so it fails with its own argument error.",
       "kind": "segment",
       "parameter": "holdId",
       "id": "",
       "request": {
-        "method": "GET",
+        "method": "DELETE",
         "route": "/customers/{id}/usage/holds/{holdId}",
         "params": {
           "id": "user_42",
@@ -820,32 +782,13 @@
       }
     },
     {
-      "name": "blank-plan-tab",
-      "why": "A plan of only a tab is blank and fails with the plan's own message.",
-      "kind": "segment",
-      "parameter": "plan",
-      "id": "\t",
-      "request": {
-        "method": "DELETE",
-        "route": "/customers/{id}/subscription/add-ons/{plan}",
-        "params": {
-          "id": "user_42",
-          "plan": "\t"
-        }
-      },
-      "outcome": {
-        "kind": "ArgumentError",
-        "message": "Name the plan by its id or its key."
-      }
-    },
-    {
       "name": "blank-hold-id-line-feed",
       "why": "A hold id of only a line feed is blank and fails with the hold's own message.",
       "kind": "segment",
       "parameter": "holdId",
       "id": "\n",
       "request": {
-        "method": "GET",
+        "method": "DELETE",
         "route": "/customers/{id}/usage/holds/{holdId}",
         "params": {
           "id": "user_42",
@@ -986,27 +929,6 @@
       }
     },
     {
-      "name": "lone-surrogate-as-plan",
-      "why": "The Unicode rule applies to the plan parameter.",
-      "kind": "segment",
-      "appliesWhere": "strings can hold lone surrogates",
-      "parameter": "plan",
-      "idUtf16": [
-        55356
-      ],
-      "request": {
-        "method": "DELETE",
-        "route": "/customers/{id}/subscription/add-ons/{plan}",
-        "params": {
-          "id": "user_42"
-        }
-      },
-      "outcome": {
-        "kind": "ArgumentError",
-        "message": "Pass an id that is valid Unicode."
-      }
-    },
-    {
       "name": "lone-surrogate-as-hold-id",
       "why": "The Unicode rule applies to hold ids.",
       "kind": "segment",
@@ -1018,7 +940,7 @@
         49
       ],
       "request": {
-        "method": "GET",
+        "method": "DELETE",
         "route": "/customers/{id}/usage/holds/{holdId}",
         "params": {
           "id": "user_42"
@@ -1269,6 +1191,451 @@
       "outcome": {
         "kind": "ArgumentError",
         "message": "Pass an id that is valid Unicode."
+      }
+    },
+    {
+      "name": "single-dot-as-add-on",
+      "why": "The dots rule applies to the add-on cancel({ addOn }) names.",
+      "kind": "segment",
+      "parameter": "addOn",
+      "id": ".",
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}/subscription/add-ons/{addOn}",
+        "params": {
+          "id": "user_42",
+          "addOn": "."
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass an id that is not made only of dots."
+      }
+    },
+    {
+      "name": "blank-add-on",
+      "why": "cancel({ addOn: \"\" }) fails as a blank add-on, never falling back to cancelling the plan.",
+      "kind": "segment",
+      "parameter": "addOn",
+      "id": "",
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}/subscription/add-ons/{addOn}",
+        "params": {
+          "id": "user_42",
+          "addOn": ""
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Name the plan by its id or its key."
+      }
+    },
+    {
+      "name": "blank-add-on-tab",
+      "why": "An add-on of only a tab is blank and fails with the add-on's own message.",
+      "kind": "segment",
+      "parameter": "addOn",
+      "id": "\t",
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}/subscription/add-ons/{addOn}",
+        "params": {
+          "id": "user_42",
+          "addOn": "\t"
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Name the plan by its id or its key."
+      }
+    },
+    {
+      "name": "lone-surrogate-as-add-on",
+      "why": "The Unicode rule applies to the add-on parameter.",
+      "kind": "segment",
+      "appliesWhere": "strings can hold lone surrogates",
+      "parameter": "addOn",
+      "idUtf16": [
+        55356
+      ],
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}/subscription/add-ons/{addOn}",
+        "params": {
+          "id": "user_42"
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass an id that is valid Unicode."
+      }
+    },
+    {
+      "name": "slash-in-add-on-to-undo",
+      "why": "undoPendingChange({ addOn }) encodes the add-on as one segment.",
+      "kind": "segment",
+      "parameter": "addOn",
+      "id": "addon/eu",
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}/subscription/add-ons/{addOn}/pending",
+        "params": {
+          "id": "user_42",
+          "addOn": "addon/eu"
+        }
+      },
+      "outcome": {
+        "segment": "addon%2Feu",
+        "url": "https://api.entitler.dev/customers/user_42/subscription/add-ons/addon%2Feu/pending"
+      }
+    },
+    {
+      "name": "two-dots-as-add-on-to-set",
+      "why": "The dots rule applies to setAddOn's add-on.",
+      "kind": "segment",
+      "parameter": "addOn",
+      "id": "..",
+      "request": {
+        "method": "PUT",
+        "route": "/customers/{id}/add-ons/{addOn}",
+        "params": {
+          "id": "user_42",
+          "addOn": ".."
+        },
+        "options": {
+          "quantity": 1
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass an id that is not made only of dots."
+      }
+    },
+    {
+      "name": "blank-add-on-to-set",
+      "why": "A blank add-on given to setAddOn fails with the add-on's own message.",
+      "kind": "segment",
+      "parameter": "addOn",
+      "id": " ",
+      "request": {
+        "method": "PUT",
+        "route": "/customers/{id}/add-ons/{addOn}",
+        "params": {
+          "id": "user_42",
+          "addOn": " "
+        },
+        "options": {
+          "quantity": 1
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Name the plan by its id or its key."
+      }
+    },
+    {
+      "name": "lone-surrogate-as-add-on-to-set",
+      "why": "The Unicode rule applies to setAddOn's add-on.",
+      "kind": "segment",
+      "appliesWhere": "strings can hold lone surrogates",
+      "parameter": "addOn",
+      "idUtf16": [
+        97,
+        56320
+      ],
+      "request": {
+        "method": "PUT",
+        "route": "/customers/{id}/add-ons/{addOn}",
+        "params": {
+          "id": "user_42"
+        },
+        "options": {
+          "quantity": 1
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass an id that is valid Unicode."
+      }
+    },
+    {
+      "name": "slash-in-add-on-to-set",
+      "why": "setAddOn encodes a slash in the add-on, so it stays one segment.",
+      "kind": "segment",
+      "parameter": "addOn",
+      "id": "seats/eu",
+      "request": {
+        "method": "PUT",
+        "route": "/customers/{id}/add-ons/{addOn}",
+        "params": {
+          "id": "user_42",
+          "addOn": "seats/eu"
+        },
+        "options": {
+          "quantity": 1
+        }
+      },
+      "outcome": {
+        "segment": "seats%2Feu",
+        "url": "https://api.entitler.dev/customers/user_42/add-ons/seats%2Feu"
+      }
+    },
+    {
+      "name": "two-dots-as-feature-to-adjust",
+      "why": "The dots rule applies to adjustMeter's feature.",
+      "kind": "segment",
+      "parameter": "feature",
+      "id": "..",
+      "request": {
+        "method": "POST",
+        "route": "/customers/{id}/meters/{feature}/adjustments",
+        "params": {
+          "id": "user_42",
+          "feature": ".."
+        },
+        "options": {
+          "by": 1,
+          "idempotencyKey": "adjust-path-0001"
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass an id that is not made only of dots."
+      }
+    },
+    {
+      "name": "slash-in-feature-to-adjust",
+      "why": "adjustMeter encodes the feature key as one segment.",
+      "kind": "segment",
+      "parameter": "feature",
+      "id": "ai/credits",
+      "request": {
+        "method": "POST",
+        "route": "/customers/{id}/meters/{feature}/adjustments",
+        "params": {
+          "id": "user_42",
+          "feature": "ai/credits"
+        },
+        "options": {
+          "by": 1,
+          "idempotencyKey": "adjust-path-0001"
+        }
+      },
+      "outcome": {
+        "segment": "ai%2Fcredits",
+        "url": "https://api.entitler.dev/customers/user_42/meters/ai%2Fcredits/adjustments"
+      }
+    },
+    {
+      "name": "single-dot-as-hold-id-to-settle",
+      "why": "The dots rule applies to settleUsage's hold id.",
+      "kind": "segment",
+      "parameter": "holdId",
+      "id": ".",
+      "request": {
+        "method": "POST",
+        "route": "/customers/{id}/usage/holds/{holdId}/settle",
+        "params": {
+          "id": "user_42",
+          "holdId": "."
+        },
+        "options": {
+          "amount": 1
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass an id that is not made only of dots."
+      }
+    },
+    {
+      "name": "blank-hold-id-to-settle",
+      "why": "A hold id of only a space fails settleUsage with the hold's own message.",
+      "kind": "segment",
+      "parameter": "holdId",
+      "id": " ",
+      "request": {
+        "method": "POST",
+        "route": "/customers/{id}/usage/holds/{holdId}/settle",
+        "params": {
+          "id": "user_42",
+          "holdId": " "
+        },
+        "options": {
+          "amount": 1
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Provide the id of the hold."
+      }
+    },
+    {
+      "name": "slash-in-hold-id-to-settle",
+      "why": "settleUsage encodes a slash in the hold id, so it stays one segment.",
+      "kind": "segment",
+      "parameter": "holdId",
+      "id": "hold/1",
+      "request": {
+        "method": "POST",
+        "route": "/customers/{id}/usage/holds/{holdId}/settle",
+        "params": {
+          "id": "user_42",
+          "holdId": "hold/1"
+        },
+        "options": {
+          "amount": 1
+        }
+      },
+      "outcome": {
+        "segment": "hold%2F1",
+        "url": "https://api.entitler.dev/customers/user_42/usage/holds/hold%2F1/settle"
+      }
+    },
+    {
+      "name": "slash-in-customer-to-erase",
+      "why": "erase() encodes the customer id as one segment before ?erase=true.",
+      "kind": "segment",
+      "parameter": "customer",
+      "id": "team/42",
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}?erase=true",
+        "params": {
+          "id": "team/42"
+        }
+      },
+      "outcome": {
+        "segment": "team%2F42",
+        "url": "https://api.entitler.dev/customers/team%2F42?erase=true"
+      }
+    },
+    {
+      "name": "two-dots-as-customer-to-erase",
+      "why": "The dots rule applies to erase(), so a dots id never becomes a delete of another route.",
+      "kind": "segment",
+      "parameter": "customer",
+      "id": "..",
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}?erase=true",
+        "params": {
+          "id": ".."
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass an id that is not made only of dots."
+      }
+    },
+    {
+      "name": "query-product-on-cancel",
+      "why": "cancel({ product }) sends the product as the query value product, encoded as encodeURIComponent does.",
+      "kind": "query",
+      "parameter": "product",
+      "value": "app/eu",
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}/subscription",
+        "params": {
+          "id": "user_42"
+        }
+      },
+      "outcome": {
+        "encoded": "app%2Feu",
+        "url": "https://api.entitler.dev/customers/user_42/subscription?product=app%2Feu"
+      }
+    },
+    {
+      "name": "query-product-on-undo",
+      "why": "undoPendingChange({ product }) encodes spaces, ampersands and non-ASCII characters in the product.",
+      "kind": "query",
+      "parameter": "product",
+      "value": "équipe & co",
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}/subscription/pending",
+        "params": {
+          "id": "user_42"
+        }
+      },
+      "outcome": {
+        "encoded": "%C3%A9quipe%20%26%20co",
+        "url": "https://api.entitler.dev/customers/user_42/subscription/pending?product=%C3%A9quipe%20%26%20co"
+      }
+    },
+    {
+      "name": "query-lone-surrogate-in-product",
+      "why": "A product query value with a lone surrogate is not valid Unicode, so it is refused before any request.",
+      "kind": "query",
+      "appliesWhere": "strings can hold lone surrogates",
+      "parameter": "product",
+      "valueUtf16": [
+        97,
+        112,
+        112,
+        55357
+      ],
+      "request": {
+        "method": "DELETE",
+        "route": "/customers/{id}/subscription",
+        "params": {
+          "id": "user_42"
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass an id that is valid Unicode."
+      }
+    },
+    {
+      "name": "query-cursor",
+      "why": "A cursor that starts customers.list at a page is a query value, so its plus, slash and equals signs are encoded.",
+      "kind": "query",
+      "parameter": "cursor",
+      "value": "c_42+next/page=2",
+      "request": {
+        "method": "GET",
+        "route": "/customers"
+      },
+      "outcome": {
+        "encoded": "c_42%2Bnext%2Fpage%3D2",
+        "url": "https://api.entitler.dev/customers?cursor=c_42%2Bnext%2Fpage%3D2"
+      }
+    },
+    {
+      "name": "cancel-add-on-and-product-refused",
+      "why": "cancel takes at most one of addOn and product, so both fail before any request.",
+      "kind": "arguments",
+      "call": {
+        "method": "cancel",
+        "customer": "user_42",
+        "options": {
+          "addOn": "sso_addon",
+          "product": "app"
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass either addOn or product, not both."
+      }
+    },
+    {
+      "name": "undo-add-on-and-product-refused",
+      "why": "undoPendingChange takes at most one of addOn and product, so both fail before any request.",
+      "kind": "arguments",
+      "call": {
+        "method": "undoPendingChange",
+        "customer": "user_42",
+        "options": {
+          "addOn": "sso_addon",
+          "product": "app"
+        }
+      },
+      "outcome": {
+        "kind": "ArgumentError",
+        "message": "Pass either addOn or product, not both."
       }
     }
   ]

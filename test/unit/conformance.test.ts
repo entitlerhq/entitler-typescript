@@ -1,21 +1,23 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { inspect } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
+  ConnectionError,
   defineFeature,
   EntitlerClient,
   EntitlerServer,
-  MemoryCache,
-  type ServerCustomer,
+  type Hold,
   SnapshotError,
   TimeoutError,
   TokenError,
   verifySnapshot,
 } from "../../src/index.js";
+import { observeCacheKeys } from "../../src/transport.js";
 
 type Case = Record<string, unknown> & { name: string; outcome: Record<string, unknown> };
-type Sent = { url: string; method: string; headers: Headers; at: number };
+type Sent = { url: string; method: string; headers: Headers; body: string | undefined; at: number };
 
 const folder = new URL("../fixtures/conformance/", import.meta.url);
 const manifest = JSON.parse(readFileSync(new URL("manifest.json", folder), "utf8")) as {
@@ -26,31 +28,21 @@ function load(path: string): Case[] {
   return (JSON.parse(readFileSync(new URL(path, folder), "utf8")) as { cases: Case[] }).cases;
 }
 
-const CONTRADICTED: Record<string, (c: Case) => string | undefined> = {
-  "cache-keys.json": (c) =>
-    c.principalKind === "identity"
-      ? "publishable keys start ent_pk_ (3.5), so EntitlerClient refuses this key"
-      : c.asOf && (c.principalKind !== "key" || (c.built as { route: string }).route === "/pricing")
-        ? "as-of is per call, on the server customer's reads only (6.6)"
-        : undefined,
-  "idempotency-keys.json": (c) =>
-    c.method === "recordUsageBatch"
-      ? "recordUsageBatch takes no key: each request's key derives from its events (5.2)"
-      : c.method === "batchEvent" && c.outcome.kind
-        ? "an invalid event key is answered error, not thrown (5.2)"
-        : undefined,
-};
+const NOT_IN_TYPESCRIPT = new Set(["an in-app read can be given asOf"]);
 
 function conformance(path: string, test: (c: Case) => unknown) {
   for (const c of load(path)) {
-    const reason = CONTRADICTED[path]?.(c);
-    if (reason) it.skip(`${c.name} (contradicts the spec: ${reason})`, () => {});
+    const condition = c.appliesWhere as string | undefined;
+    if (condition && NOT_IN_TYPESCRIPT.has(condition)) it.skip(`${c.name} (applies only where ${condition})`, () => {});
     else
       it(c.name, async () => {
         await test(c);
       });
   }
 }
+
+const SERVER_KEY = "ent_test_conformance_server_key";
+const aiCredits = defineFeature("ai_credits", "metered");
 
 const BODY = {
   customer: "user_42",
@@ -72,6 +64,7 @@ const BODY = {
 const realTimeout = globalThis.setTimeout;
 
 afterEach(() => {
+  observeCacheKeys(undefined);
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -83,6 +76,7 @@ function fake(answer: (sent: Sent, init: RequestInit, index: number) => Response
       url: String(input),
       method: init.method ?? "GET",
       headers: new Headers(init.headers),
+      body: typeof init.body === "string" ? init.body : undefined,
       at: Date.now(),
     };
     sent.push(record);
@@ -101,12 +95,25 @@ function respond(
       init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
     });
   }
+  if (answer.failure === "cut-off") {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"customer":"user_42","asOf":'));
+        controller.error(new TypeError("terminated"));
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
+  }
   const status = answer.status ?? 200;
   const empty = status === 204 || status === 304 || answer.body === undefined;
   return new Response(empty ? null : typeof answer.body === "string" ? answer.body : JSON.stringify(answer.body), {
     status,
     headers: answer.headers ?? {},
   });
+}
+
+function text(status: number, headers: Record<string, string>, body: string): Response {
+  return new Response([204, 304].includes(status) || body === "" ? null : body, { status, headers });
 }
 
 async function settle<T>(promise: Promise<T>): Promise<{ value?: T; error?: unknown }> {
@@ -125,6 +132,14 @@ async function settle<T>(promise: Promise<T>): Promise<{ value?: T; error?: unkn
   return result;
 }
 
+async function outcomeOf(call: () => unknown): Promise<{ value?: unknown; error?: unknown }> {
+  try {
+    return { value: await call() };
+  } catch (error) {
+    return { error };
+  }
+}
+
 function expectError(error: unknown, outcome: Record<string, unknown>) {
   if (outcome.kind === "ArgumentError") {
     expect(error).toBeInstanceOf(Error);
@@ -132,16 +147,42 @@ function expectError(error: unknown, outcome: Record<string, unknown>) {
     expect((error as Error).message).toBe(outcome.message);
     return;
   }
-  const kinds: Record<string, unknown> = { ApiError, TokenError, SnapshotError, TimeoutError };
+  if (outcome.kind === "ClosedError") {
+    expect(error).toBeInstanceOf(DOMException);
+    expect((error as DOMException).name).toBe("InvalidStateError");
+    expect((error as DOMException).message).toBe(outcome.message);
+    return;
+  }
+  const kinds: Record<string, unknown> = { ApiError, ConnectionError, TokenError, SnapshotError, TimeoutError };
   expect(error).toBeInstanceOf(kinds[outcome.kind as string] as typeof Error);
   for (const field of ["status", "code", "message"]) {
-    if (outcome[field] !== undefined)
-      expect((error as Record<string, unknown>)[field]).toEqual(rawEnum(outcome[field]));
+    if (outcome[field] !== undefined) expect((error as Record<string, unknown>)[field]).toEqual(raw(outcome[field]));
   }
 }
 
-function rawEnum(value: unknown): unknown {
-  return value && typeof value === "object" && "unknown" in value ? (value as { unknown: string }).unknown : value;
+function expectApiError(error: unknown, outcome: Record<string, unknown>) {
+  expect(error).toBeInstanceOf(ApiError);
+  const e = error as ApiError;
+  expect({
+    kind: "ApiError",
+    status: e.status,
+    code: e.code,
+    message: e.message,
+    requestId: e.requestId ?? null,
+    retryAfterSeconds: e.retryAfter === undefined ? null : e.retryAfter / 1000,
+    idempotencyKey: e.idempotencyKey ?? null,
+    payment: e.payment ?? null,
+  }).toEqual(raw(outcome));
+}
+
+function raw(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(raw);
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 1 && entries[0]?.[0] === "unknown") return entries[0][1];
+    return Object.fromEntries(entries.map(([key, each]) => [key, raw(each)]));
+  }
+  return value;
 }
 
 function decodedValue(value: unknown): unknown {
@@ -154,9 +195,49 @@ function decodedInstant(value: unknown): unknown {
   return value instanceof Date ? { instant: value.toISOString(), epochMillis: value.getTime() } : value;
 }
 
+function isInstant(value: unknown): boolean {
+  return !!value && typeof value === "object" && "epochMillis" in value;
+}
+
+function isValueForm(value: unknown): boolean {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    "kind" in value &&
+    ["on", "amount", "unlimited"].includes(String((value as { kind: unknown }).kind))
+  );
+}
+
+function view(actual: unknown, expected: unknown): unknown {
+  if (expected === null) return actual ?? null;
+  if (isInstant(expected)) return decodedInstant(actual);
+  if (isValueForm(expected)) return decodedValue(actual);
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual) ? actual.map((each, index) => view(each, expected[index])) : actual;
+  }
+  if (expected && typeof expected === "object" && !("unknown" in expected)) {
+    if (!actual || typeof actual !== "object") return actual;
+    const source = actual as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(expected).map(([key, each]) =>
+        key === "absent"
+          ? [key, (each as string[]).filter((name) => source[name] === undefined)]
+          : [key, view(source[key], each)],
+      ),
+    );
+  }
+  return actual;
+}
+
+function expectView(actual: unknown, expected: unknown) {
+  expect(view(actual, expected)).toEqual(raw(expected));
+}
+
 function utf16(units: number[]): string {
   return String.fromCharCode(...units);
 }
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe("the conformance manifest", () => {
   it.each(manifest.files)("matches $path", ({ path, cases, sha256 }) => {
@@ -170,39 +251,70 @@ describe("conformance: cache-keys.json", () => {
   conformance("cache-keys.json", async (c) => {
     const built = c.built as { baseUrl: string; route: string; params: Record<string, string> };
     const asked: string[] = [];
-    const cache = new (class extends MemoryCache {
-      override get(key: string) {
-        asked.push(key);
-        return undefined;
-      }
-    })();
-    const { fetch, sent } = fake(() => Response.json(BODY, { headers: { etag: '"1"' } }));
-    const common = {
-      baseUrl: built.baseUrl,
-      fetch,
-      cache,
-    };
-    const asOf = c.asOf ? { asOf: (c.asOfInput ?? c.asOf) as string } : {};
+    const { fetch, sent } = fake(() =>
+      Response.json(
+        built.route === "/pricing/features"
+          ? { ...BODY, features: [] }
+          : built.route.endsWith("/plans")
+            ? { ...BODY, held: [], options: [] }
+            : built.route.endsWith("/entitlements")
+              ? { ...BODY, entitlements: [] }
+              : BODY,
+        { headers: { etag: '"1"' } },
+      ),
+    );
+    const store = { get: (key: string) => void asked.push(key), set: () => {} };
+    observeCacheKeys((key) => asked.push(key));
     const visitor = (c.visitor as string | null) ?? undefined;
-    let customer: ServerCustomer | EntitlerClient<"token">["me"];
-    let server: EntitlerServer | undefined;
-    if (c.principalKind === "key") {
-      server = new EntitlerServer({ key: c.credential as string, ...common });
-      customer = server.customer(built.params.id ?? "unused");
+    const clientVisitor = (c.clientVisitor as string | undefined) ?? visitor;
+    const inApp = { baseUrl: built.baseUrl, fetch, ...(clientVisitor ? { visitor: clientVisitor } : {}) };
+    const callVisitor = c.clientVisitor ? { visitor } : {};
+    const asOf = c.asOf ? { asOf: (c.asOfInput ?? c.asOf) as string } : {};
+    let read: () => Promise<unknown>;
+    let close: () => void;
+    const credential = (c.credential as string | undefined)?.trim() ?? "";
+    if (c.principalKind === "key" && !credential.startsWith("ent_pk_")) {
+      observeCacheKeys(undefined);
+      const server = new EntitlerServer({ key: c.credential as string, baseUrl: built.baseUrl, fetch, cache: store });
+      const customer = server.customer(built.params.id ?? "unused");
+      const given = visitor ? { visitor } : {};
+      const reads: Record<string, () => Promise<unknown>> = {
+        "/customers/{id}/entitlements/{feature}": () => customer.check(built.params.feature as string, asOf),
+        "/customers/{id}/entitlements": () => customer.entitlements(asOf),
+        "/customers/{id}/plans": () => customer.plans(asOf),
+        "/customers/{id}/pricing": () => customer.pricing(given),
+        "/pricing": () => server.pricing(given),
+        "/pricing/features": () => server.features(),
+      };
+      read = reads[built.route] as () => Promise<unknown>;
+      close = () => server.close();
+    } else if (c.principalKind === "key") {
+      const client = new EntitlerClient({ key: c.credential as string, ...inApp });
+      read = () => client.pricing(callVisitor);
+      close = () => client.close();
     } else {
-      customer = new EntitlerClient({ token: c.credential as string, ...common, ...(visitor ? { visitor } : {}) }).me;
+      const client =
+        c.principalKind === "customer-token"
+          ? new EntitlerClient({ token: c.credential as string, ...inApp })
+          : new EntitlerClient({ key: c.key as string, identityToken: c.identityToken as string, ...inApp });
+      const reads: Record<string, () => Promise<unknown>> = {
+        "/customers/{id}/entitlements/{feature}": () => client.me.check(built.params.feature as string),
+        "/customers/{id}/entitlements": () => client.me.entitlements(),
+        "/customers/{id}/plans": () => client.me.plans(),
+        "/customers/{id}/pricing": () => client.me.pricing(callVisitor),
+      };
+      read = reads[built.route] as () => Promise<unknown>;
+      close = () => client.close();
     }
-    const pricingOptions = c.principalKind === "key" && visitor ? { visitor } : {};
-    const reads: Record<string, () => Promise<unknown>> = {
-      "/customers/{id}/entitlements/{feature}": () => customer.check(built.params.feature as string, asOf),
-      "/customers/{id}/entitlements": () => customer.entitlements(asOf),
-      "/customers/{id}/plans": () => customer.plans(asOf),
-      "/customers/{id}/pricing": () => customer.pricing(pricingOptions),
-      "/pricing": () => (server as EntitlerServer).pricing(pricingOptions),
-      "/pricing/features": () => (server as EntitlerServer).features(),
+    const result = await outcomeOf(read);
+    close();
+    expect(result.error).toBeUndefined();
+    const outcome = c.outcome as {
+      cacheKey: string;
+      serialised: string;
+      requestHeaders: Record<string, string | null>;
     };
-    await (reads[built.route] as () => Promise<unknown>)().catch(() => undefined);
-    const outcome = c.outcome as { cacheKey: string; requestHeaders: Record<string, string | null> };
+    expect(createHash("sha256").update(outcome.serialised).digest("hex")).toBe(outcome.cacheKey);
     expect(asked).toEqual([outcome.cacheKey]);
     expect(sent[0]?.url).toBe(c.url);
     for (const [name, value] of Object.entries(outcome.requestHeaders)) {
@@ -212,39 +324,70 @@ describe("conformance: cache-keys.json", () => {
 });
 
 describe("conformance: path-encoding.json", () => {
-  const ids = (c: Case) => (c.idUtf16 ? utf16(c.idUtf16 as number[]) : (c.id as string));
   conformance("path-encoding.json", async (c) => {
-    const { fetch, sent } = fake(() => Response.json(BODY));
+    const { fetch, sent } = fake(() => Response.json({ ...BODY, items: [], next: null, used: 0, limit: null }));
     const server = new EntitlerServer({
-      key: "ent_test_conformance_server_key",
+      key: SERVER_KEY,
       fetch,
       cache: false,
       maxRetries: 0,
       ...(c.kind === "baseUrl" && c.baseUrl ? { baseUrl: c.baseUrl as string } : {}),
     });
-    const request = c.request as { method: string; route: string; params: Record<string, string> };
+    const request = (c.request ?? {}) as {
+      method: string;
+      route: string;
+      params: Record<string, string>;
+      options?: Record<string, unknown>;
+    };
     const params = { ...request.params };
-    if (c.kind === "segment") params[c.parameter === "customer" ? "id" : (c.parameter as string)] = ids(c);
+    const id = c.idUtf16 ? utf16(c.idUtf16 as number[]) : (c.id as string);
+    if (c.kind === "segment") params[c.parameter === "customer" ? "id" : (c.parameter as string)] = id;
+    const options = request.options ?? {};
     const call = async () => {
+      if (c.kind === "arguments") {
+        const args = c.call as { method: string; customer: string; options: Record<string, string> };
+        const customer = server.customer(args.customer);
+        return args.method === "cancel" ? customer.cancel(args.options) : customer.undoPendingChange(args.options);
+      }
       if (c.kind === "query") {
-        const q = c.valueUtf16 ? utf16(c.valueUtf16 as number[]) : (c.value as string);
-        for await (const page of server.customers.list({ q }).pages()) return page;
-        return undefined;
+        const value = c.valueUtf16 ? utf16(c.valueUtf16 as number[]) : (c.value as string);
+        if (request.route === "/customers") {
+          for await (const page of server.customers.list({ [c.parameter as string]: value }).pages()) return page;
+          return undefined;
+        }
+        const customer = server.customer(params.id as string);
+        return request.route.endsWith("/pending")
+          ? customer.undoPendingChange({ product: value })
+          : customer.cancel({ product: value });
       }
       const customer = server.customer(params.id as string);
-      if (request.route.endsWith("{feature}")) return customer.check(params.feature as string);
-      if (request.route.endsWith("{plan}")) return customer.cancel({ addOn: params.plan as string });
-      if (request.route.endsWith("{holdId}")) return customer.releaseUsage(params.holdId as string);
-      if (request.route.endsWith("{grantId}")) return customer.revokeGrant(params.grantId as string);
-      if (request.route.endsWith("{usageId}")) return customer.cancelUsage(params.usageId as string);
-      throw new Error(`No method for ${request.route}`);
+      const routes: Record<string, () => Promise<unknown>> = {
+        "GET /customers/{id}/entitlements/{feature}": () => customer.check(params.feature as string),
+        "DELETE /customers/{id}?erase=true": () => customer.erase(),
+        "DELETE /customers/{id}/subscription/add-ons/{addOn}": () => customer.cancel({ addOn: params.addOn as string }),
+        "DELETE /customers/{id}/subscription/add-ons/{addOn}/pending": () =>
+          customer.undoPendingChange({ addOn: params.addOn as string }),
+        "PUT /customers/{id}/add-ons/{addOn}": () =>
+          customer.setAddOn(params.addOn as string, { quantity: options.quantity as number }),
+        "POST /customers/{id}/meters/{feature}/adjustments": () =>
+          customer.adjustMeter(defineFeature(params.feature as string, "metered"), {
+            by: options.by as number,
+            idempotencyKey: options.idempotencyKey as string,
+          }),
+        "POST /customers/{id}/usage/holds/{holdId}/settle": () =>
+          customer.settleUsage(params.holdId as string, options.amount as number),
+        "DELETE /customers/{id}/usage/holds/{holdId}": () => customer.releaseUsage(params.holdId as string),
+        "DELETE /customers/{id}/grants/{grantId}": () => customer.revokeGrant(params.grantId as string),
+        "DELETE /customers/{id}/usage/{usageId}": () => customer.cancelUsage(params.usageId as string),
+      };
+      const route = routes[`${request.method} ${request.route}`];
+      if (!route) throw new Error(`No method for ${request.method} ${request.route}`);
+      return route();
     };
-    const result = await call().then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+    const result = await outcomeOf(call);
+    server.close();
     if (c.outcome.kind) {
-      expectError(result, c.outcome);
+      expectError(result.error, c.outcome);
       expect(sent).toHaveLength(0);
     } else {
       expect(sent[0]?.url).toBe(c.outcome.url);
@@ -253,49 +396,194 @@ describe("conformance: path-encoding.json", () => {
 });
 
 describe("conformance: idempotency-keys.json", () => {
-  const aiCredits = defineFeature("ai_credits", "metered");
-  conformance("idempotency-keys.json", async (c) => {
-    const { fetch, sent } = fake((record) => {
-      if (record.url.endsWith("/usage/holds")) {
+  function answer(record: Sent): Response {
+    if (record.url.endsWith("/usage/holds")) {
+      return Response.json({
+        ...BODY,
+        feature: "ai_credits",
+        type: "metered",
+        value: 100,
+        used: 0,
+        held: 1,
+        remaining: 99,
+        resetsAt: null,
+        outcome: "held",
+        refusal: null,
+        id: null,
+        holdId: "hold_conformance_1",
+        mode: "gate",
+        amount: 1,
+        meterChange: 0,
+        overBy: 0,
+        late: false,
+        occurredAt: null,
+        expiresAt: "2999-01-01T00:00:00.000Z",
+        reportedAs: "api",
+      });
+    }
+    const usage = {
+      ...BODY,
+      feature: "ai_credits",
+      type: "metered",
+      value: 100,
+      used: 1,
+      held: 0,
+      remaining: 99,
+      resetsAt: null,
+      refusal: null,
+      id: "use_conformance_1",
+      holdId: null,
+      mode: "gate",
+      amount: 1,
+      meterChange: 1,
+      overBy: 0,
+      late: false,
+      occurredAt: null,
+      expiresAt: null,
+      reportedAs: "api",
+    };
+    if (record.url.endsWith("/settle")) return Response.json({ ...usage, outcome: "settled" });
+    if (record.url.includes("/usage") || record.url.includes("/meters/")) {
+      if (record.url.endsWith("/usage/events")) {
+        const events = (JSON.parse(record.body as string) as { events: unknown[] }).events;
         return Response.json({
-          ...BODY,
-          feature: "ai_credits",
-          outcome: "held",
-          holdId: "h1",
-          amount: 5,
-          expiresAt: "2999-01-01T00:00:00.000Z",
+          results: events.map((_, index) => ({
+            index,
+            outcome: "recorded",
+            id: `use_${index}`,
+            late: false,
+            error: null,
+          })),
+          recorded: events.length,
+          duplicates: 0,
+          errors: 0,
         });
       }
-      if (record.url.endsWith("/usage/events"))
-        return Response.json({ results: [], recorded: 0, duplicates: 0, errors: 0 });
-      return Response.json({ ...BODY, outcome: "settled" });
+      return Response.json({ ...usage, outcome: record.url.includes("/meters/") ? "adjusted" : "recorded" });
+    }
+    if (record.url.endsWith("/tokens")) {
+      return Response.json({
+        token: "a.b.c",
+        customer: "user_42",
+        scopes: ["entitlements:read"],
+        expiresAt: BODY.asOf,
+      });
+    }
+    if (record.url.endsWith("/snapshots")) return Response.json({ token: "a.b.c", expiresAt: BODY.asOf, keyId: "k" });
+    if (record.url.endsWith("/billing-portal"))
+      return Response.json({ provider: "stripe", url: "https://billing.example" });
+    if (record.url.endsWith("/billing/sync")) return Response.json({ changed: false });
+    return Response.json({
+      product: null,
+      plan: null,
+      quantity: null,
+      effective: "now",
+      at: BODY.asOf,
+      until: null,
+      changed: false,
     });
-    const server = new EntitlerServer({ key: "ent_test_conformance_server_key", fetch, cache: false });
+  }
+
+  function events(c: Case): unknown[] {
+    if (c.events) return c.events as unknown[];
+    const pattern = c.eventPattern as {
+      count: number;
+      customerPrefix: string;
+      customers: number;
+      feature: string;
+      keyPrefix: string;
+    };
+    const list: unknown[] = Array.from({ length: pattern.count }, (_, i) => ({
+      customer: `${pattern.customerPrefix}${i % pattern.customers}`,
+      feature: pattern.feature,
+      amount: i + 1,
+      idempotencyKey: `${pattern.keyPrefix}${i}`,
+    }));
+    for (const { index, event } of (c.overrides ?? []) as { index: number; event: unknown }[]) list[index] = event;
+    return list;
+  }
+
+  conformance("idempotency-keys.json", async (c) => {
+    const { fetch, sent } = fake((record) => answer(record));
+    const server = new EntitlerServer({ key: SERVER_KEY, fetch, cache: false, maxRetries: 0 });
     const customer = server.customer("user_42");
     const key = (c.key as string | null) ?? undefined;
-    const run = async () => {
-      if (c.method === "write") return customer.recordUsage(aiCredits, 1, { idempotencyKey: key as string });
-      if (c.method === "withHold")
-        return customer.withHold(aiCredits, 5, ({ hold }) => hold.use(7), { idempotencyKey: key as string });
-      return server.recordUsageBatch([
-        { customer: "user_42", feature: aiCredits, amount: 1, idempotencyKey: key as string },
-      ]);
+    const keyed = (key === undefined ? {} : { idempotencyKey: key }) as { idempotencyKey: string };
+    if (c.method === "recordUsageBatch") {
+      const input = events(c) as Parameters<EntitlerServer["recordUsageBatch"]>[0];
+      const options = c.register === null || c.register === undefined ? undefined : { register: c.register as boolean };
+      const calls = (c.calls as number | undefined) ?? 1;
+      let last: Awaited<ReturnType<EntitlerServer["recordUsageBatch"]>> | undefined;
+      for (let i = 0; i < calls; i += 1) last = await server.recordUsageBatch(input, options);
+      server.close();
+      const outcome = c.outcome as {
+        refused: { index: number; code: string; message: string }[];
+        requests: { events: number; serialised: string; idempotencyKey: string }[];
+      };
+      const refused = (last?.results ?? [])
+        .filter((result) => result.outcome === "error")
+        .map((result) => ({ index: result.index, code: result.error?.code, message: result.error?.message }));
+      expect(refused).toEqual(outcome.refused);
+      expect(sent).toHaveLength(outcome.requests.length * calls);
+      sent.forEach((record, index) => {
+        const request = outcome.requests[index % outcome.requests.length] as (typeof outcome.requests)[number];
+        const body = JSON.parse(record.body as string) as {
+          register?: boolean;
+          events: { customer: string; feature: string; amount: number; occurredAt?: string; idempotencyKey: string }[];
+        };
+        expect(body.events).toHaveLength(request.events);
+        const rows = body.events.map((event) => [
+          event.customer,
+          event.feature,
+          event.amount,
+          event.occurredAt ?? null,
+          event.idempotencyKey,
+        ]);
+        expect(JSON.stringify(["entitler-batch-v1", body.register === true, rows])).toBe(request.serialised);
+        expect(createHash("sha256").update(request.serialised).digest("hex")).toBe(
+          request.idempotencyKey.slice("batch:".length),
+        );
+        expect(record.headers.get("idempotency-key")).toBe(request.idempotencyKey);
+      });
+      return;
+    }
+    const calls: Record<string, () => Promise<unknown>> = {
+      recordUsage: () => customer.recordUsage(aiCredits, 1, keyed),
+      holdUsage: () => customer.holdUsage(aiCredits, 1, keyed),
+      startHold: async () => {
+        const hold: Hold = await customer.startHold(aiCredits, 1, keyed);
+        hold.use(2);
+        return hold.finish();
+      },
+      withHold: () => customer.withHold(aiCredits, 1, ({ hold }) => hold.use(2), keyed),
+      adjustMeter: () => customer.adjustMeter(aiCredits, { by: 1, ...keyed }),
+      cancel: () => customer.cancel(keyed),
+      token: () => customer.token(),
+      snapshot: () => customer.snapshot(),
+      billingPortal: () => customer.billingPortal({ returnUrl: "https://app.example.com/billing" }),
+      syncBilling: () => customer.syncBilling(),
     };
-    const error = await run().then(
-      () => undefined,
-      (e: unknown) => e,
-    );
+    const run = calls[c.method as string] as () => Promise<unknown>;
+    const result = await outcomeOf(run);
     if (c.outcome.kind) {
-      expectError(error, c.outcome);
+      server.close();
+      expectError(result.error, c.outcome);
       expect(sent).toHaveLength(0);
       return;
     }
-    expect(error).toBeUndefined();
-    if (c.method === "write") expect(sent[0]?.headers.get("idempotency-key")).toBe(key);
-    if (c.method === "withHold") {
-      expect(sent[0]?.headers.get("idempotency-key")).toBe(key);
-      expect(sent.at(-1)?.headers.get("idempotency-key")).toBe(c.outcome.excessKey);
+    expect(result.error).toBeUndefined();
+    const first = sent[0]?.headers.get("idempotency-key");
+    if (key === undefined) {
+      await run();
+      const second = sent.at(-1)?.headers.get("idempotency-key");
+      expect(first).toMatch(UUID_V4);
+      expect(second).toMatch(UUID_V4);
+      expect(second).not.toBe(first);
+    } else {
+      expect(first).toBe(key);
     }
+    if (c.outcome.excessKey) expect(sent.at(-1)?.headers.get("idempotency-key")).toBe(c.outcome.excessKey);
+    server.close();
   });
 });
 
@@ -317,6 +605,12 @@ describe("conformance: retry-timing.json", () => {
     });
   }
 
+  function tokenFor(signature: string): string {
+    const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    const now = Math.floor(Date.now() / 1000);
+    return `${part({ alg: "none" })}.${part({ sub: "u", iat: now, exp: now + 3600 })}.${signature}`;
+  }
+
   conformance("retry-timing.json", async (c) => {
     clock((c.now as string | undefined) ?? "2026-07-01T09:30:00.000Z");
     if (c.kind === "retryAfter") {
@@ -325,7 +619,7 @@ describe("conformance: retry-timing.json", () => {
         respond(index === 0 ? { status: 503, headers } : { status: 200, body: BODY }, init),
       );
       const server = new EntitlerServer({
-        key: "k",
+        key: SERVER_KEY,
         fetch,
         cache: false,
         maxRetryDelay: (c.maxRetryDelay as number) * 1000,
@@ -346,7 +640,7 @@ describe("conformance: retry-timing.json", () => {
       const { fetch, sent } = fake((_record, init, index) =>
         respond(index <= retry ? { status: 503 } : { status: 200, body: BODY }, init),
       );
-      const server = new EntitlerServer({ key: "k", fetch, cache: false, maxRetries: retry + 1 });
+      const server = new EntitlerServer({ key: SERVER_KEY, fetch, cache: false, maxRetries: retry + 1 });
       await settle(server.customer("user_42").check("export_pdf"));
       const last = waits(sent).at(-1) as number;
       expect(last).toBeGreaterThanOrEqual(c.outcome.minSeconds as number);
@@ -357,7 +651,7 @@ describe("conformance: retry-timing.json", () => {
       const maxRetries = c.maxRetries as number;
       const plain = fake((_record, init) => respond({ status: 503 }, init));
       await settle(
-        new EntitlerServer({ key: "k", fetch: plain.fetch, cache: false, maxRetries }).customer("u").check("f"),
+        new EntitlerServer({ key: SERVER_KEY, fetch: plain.fetch, cache: false, maxRetries }).customer("u").check("f"),
       );
       expect(plain.sent).toHaveLength(c.outcome.maxAttemptsWithoutUnauthorised as number);
       let n = 0;
@@ -387,16 +681,25 @@ describe("conformance: retry-timing.json", () => {
       timeout: 5,
     };
     let providerCalls = 0;
-    const request = c.request as { method: string; path: string };
+    const request = c.request as {
+      method: string;
+      path: string;
+      body?: { feature: string; amount: number };
+      idempotencyKey?: string;
+    };
     let call: Promise<unknown>;
     if (credential.kind === "key") {
       const customer = new EntitlerServer({ key: credential.key as string, ...options }).customer("user_42");
       call =
         request.method === "GET"
           ? customer.check("export_pdf")
-          : customer.recordUsage(defineFeature("ai_credits", "metered"), 1, {
-              idempotencyKey: "conformance-write-key",
-            });
+          : customer.recordUsage(
+              defineFeature(request.body?.feature ?? "ai_credits", "metered"),
+              request.body?.amount ?? 1,
+              {
+                idempotencyKey: request.idempotencyKey ?? "conformance-write-key",
+              },
+            );
     } else {
       const token =
         credential.kind === "customerToken"
@@ -420,12 +723,6 @@ describe("conformance: retry-timing.json", () => {
   });
 });
 
-function tokenFor(signature: string, expiresIn = 3600): string {
-  const part = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-  const now = Math.floor(Date.now() / 1000);
-  return `${part({ alg: "none" })}.${part({ sub: "u", iat: now, exp: now + expiresIn })}.${signature}`;
-}
-
 describe("conformance: token-refresh.json", () => {
   conformance("token-refresh.json", async (c) => {
     vi.useFakeTimers({ toFake: ["Date"], now: new Date(c.receivedAt as string) });
@@ -435,23 +732,64 @@ describe("conformance: token-refresh.json", () => {
       return c.token as string;
     };
     const { fetch, sent } = fake(() => Response.json(BODY));
-    const client = new EntitlerClient({ token: provider, fetch, cache: false });
-    const first = await client.me.check("export_pdf").then(
-      () => undefined,
-      (e: unknown) => e,
-    );
+    const client = c.key
+      ? new EntitlerClient({ key: c.key as string, identityToken: provider, fetch, cache: false })
+      : new EntitlerClient({ token: provider, fetch, cache: false });
+    const first = await outcomeOf(() => client.me.check("export_pdf"));
     if (c.outcome.kind) {
-      expectError(first, c.outcome);
+      expectError(first.error, c.outcome);
       expect(sent).toHaveLength(0);
+      client.close();
       return;
     }
-    expect(first).toBeUndefined();
-    expect(sent[0]?.headers.get("authorization")).toBe(
-      (c.outcome.requestHeaders as { Authorization: string }).Authorization,
-    );
+    expect(first.error).toBeUndefined();
+    for (const [name, value] of Object.entries(c.outcome.requestHeaders as Record<string, string>)) {
+      expect(sent[0]?.headers.get(name)).toBe(value);
+    }
+    for (let i = 0; i < ((c.close as number | undefined) ?? 0); i += 1) client.close();
     vi.setSystemTime(new Date(c.now as string));
-    await client.me.check("export_pdf");
+    const later = await outcomeOf(() => client.me.check("export_pdf"));
+    if (c.outcome.later) {
+      expectError(later.error, c.outcome.later as Record<string, unknown>);
+      expect(sent).toHaveLength(1);
+    } else {
+      expect(later.error).toBeUndefined();
+    }
     expect(calls).toBe(c.outcome.asksProvider ? 2 : 1);
+    client.close();
+  });
+});
+
+describe("conformance: construction.json", () => {
+  conformance("construction.json", (c) => {
+    const given = c.credentials as Record<string, unknown>;
+    const credentials = Object.fromEntries(
+      Object.entries(given).map(([name, value]) => [name, typeof value === "object" ? () => "a.b.c" : value]),
+    );
+    const store = { get: () => undefined, set: () => {} };
+    const options = { ...credentials, ...(c.cache === "customStore" ? { cache: store } : {}) };
+    const built = (() => {
+      try {
+        return {
+          client:
+            c.client === "EntitlerServer" ? new EntitlerServer(options as never) : new EntitlerClient(options as never),
+        };
+      } catch (error) {
+        return { error };
+      }
+    })();
+    if (c.outcome.kind) return expectError(built.error, c.outcome);
+    expect(built.error).toBeUndefined();
+    const client = built.client as EntitlerServer;
+    for (const form of [
+      String(client),
+      JSON.stringify(client),
+      inspect(client),
+      inspect(client, { showHidden: true }),
+    ]) {
+      for (const secret of c.outcome.stringFormOmits as string[]) expect(form).not.toContain(secret);
+    }
+    client.close();
   });
 });
 
@@ -460,93 +798,103 @@ describe("conformance: values.json", () => {
     const { fetch } = fake(
       () => new Response(JSON.stringify(c.answer), { status: 200, headers: c.headers as Record<string, string> }),
     );
-    const server = new EntitlerServer({ key: "ent_test_conformance_server_key", fetch, cache: false, maxRetries: 0 });
+    const server = new EntitlerServer({ key: SERVER_KEY, fetch, cache: false, maxRetries: 0 });
     const feature = (c.request as { path: string }).path.split("/").at(-1) as string;
-    const result = await server
-      .customer("user_42")
-      .check(feature)
-      .then(
-        (check) => ({ check: check as unknown as Record<string, unknown> }),
-        (error: unknown) => ({ error }),
-      );
+    const result = await outcomeOf(() => server.customer("user_42").check(feature));
+    server.close();
     if (c.kind === "value") {
       const expected = c.outcome.answer as Record<string, unknown>;
-      if (expected.kind) return expectError((result as { error: unknown }).error, expected);
-      const check = (result as { check: Record<string, unknown> }).check;
-      expect(decodedValue(check.value)).toEqual(expected.value);
-      expect(check.entitled).toBe(expected.entitled);
-      return;
+      if (expected.kind) return expectError(result.error, expected);
+      return expectView(result.value, expected);
     }
     if (c.kind === "instant") {
-      if (c.outcome.kind) return expectError((result as { error: unknown }).error, c.outcome);
-      const check = (result as { check: Record<string, unknown> }).check;
-      expect(decodedInstant(check[c.field as string])).toEqual(c.outcome.instant);
+      if (c.outcome.kind) return expectError(result.error, c.outcome);
+      expect(decodedInstant((result.value as Record<string, unknown>)[c.field as string])).toEqual(c.outcome.instant);
       return;
     }
-    const check = (result as { check: Record<string, unknown> }).check;
-    const { absent = [], ...fields } = c.outcome as Record<string, unknown> & { absent?: string[] };
-    for (const [name, expected] of Object.entries(fields)) {
-      const actual = check[name];
-      if (name === "value" || name === "remaining") expect(decodedValue(actual)).toEqual(expected);
-      else if (name === "asOf" || name === "resetsAt") expect(decodedInstant(actual)).toEqual(expected);
-      else if (name === "environment" || name === "experiment" || name === "track") {
-        const known =
-          expected && Object.fromEntries(Object.entries(expected as object).map(([k, v]) => [k, rawEnum(v)]));
-        if (known) expect(actual).toMatchObject(known);
-        else expect(actual).toBe(known);
-      } else expect(actual).toEqual(rawEnum(expected));
-    }
-    for (const name of absent) expect(check[name]).toBeUndefined();
+    if (c.outcome.kind) return expectError(result.error, c.outcome);
+    expect(result.error).toBeUndefined();
+    expectView(result.value, c.outcome);
+  });
+});
+
+describe("conformance: answers.json", () => {
+  conformance("answers.json", async (c) => {
+    const { fetch } = fake(() => text(c.status as number, c.headers as Record<string, string>, c.body as string));
+    const server = new EntitlerServer({ key: SERVER_KEY, fetch, cache: false, maxRetries: 0 });
+    const call = c.call as Record<string, unknown>;
+    const customer = server.customer(call.customer as string);
+    const pick = (...names: string[]) =>
+      Object.fromEntries(names.filter((name) => call[name] !== undefined).map((name) => [name, call[name]]));
+    const calls: Record<string, () => Promise<unknown>> = {
+      check: () => customer.check(call.feature as string),
+      plans: () => customer.plans(),
+      recordUsage: () =>
+        customer.recordUsage(defineFeature(call.feature as string, "metered"), call.amount as number, {
+          idempotencyKey: call.idempotencyKey as string,
+        }),
+      subscribe: () => customer.subscribe(call.plan as string, pick("period", "returnUrl", "idempotencyKey")),
+      cancel: () => customer.cancel(pick("addOn", "idempotencyKey")),
+      undoPendingChange: () => customer.undoPendingChange(pick("idempotencyKey")),
+      setPlan: () =>
+        customer.setPlan(call.plan as string, pick("period", "until", "reason", "actor", "idempotencyKey")),
+      setAddOn: () =>
+        customer.setAddOn(call.addOn as string, { quantity: call.quantity as number, ...pick("idempotencyKey") }),
+      grant: () => customer.grant(call.feature as string, pick("value", "days", "reason", "actor", "idempotencyKey")),
+      revokeGrant: () => customer.revokeGrant(call.grantId as string, pick("idempotencyKey")),
+      billingPortal: () => customer.billingPortal({ returnUrl: call.returnUrl as string }),
+      syncBilling: () => customer.syncBilling(),
+    };
+    const result = await outcomeOf(calls[call.method as string] as () => Promise<unknown>);
+    server.close();
+    if (c.outcome.kind) return expectApiError(result.error, c.outcome);
+    expect(result.error).toBeUndefined();
+    const value = result.value as Record<string, unknown>;
+    expectView(value.next === "unknown" ? { next: value.raw } : value, c.outcome);
   });
 });
 
 describe("conformance: errors.json", () => {
   conformance("errors.json", async (c) => {
     if (c.receivedAt) vi.useFakeTimers({ toFake: ["Date"], now: new Date(c.receivedAt as string) });
-    const { fetch } = fake(
-      () =>
-        new Response([204, 304].includes(c.status as number) || c.body === "" ? null : (c.body as string), {
-          status: c.status as number,
-          headers: c.headers as Record<string, string>,
-        }),
-    );
-    const server = new EntitlerServer({ key: "ent_test_conformance_server_key", fetch, cache: false, maxRetries: 0 });
-    const call = c.call as Record<string, string | number>;
-    const customer = server.customer(call.customer as string);
-    const run = () => {
-      if (call.method === "check") return customer.check(call.feature as string);
+    const { fetch } = fake(() => text(c.status as number, c.headers as Record<string, string>, c.body as string));
+    const call = c.call as Record<string, unknown>;
+    const options = { fetch, cache: false as const, maxRetries: 0 };
+    const server = new EntitlerServer({ key: SERVER_KEY, ...options });
+    const run = (): Promise<unknown> => {
+      if (call.method === "register") {
+        const client = call.client as { key: string; identityToken: string };
+        const app = new EntitlerClient({ key: client.key, identityToken: client.identityToken, ...options });
+        return app.register({ idempotencyKey: call.idempotencyKey as string }).finally(() => app.close());
+      }
+      const customer = server.customer(call.customer as string);
+      if (call.method === "check") {
+        return customer.check(call.feature as string, call.asOf ? { asOf: call.asOf as string } : {});
+      }
       if (call.method === "recordUsage") {
         return customer.recordUsage(defineFeature(call.feature as string, "metered"), call.amount as number, {
           idempotencyKey: call.idempotencyKey as string,
         });
+      }
+      if (call.method === "setPlan") {
+        return call.sku
+          ? customer.setPlan(
+              { sku: call.sku as { connector: string; ids: Record<string, string> } },
+              { until: call.until as string, idempotencyKey: call.idempotencyKey as string },
+            )
+          : customer.setPlan(call.plan as string, {
+              period: call.period as string,
+              idempotencyKey: call.idempotencyKey as string,
+            });
       }
       return customer.subscribe(call.plan as string, {
         period: call.period as string,
         idempotencyKey: call.idempotencyKey as string,
       });
     };
-    const error = (await run().then(
-      () => undefined,
-      (e: unknown) => e,
-    )) as ApiError;
-    const o = c.outcome;
-    expect(error).toBeInstanceOf(ApiError);
-    expect(error.status).toBe(o.status);
-    expect(error.code).toBe(rawEnum(o.code));
-    expect(error.message).toBe(o.message);
-    expect(error.requestId ?? null).toBe(o.requestId);
-    expect(error.retryAfter === undefined ? null : error.retryAfter / 1000).toBe(o.retryAfterSeconds);
-    expect(error.idempotencyKey ?? null).toBe(o.idempotencyKey);
-    expect(error.payment ?? null).toEqual(o.payment);
-    expect(error.listingGaps.map((gap) => ({ ...gap, kind: gap.kind }))).toEqual(
-      (o.listingGaps as Record<string, unknown>[]).map((gap) => ({ ...gap, kind: rawEnum(gap.kind) })),
-    );
-    expect(error.listingProblems).toEqual(
-      (o.listingProblems as Record<string, unknown>[]).map((problem) => ({
-        ...problem,
-        problem: rawEnum(problem.problem),
-      })),
-    );
+    const result = await outcomeOf(run);
+    server.close();
+    expectApiError(result.error, c.outcome);
   });
 });
 
@@ -557,6 +905,7 @@ describe("conformance: snapshots.json", () => {
       type: entitlement.type,
       value: decodedValue(entitlement.value),
       entitled: entitlement.entitled,
+      upgrades: entitlement.upgrades ?? [],
     };
     const absent: string[] = [];
     for (const name of ["used", "remaining", "held", "resetsAt"]) {
@@ -569,35 +918,24 @@ describe("conformance: snapshots.json", () => {
     return out;
   }
 
-  function normalise(expected: Record<string, unknown>): Record<string, unknown> {
-    const items = (expected.items as Record<string, unknown>[]).map((each) => ({ ...each, type: rawEnum(each.type) }));
-    const get = Object.fromEntries(
-      Object.entries(expected.get as Record<string, Record<string, unknown> | null>).map(([key, value]) => [
-        key,
-        value && { ...value, type: rawEnum(value.type) },
-      ]),
-    );
-    return { ...expected, items, get };
-  }
-
   conformance("snapshots.json", async (c) => {
     const expected = c.expected as Record<string, unknown>;
-    const result = await verifySnapshot(c.token as string, {
-      ...(expected as unknown as Parameters<typeof verifySnapshot>[1]),
-      now: new Date(expected.now as string),
-    }).then(
-      (snapshot) => ({ snapshot }),
-      (error: unknown) => ({ error }),
+    const result = await outcomeOf(() =>
+      verifySnapshot(c.token as string, {
+        ...(expected as unknown as Parameters<typeof verifySnapshot>[1]),
+        now: new Date(expected.now as string),
+      }),
     );
     if (!("snapshot" in c.outcome)) {
-      expectError((result as { error: unknown }).error, c.outcome);
-      if (c.outcome.code) expect((result as { error: SnapshotError }).error.code).toBe(c.outcome.code);
+      expectError(result.error, c.outcome);
+      if (c.outcome.code) expect((result.error as SnapshotError).code).toBe(c.outcome.code);
       return;
     }
-    expect((result as { error?: unknown }).error).toBeUndefined();
-    const snapshot = (result as { snapshot: Awaited<ReturnType<typeof verifySnapshot>> }).snapshot;
-    const want = c.outcome.snapshot as Record<string, unknown>;
-    const wantEntitlements = normalise(want.entitlements as Record<string, unknown>);
+    expect(result.error).toBeUndefined();
+    const snapshot = result.value as Awaited<ReturnType<typeof verifySnapshot>>;
+    const want = raw(c.outcome.snapshot) as Record<string, unknown>;
+    const wantEntitlements = want.entitlements as Record<string, Record<string, unknown>>;
+    const lookup = Object.keys(wantEntitlements).find((name) => !["asOf", "experiment", "items", "has"].includes(name));
     expect({
       customer: snapshot.customer,
       environment: snapshot.environment,
@@ -607,18 +945,22 @@ describe("conformance: snapshots.json", () => {
       testers: snapshot.testers,
       expiresAt: decodedInstant(snapshot.expiresAt),
     }).toEqual({ ...want, entitlements: undefined });
-    const keys = Object.keys(wantEntitlements.has as object);
-    expect({
+    const actual: Record<string, unknown> = {
       asOf: decodedInstant(snapshot.entitlements.asOf),
       experiment: snapshot.entitlements.experiment,
       items: snapshot.entitlements.entitlements.map((each) => item(each as unknown as Record<string, unknown>)),
-      has: Object.fromEntries(keys.map((key) => [key, snapshot.entitlements.has(key)])),
-      get: Object.fromEntries(
-        Object.keys(wantEntitlements.get as object).map((key) => {
+      has: Object.fromEntries(
+        Object.keys(wantEntitlements.has as object).map((key) => [key, snapshot.entitlements.has(key)]),
+      ),
+    };
+    if (lookup) {
+      actual[lookup] = Object.fromEntries(
+        Object.keys(wantEntitlements[lookup] as object).map((key) => {
           const found = snapshot.entitlements.get(key);
           return [key, found ? item(found as unknown as Record<string, unknown>) : null];
         }),
-      ),
-    }).toEqual(wantEntitlements);
+      );
+    }
+    expect(actual).toEqual(wantEntitlements);
   });
 });

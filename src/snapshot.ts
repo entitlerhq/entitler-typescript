@@ -220,7 +220,7 @@ export async function verifySnapshot(token: string, expected: SnapshotExpectatio
       change: claims.change,
       testers: claims.testers,
       experiment: null,
-      entitlements: claims.entitlements,
+      entitlements: claims.entitlements.map((entitlement) => ({ ...entitlement, upgrades: [] })),
       stale: false,
     }),
   };

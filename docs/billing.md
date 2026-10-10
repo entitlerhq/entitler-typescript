@@ -111,7 +111,7 @@ await customer.cancel({ addOn: "sso_addon" });
 ## The billing portal
 
 `billingPortal({ returnUrl })` opens the provider's page for payment details and invoices. It changes
-no plan, and a customer the provider has never billed answers `409 stale`:
+no plan, and a customer the provider has never billed answers `404 not_found`:
 
 ```ts
 import { ApiError } from "@entitlerhq/entitler";
@@ -120,7 +120,7 @@ try {
   const portal = await customer.billingPortal({ returnUrl: "https://app.example.com/account" });
   console.log(`Send the customer to ${portal.url}`);
 } catch (error) {
-  if (!(error instanceof ApiError && error.code === "stale")) throw error;
+  if (!(error instanceof ApiError && error.code === "not_found")) throw error;
   console.log("Nothing billed yet, so there is no portal.");
 }
 ```
@@ -137,7 +137,7 @@ member); without it, Entitler answers `403 scope_required`.
 | --- | --- |
 | `subscribe` | `400 invalid_body`, `400 return_url_required`, `402 payment_required`, `403 not_self_serve`, `403 scope_required`, `404 customer_not_found`, `409 capability_required`, `503` |
 | `cancel`, `undoPendingChange` | `403 not_self_serve`, `403 scope_required`, `404 customer_not_found`, `409 capability_required` |
-| `billingPortal` | `403 scope_required`, `409 stale`, `409 capability_required` |
+| `billingPortal` | `403 scope_required`, `404 not_found`, `409 capability_required` |
 | `syncBilling` | `403 scope_required`, `409 capability_required`, `429 rate_limited`, `503` |
 | `setPlan` | `400 invalid_body`, `402 payment_required`, `404 customer_not_found`, `409 billed_elsewhere`, `503` |
 | `setAddOn` | `400 invalid_body`, `402 payment_required`, `404 not_found`, `404 customer_not_found` |

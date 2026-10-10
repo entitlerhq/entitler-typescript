@@ -1,6 +1,6 @@
 {
-  "description": "Token refresh timing and unreadable tokens (section 7.5): an in-app client's token provider answers token for a first request at receivedAt, and the client trims that answer of spaces, tabs, carriage returns and line feeds, as it trims a constructor credential. When outcome is { \"kind\": \"TokenError\" }, the trimmed token is blank or unreadable and that first request fails with a TokenError. Otherwise the first request sends outcome.requestHeaders.Authorization, Bearer and the trimmed token, and a later request starts at now: asksProvider says whether the client asks the provider for a new token before sending it. It does when the kept token expires within the smaller of 60 seconds and half its lifetime, the edge included, measured from iat to exp, or from receivedAt to exp when iat is null. iat and exp, given for readable tokens only, are the claims in whole seconds since 1970; signatures are placeholders that no client verifies.",
-  "spec": "7.5, 4.3",
+  "description": "Token refresh timing, unreadable tokens and closing (sections 7.5, 4.3 and 4.4). Build a new in-app client for each case, with a token provider that answers token for a first request at receivedAt: a customer token provider, or, when key is given, an identity token provider beside that publishable key. The client trims the provider's answer of spaces, tabs, carriage returns and line feeds, as it trims a constructor credential. When outcome is { \"kind\": \"TokenError\" }, the trimmed token is blank or unreadable and that first request fails with a TokenError. Otherwise the first request sends outcome.requestHeaders: Authorization is Bearer and the trimmed token for a customer token provider, while for an identity token provider it is Bearer and key, and Entitler-Identity-Token holds the trimmed token. A later request then starts at now, and asksProvider says whether the client asks the provider for a new token before sending it. It does when the kept token expires within the smaller of 60 seconds and half its lifetime, the edge included, measured from iat to exp, or from receivedAt to exp when iat is null. close, where present, is how many times the case closes the client between the two requests, since closing twice is safe: the later request then fails before any request with outcome.later, { \"kind\": \"ClosedError\", \"message\": … }, the language's error for a closed object, and asksProvider is false. iat and exp, given for readable tokens only, are the claims in whole seconds since 1970; signatures are placeholders that no client verifies. Close each client when its case ends.",
+  "spec": "7.5, 4.3, 4.4",
   "cases": [
     {
       "name": "sixty-second-token-same-instant",
@@ -594,6 +594,87 @@
       "receivedAt": "2026-07-01T09:30:00.000Z",
       "outcome": {
         "kind": "TokenError"
+      }
+    },
+    {
+      "name": "identity-provider-hour-token-half-way",
+      "why": "An identity token provider follows the same rule as a customer token provider, so a 3600-second identity token is kept half way through its lifetime, and the first request sends it as Entitler-Identity-Token beside Bearer and the publishable key.",
+      "key": "ent_pk_test_conformance_publishable_key",
+      "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lkLmV4YW1wbGUuY29tIiwiYXVkIjoiY29uZm9ybWFuY2UtYXBwIiwic3ViIjoidXNlci80MiIsImlhdCI6MTc4Mjg5ODIwMCwiZXhwIjoxNzgyOTAxODAwfQ.placeholder-signature-not-verified",
+      "iat": 1782898200,
+      "exp": 1782901800,
+      "receivedAt": "2026-07-01T09:30:00.000Z",
+      "now": "2026-07-01T10:00:00.000Z",
+      "outcome": {
+        "asksProvider": false,
+        "requestHeaders": {
+          "Authorization": "Bearer ent_pk_test_conformance_publishable_key",
+          "Entitler-Identity-Token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lkLmV4YW1wbGUuY29tIiwiYXVkIjoiY29uZm9ybWFuY2UtYXBwIiwic3ViIjoidXNlci80MiIsImlhdCI6MTc4Mjg5ODIwMCwiZXhwIjoxNzgyOTAxODAwfQ.placeholder-signature-not-verified"
+        }
+      }
+    },
+    {
+      "name": "identity-provider-hour-token-on-the-edge",
+      "why": "Exactly 60 seconds before exp is on the edge of the window for an identity token too, and the edge is included, so the client asks the identity token provider again.",
+      "key": "ent_pk_test_conformance_publishable_key",
+      "token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lkLmV4YW1wbGUuY29tIiwiYXVkIjoiY29uZm9ybWFuY2UtYXBwIiwic3ViIjoidXNlci80MiIsImlhdCI6MTc4Mjg5ODIwMCwiZXhwIjoxNzgyOTAxODAwfQ.placeholder-signature-not-verified",
+      "iat": 1782898200,
+      "exp": 1782901800,
+      "receivedAt": "2026-07-01T09:30:00.000Z",
+      "now": "2026-07-01T10:29:00.000Z",
+      "outcome": {
+        "asksProvider": true,
+        "requestHeaders": {
+          "Authorization": "Bearer ent_pk_test_conformance_publishable_key",
+          "Entitler-Identity-Token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lkLmV4YW1wbGUuY29tIiwiYXVkIjoiY29uZm9ybWFuY2UtYXBwIiwic3ViIjoidXNlci80MiIsImlhdCI6MTc4Mjg5ODIwMCwiZXhwIjoxNzgyOTAxODAwfQ.placeholder-signature-not-verified"
+        }
+      }
+    },
+    {
+      "name": "identity-provider-token-with-surrounding-whitespace",
+      "why": "An identity token provider answer with a line feed, a space and a tab around the token is trimmed as a constructor credential is, so Entitler-Identity-Token holds the trimmed token.",
+      "key": "ent_pk_test_conformance_publishable_key",
+      "token": "\neyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lkLmV4YW1wbGUuY29tIiwiYXVkIjoiY29uZm9ybWFuY2UtYXBwIiwic3ViIjoidXNlci80MiIsImlhdCI6MTc4Mjg5ODIwMCwiZXhwIjoxNzgyOTAxODAwfQ.placeholder-signature-not-verified \t",
+      "iat": 1782898200,
+      "exp": 1782901800,
+      "receivedAt": "2026-07-01T09:30:00.000Z",
+      "now": "2026-07-01T10:00:00.000Z",
+      "outcome": {
+        "asksProvider": false,
+        "requestHeaders": {
+          "Authorization": "Bearer ent_pk_test_conformance_publishable_key",
+          "Entitler-Identity-Token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJodHRwczovL2lkLmV4YW1wbGUuY29tIiwiYXVkIjoiY29uZm9ybWFuY2UtYXBwIiwic3ViIjoidXNlci80MiIsImlhdCI6MTc4Mjg5ODIwMCwiZXhwIjoxNzgyOTAxODAwfQ.placeholder-signature-not-verified"
+        }
+      }
+    },
+    {
+      "name": "identity-provider-blank-token",
+      "why": "An identity token provider answer that trims to nothing is blank, so the call fails with a TokenError.",
+      "key": "ent_pk_test_conformance_publishable_key",
+      "token": " \r\n",
+      "receivedAt": "2026-07-01T09:30:00.000Z",
+      "outcome": {
+        "kind": "TokenError"
+      }
+    },
+    {
+      "name": "closed-client-asks-no-provider",
+      "why": "A client closed twice after its first request fails the later request with the closed-client error before any request, and never asks the provider, although its kept token is within the refresh window.",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6ImN1c3RvbWVyK2p3dCJ9.eyJpc3MiOiJodHRwczovL2FwaS5lbnRpdGxlci5kZXYvY3VzdG9tZXJzIiwiYXVkIjoiZW50aXRsZXItY3VzdG9tZXJzIiwic3ViIjoidGVzdF8xMDAxIiwiaWF0IjoxNzgyODk4MjAwLCJleHAiOjE3ODI4OTgyNjB9.placeholder-signature-not-verified",
+      "iat": 1782898200,
+      "exp": 1782898260,
+      "receivedAt": "2026-07-01T09:30:00.000Z",
+      "now": "2026-07-01T09:30:45.000Z",
+      "close": 2,
+      "outcome": {
+        "asksProvider": false,
+        "requestHeaders": {
+          "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6ImN1c3RvbWVyK2p3dCJ9.eyJpc3MiOiJodHRwczovL2FwaS5lbnRpdGxlci5kZXYvY3VzdG9tZXJzIiwiYXVkIjoiZW50aXRsZXItY3VzdG9tZXJzIiwic3ViIjoidGVzdF8xMDAxIiwiaWF0IjoxNzgyODk4MjAwLCJleHAiOjE3ODI4OTgyNjB9.placeholder-signature-not-verified"
+        },
+        "later": {
+          "kind": "ClosedError",
+          "message": "This Entitler client is closed. Create a new one."
+        }
       }
     }
   ]

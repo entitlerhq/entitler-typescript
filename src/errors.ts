@@ -1,4 +1,4 @@
-import type { ListingGap, ListingProblem, Open, UsageResult } from "./types.js";
+import type { Open, UsageResult } from "./types.js";
 
 /**
  * Every error code the Entitler API documents, plus the SDK's own: `http_error` for an answer
@@ -105,10 +105,6 @@ export interface ApiErrorInit {
   idempotencyKey?: string | undefined;
   /** The payment a plan change waits on, when the API named one. */
   payment?: PaymentRequired | undefined;
-  /** The listing gaps from the body. */
-  listingGaps?: readonly ListingGap[] | undefined;
-  /** The listing problems from the body. */
-  listingProblems?: readonly ListingProblem[] | undefined;
   /** What went wrong underneath, such as a decoding failure. */
   cause?: unknown;
 }
@@ -144,10 +140,6 @@ export class ApiError extends EntitlerError {
   readonly idempotencyKey: string | undefined;
   /** The payment a plan change waits on, from `402 payment_required`. */
   readonly payment: PaymentRequired | undefined;
-  /** The gaps a rollout would leave, from `409 listing_gaps`; empty otherwise. */
-  readonly listingGaps: readonly ListingGap[];
-  /** The listings whose provider price fails the checks, from `409 listing_invalid`; empty otherwise. */
-  readonly listingProblems: readonly ListingProblem[];
 
   /** Creates an API error. The SDK raises these; apps rarely need to. */
   constructor(init: ApiErrorInit) {
@@ -158,8 +150,6 @@ export class ApiError extends EntitlerError {
     this.retryAfter = init.retryAfter;
     this.idempotencyKey = init.idempotencyKey;
     this.payment = init.payment;
-    this.listingGaps = init.listingGaps ?? [];
-    this.listingProblems = init.listingProblems ?? [];
   }
 }
 

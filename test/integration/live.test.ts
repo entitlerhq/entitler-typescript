@@ -330,8 +330,8 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     expect((await free.cancel()).changed).toBe(false);
     expect(await customer.syncBilling()).toEqual({ changed: false });
     await expect(customer.billingPortal({ returnUrl: "https://example.com/account" })).rejects.toMatchObject({
-      status: 409,
-      code: "stale",
+      status: 404,
+      code: "not_found",
     });
   });
 

@@ -205,7 +205,7 @@ export const answers = {
       grant: {
         id: "grt_1",
         feature: "feature",
-        value: "true",
+        value: "",
         from: NOW(),
         until: null,
         revokedAt: null,
@@ -422,7 +422,7 @@ class Model {
     if (method === "DELETE" && rest === "") return new Response(null, { status: 204 });
     if (rest === "/tokens") return json(answers.customerToken(context));
     if (rest === "/snapshots") return json({ token: "header.payload.signature", expiresAt: NOW(), keyId: "key_1" });
-    if (rest === "/billing-portal") return json(answers.error({ code: "stale" }), 409);
+    if (rest === "/billing-portal") return json(answers.error({ code: "not_found" }), 404);
     if (rest === "/billing/sync") return json({ changed: false });
     if (rest === "/track")
       return json({
