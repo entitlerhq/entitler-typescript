@@ -103,40 +103,40 @@ pass `--allow-empty`.
 
 `check(features.aiCredits)` then answers a `Check<"metered">` with `used`, `held`, `remaining` and
 `resetsAt`, and usage methods accept only metered features. Without the generator, declare constants
-with `defineFeature(key, type)`. See [feature constants](docs/feature-constants.md). The same tool
+with `defineFeature(key, type)`. See [feature constants](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/feature-constants.md). The same tool
 writes the snapshot keys an app ships: `npx @entitlerhq/entitler snapshot-keys --out <file>`.
 
 ## Guides
 
-- [Checking access](docs/checking-access.md): `check`, `isEntitled`, failing open or closed
-- [Recording usage](docs/recording-usage.md): modes, idempotency keys, `startHold`, `withHold`, batches
-- [Pricing pages and visitors](docs/pricing-and-visitors.md): publishable keys, visitors through sign-up
-- [Billing pages](docs/billing.md): `plans()`, `subscribe` and its next step, return URLs, the billing portal
-- [Company decisions](docs/company-decisions.md): `setPlan`, `setAddOn`, grants, meter adjustments
-- [Store purchases](docs/store-purchases.md): App Store and Google Play recipes
-- [The in-app client](docs/in-app-client.md): customer tokens, identity tokens, one client per customer
-- [Offline snapshots](docs/offline-snapshots.md) and key pinning
-- [Reliability](docs/reliability.md): timeouts, retries, the cache, stale answers, `onError`
-- [Errors](docs/errors.md) and their codes
-- [As-of reads](docs/as-of.md)
-- [Tracks](docs/tracks.md)
-- [Scopes](docs/scopes.md)
-- [Configuration](docs/configuration.md)
-- [Feature constants](docs/feature-constants.md)
-- [Testing your app](docs/testing.md): `fakeCustomer` and answer builders
-- [Versioning and support](docs/versioning.md)
-- Frameworks: [Express](docs/express.md), [Next.js](docs/nextjs.md),
-  [Cloudflare Workers](docs/cloudflare-workers.md), [React](docs/react.md)
+- [Checking access](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/checking-access.md): `check`, `isEntitled`, failing open or closed
+- [Recording usage](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/recording-usage.md): modes, idempotency keys, `startHold`, `withHold`, batches
+- [Pricing pages and visitors](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/pricing-and-visitors.md): publishable keys, visitors through sign-up
+- [Billing pages](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/billing.md): `plans()`, `subscribe` and its next step, return URLs, the billing portal
+- [Company decisions](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/company-decisions.md): `setPlan`, `setAddOn`, grants, meter adjustments
+- [Store purchases](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/store-purchases.md): App Store and Google Play recipes
+- [The in-app client](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/in-app-client.md): customer tokens, identity tokens, one client per customer
+- [Offline snapshots](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/offline-snapshots.md) and key pinning
+- [Reliability](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/reliability.md): timeouts, retries, the cache, stale answers, `onError`
+- [Errors](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/errors.md) and their codes
+- [As-of reads](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/as-of.md)
+- [Tracks](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/tracks.md)
+- [Scopes](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/scopes.md)
+- [Configuration](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/configuration.md)
+- [Feature constants](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/feature-constants.md)
+- [Testing your app](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/testing.md): `fakeCustomer` and answer builders
+- [Versioning and support](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/versioning.md)
+- Frameworks: [Express](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/express.md), [Next.js](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/nextjs.md),
+  [Cloudflare Workers](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/cloudflare-workers.md), [React](https://github.com/entitlerhq/entitler-typescript/blob/main/docs/react.md)
 
 ## Examples
 
-[quickstart](examples/quickstart/index.ts), [pricing-page](examples/pricing-page/index.ts),
-[in-app](examples/in-app/index.ts), [metered-work](examples/metered-work/index.ts),
-[offline](examples/offline/index.ts), [billing](examples/billing/index.ts),
-[generated-features](examples/generated-features/index.ts),
-[cloudflare-worker](examples/cloudflare-worker/index.ts) and [testing](examples/testing/index.ts). The [examples README](examples/README.md)
+[quickstart](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/quickstart/index.ts), [pricing-page](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/pricing-page/index.ts),
+[in-app](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/in-app/index.ts), [metered-work](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/metered-work/index.ts),
+[offline](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/offline/index.ts), [billing](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/billing/index.ts),
+[generated-features](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/generated-features/index.ts),
+[cloudflare-worker](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/cloudflare-worker/index.ts) and [testing](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/testing/index.ts). The [examples README](https://github.com/entitlerhq/entitler-typescript/blob/main/examples/README.md)
 says how to run each one.
 
 ## Licence
 
-[MIT](LICENSE)
+[MIT](https://github.com/entitlerhq/entitler-typescript/blob/main/LICENSE)

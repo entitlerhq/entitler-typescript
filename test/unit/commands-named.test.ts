@@ -27,3 +27,20 @@ describe("generator commands", () => {
     expect(unscoped).toEqual([]);
   });
 });
+
+describe("the README", () => {
+  it("links every guide, every example and the licence by absolute GitHub URL", () => {
+    const readme = readFileSync(join(root, "README.md"), "utf8");
+    const base = "https://github.com/entitlerhq/entitler-typescript/blob/main/";
+    const relative = [...readme.matchAll(/\]\(([^)]+)\)/g)]
+      .map((match) => match[1] as string)
+      .filter((link) => !/^(?:https?:|#|mailto:)/.test(link));
+    expect(relative).toEqual([]);
+    const guides = filesUnder("docs", ["docs/api"]).filter((path) => path.endsWith(".md"));
+    const examples = readdirSync(join(root, "examples"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => `examples/${entry.name}/`);
+    for (const path of [...guides, "LICENSE"]) expect(readme, path).toContain(`](${base}${path})`);
+    for (const path of examples) expect(readme, path).toContain(`](${base}${path}`);
+  });
+});

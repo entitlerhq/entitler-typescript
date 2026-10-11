@@ -6,7 +6,7 @@ const features = {
 };
 
 const server = new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "" });
-const signedIn = server.customer(process.env.CUSTOMER_ID ?? "in-app-user");
+const signedIn = server.customer(process.env.CUSTOMER_ID ?? `in-app-${Date.now()}`);
 await signedIn.register();
 
 const client = new EntitlerClient({
@@ -21,4 +21,5 @@ console.log(`Recorded usage: ${usage.outcome}.`);
 
 client.close();
 console.log("Signed out: the client is closed, and the next sign-in creates a new one.");
+if (!process.env.CUSTOMER_ID) await signedIn.erase();
 server.close();

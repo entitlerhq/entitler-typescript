@@ -1,6 +1,8 @@
+import { inspect } from "node:util";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   ApiError,
+  ConnectionError,
   defineFeature,
   EntitlerClient,
   EntitlerServer,
@@ -175,5 +177,79 @@ describe("error codes", () => {
   it("name internal and snapshot_key_unavailable among the known codes", () => {
     expectTypeOf<"internal">().toExtend<Known<ErrorCode>>();
     expectTypeOf<"snapshot_key_unavailable">().toExtend<Known<ErrorCode>>();
+  });
+});
+
+describe("library errors and credentials in string forms", () => {
+  it("turns a body that fails to decompress into a ConnectionError", async () => {
+    const corrupt = new ReadableStream({
+      start(controller) {
+        controller.error(new TypeError("incorrect header check"));
+      },
+    });
+    const { fetch } = fakeFetch(new Response(corrupt, { headers: { "content-encoding": "gzip" } }));
+    const server = new EntitlerServer({ key: "ent_test_secret_key", fetch, maxRetries: 0, cache: false });
+    const error = await server
+      .customer("u")
+      .check("f")
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConnectionError);
+  });
+
+  it("keeps only a summary of a library error, never the request it holds", async () => {
+    const leaky = Object.assign(new TypeError("fetch failed"), {
+      request: { headers: { authorization: "Bearer ent_test_secret_key" } },
+      cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+    });
+    const { fetch } = fakeFetch(leaky);
+    const server = new EntitlerServer({ key: "ent_test_secret_key", fetch, maxRetries: 0, cache: false });
+    const error = (await server
+      .customer("u")
+      .check("f")
+      .catch((caught: unknown) => caught)) as ConnectionError;
+    expect(error).toBeInstanceOf(ConnectionError);
+    expect(inspect(error, { depth: 10 })).not.toContain("ent_test_secret_key");
+    expect(String((error.cause as Error).message)).toContain("fetch failed");
+    expect(String((error.cause as Error).message)).toContain("ECONNREFUSED");
+  });
+
+  it("never shows a minted customer token in its string forms, though the token stays readable", async () => {
+    const minted = token(1);
+    const { fetch } = fakeFetch(
+      json({ token: minted, customer: "u", scopes: ["entitlements:read"], expiresAt: "2026-10-09T00:00:00.000Z" }),
+    );
+    const issued = await new EntitlerServer({ key: "k", fetch }).customer("u").token();
+    expect(issued.token).toBe(minted);
+    expect({ ...issued }.token).toBe(minted);
+    for (const shown of [String(issued), JSON.stringify(issued), inspect(issued, { depth: 10 })]) {
+      expect(shown).not.toContain(minted);
+    }
+  });
+});
+
+describe("header numbers", () => {
+  it("saturate max-age and Age however many digits they have", async () => {
+    const entries: { ttl: number; age?: number }[] = [];
+    const { fetch, sent } = fakeFetch(
+      json(checkAnswer(), 200, {
+        etag: '"v1"',
+        "cache-control": `private, max-age=${"9".repeat(400)}`,
+        age: "9".repeat(400),
+      }),
+    );
+    const server = new EntitlerServer({
+      key: "k",
+      fetch,
+      cache: {
+        get: async () => undefined,
+        set: async (_key, entry, ttl) => {
+          entries.push({ ttl, ...(entry.age === undefined ? {} : { age: entry.age }) });
+        },
+      },
+    });
+    await server.customer("u").check("f");
+    expect(sent).toHaveLength(1);
+    expect(Number.isSafeInteger(entries[0]?.ttl)).toBe(true);
+    expect(Number.isSafeInteger(entries[0]?.age)).toBe(true);
   });
 });

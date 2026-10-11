@@ -49,14 +49,17 @@ export async function POST(request: Request) {
 ## A streamed model answer
 
 Hold an estimate before streaming, so a refusal answers before the stream starts, and finish the hold
-however the stream ends, charging for the tokens it used. The customer again comes from the session,
-and the body carries only the message id:
+however the stream ends, charging for the tokens it used. A refused hold answers `402`; a message id
+whose hold was already finished throws `UsageReplayedError`, answered with the reply the first
+request saved rather than running the model again. The customer again comes from the session, and
+the body carries only the message id:
 
 ```ts
-import { EntitlerServer, type Hold, UsageRefusedError } from "@entitlerhq/entitler";
+import { EntitlerServer, type Hold, UsageRefusedError, UsageReplayedError } from "@entitlerhq/entitler";
 import { features } from "./entitler.gen.js";
 
 declare function signedInUserId(request: Request): Promise<string | undefined>;
+declare function savedAnswer(messageId: string): Promise<string>;
 
 let client: EntitlerServer | undefined;
 const entitler = () => (client ??= new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "" }));
@@ -70,6 +73,7 @@ export async function POST(request: Request) {
     hold = await entitler().customer(userId).startHold(features.aiCredits, 4_000, { idempotencyKey: messageId });
   } catch (error) {
     if (error instanceof UsageRefusedError) return new Response("Out of credits.", { status: 402 });
+    if (error instanceof UsageReplayedError) return new Response(await savedAnswer(messageId));
     throw error;
   }
   hold.use(0);

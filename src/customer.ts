@@ -65,6 +65,7 @@ import {
   idempotencyKeyOf,
   instant,
   planKey,
+  redacted,
   requiredKey,
   requireId,
   requireText,
@@ -1040,7 +1041,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
       compact({ scopes: options?.scopes, ttlSeconds: options?.ttlSeconds }),
       { decode: decodeCustomerToken },
     );
-    return token;
+    return redacted(token);
   }
 
   async setTrack(track: string | null, options?: WriteOptions): Promise<CustomerTrack> {
