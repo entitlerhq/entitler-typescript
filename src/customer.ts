@@ -517,7 +517,8 @@ export interface ServerCustomer extends Customer {
   billing(options?: CallOptions): Promise<CustomerBilling>;
   /**
    * Moves the customer to any plan, sales-led ones included, or records a verified store purchase
-   * by its SKU with `until` its expiry.
+   * by its SKU with `until` its expiry. While a change is booked, another plan answers
+   * `400 invalid_body`: name the plan held first to undo the booking.
    *
    * @example
    * ```ts

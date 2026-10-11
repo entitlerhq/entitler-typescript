@@ -44,7 +44,9 @@ await customer.setPlan(null, { product: "app", when: "end", actor: "hubspot", id
 The plan the customer already holds, with the same period, billing and `until`, changes nothing and
 answers `changed: false`, so a redelivered webhook is harmless even with a new key. Two exceptions
 change something: naming the plan held undoes a change booked for renewal, and naming it with
-`billing` `provider` or `end` ends a `keep` exception.
+`billing` `provider` or `end` ends a `keep` exception. While a change is booked, `setPlan` to another
+plan answers `400 invalid_body`: undo the booking first by naming the plan held, then make the
+change.
 
 ## Add-ons: `setAddOn`
 
