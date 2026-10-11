@@ -411,10 +411,8 @@ export interface SetPlanOptions extends CompanyOptions {
 
 /** Options for {@link ServerCustomer.setAddOn}. */
 export interface SetAddOnOptions extends CompanyOptions {
-  /** The quantity, 0 to 10,000; `0` removes the add-on. */
+  /** The quantity, 0 to 10,000; `0` removes the add-on. The change always takes effect now. */
   quantity: number;
-  /** `now`, or `end` at renewal; the project's policy when left out. */
-  when?: "now" | "end";
 }
 
 /** Options for {@link ServerCustomer.grant}. */
@@ -499,7 +497,7 @@ export interface ServerCustomer extends Customer {
   setPlan(plan: string, options?: SetPlanOptions): Promise<PlanChange>;
   /** Records a verified store purchase by its SKU, which names its own period. */
   setPlan(purchase: SkuChoice, options?: Omit<SetPlanOptions, "period">): Promise<PlanChange>;
-  /** Adds an add-on, sets its quantity, or removes it at `0`. */
+  /** Adds an add-on, sets its quantity, or removes it at `0`, always taking effect now. */
   setAddOn(addOn: string, options: SetAddOnOptions): Promise<PlanChange>;
   /** Grants a feature for a while, or for good, and answers the grant made so a support tool keeps its id. */
   grant(feature: Feature | string, options?: GrantOptions): Promise<GrantChange>;
@@ -1005,7 +1003,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
   async setAddOn(addOn: string, options: SetAddOnOptions): Promise<PlanChange> {
     return this.planWrite("PUT", `/add-ons/${segment(planKey(addOn))}`, options, {
       quantity: wholeNumber(options?.quantity, "quantity", 0, 10_000),
-      ...compact({ when: options.when, reason: options.reason, actor: options.actor }),
+      ...compact({ reason: options.reason, actor: options.actor }),
     });
   }
 
