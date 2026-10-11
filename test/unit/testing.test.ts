@@ -96,6 +96,19 @@ describe("fakeCustomer", () => {
     });
   });
 
+  it("keeps a usage log whose entries carry by, actor and reason", async () => {
+    const customer = fakeCustomer({ ai_credits: { value: 10 } });
+    const recorded = await customer.recordUsage(credits, 2, { idempotencyKey: "job-1" });
+    await customer.adjustMeter(credits, { to: 1, actor: "support", reason: "Outage.", idempotencyKey: "adjust-1" });
+    await customer.cancelUsage(recorded.id as string, { actor: "support", reason: "Charged twice." });
+    const log = (await customer.usage()).log.items;
+    expect(log.map((entry) => [entry.kind, entry.by, entry.actor, entry.reason, entry.cancelledAt !== null])).toEqual([
+      ["adjust", "Server key", "support", "Outage.", false],
+      ["use", "Server key", "support", "Charged twice.", true],
+    ]);
+    expect((await customer.details()).usage.items).toHaveLength(2);
+  });
+
   it("answers every method through the real decoders", async () => {
     const customer = fakeCustomer({ export_pdf: true, ai_credits: { value: 10, used: 4 } }, { id: "user_1" });
     const usage = await customer.usage();
@@ -158,7 +171,13 @@ describe("answers", () => {
       [answers.subscribeStep({ next: "confirming" }), decodeStep],
       [answers.subscribeStep({ next: "manage" }), decodeStep],
       [answers.usage({ features: [answers.featureUsage({ feature: "ai_credits", value: 5 })] }), decodeUsage],
-      [answers.details(), decodeDetails],
+      [
+        answers.details({
+          activity: [answers.activity()],
+          usage: { items: [answers.usageEvent({ feature: "ai_credits" })], next: null },
+        }),
+        decodeDetails,
+      ],
       [answers.customerSummary(), decodeCustomerSummary],
       [answers.customerPage({ items: [answers.customerSummary()] }), decodeCustomerPage],
       [answers.features(), decodeFeatureList],

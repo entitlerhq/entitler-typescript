@@ -248,6 +248,26 @@ export const answers = {
       ...fields,
     };
   },
+  /** One entry of a usage log. */
+  usageEvent(fields: { feature: string } & Body): Body {
+    return {
+      id: "use_1",
+      amount: 1,
+      kind: "use",
+      setTo: null,
+      source: "api",
+      by: "Server key",
+      actor: null,
+      reason: null,
+      at: NOW(),
+      cancelledAt: null,
+      ...fields,
+    };
+  },
+  /** One entry of a customer's activity, for {@link answers}' `details`. */
+  activity(fields: Body = {}): Body {
+    return { text: "Registered.", at: NOW(), by: "Server key", actor: null, reason: null, ...fields };
+  },
   /** One metered feature in {@link answers}' `usage`. */
   featureUsage(fields: { feature: string } & Body): Body {
     const value = (fields.value as Value | undefined) ?? 0;
@@ -398,6 +418,7 @@ class Model {
   readonly flags = new Map<string, Value>();
   readonly holds = new Map<string, Hold>();
   readonly reports = new Map<string, Report>();
+  readonly log: Body[] = [];
   readonly replays = new Map<string, Replay>();
   readonly id: string;
   readonly options: FakeCustomerOptions;
@@ -464,6 +485,7 @@ class Model {
     const id = this.nextId("use");
     const report: Report = { feature, amount, mode, cancelled: false };
     this.reports.set(id, report);
+    this.log.unshift(answers.usageEvent({ id, feature, amount }));
     if (key) {
       this.replays.set(key, () =>
         this.usage(feature, { outcome: report.cancelled ? "cancelled" : "duplicate", id, mode, amount }),
@@ -530,9 +552,13 @@ class Model {
     });
   }
 
-  cancelReport(id: string): Response {
+  cancelReport(id: string, body: Body): Response {
     const report = this.reports.get(id);
     if (!report) return Response.json(answers.error({ code: "not_found" }), { status: 404 });
+    const entry = this.log.find((each) => each.id === id);
+    if (entry && entry.cancelledAt === null) {
+      Object.assign(entry, { cancelledAt: NOW(), actor: body.actor ?? null, reason: body.reason ?? null });
+    }
     const meter = this.meters.get(report.feature) as { used: number };
     const meterChange = report.cancelled ? 0 : -Math.min(report.amount, meter.used);
     meter.used += meterChange;
@@ -552,7 +578,21 @@ class Model {
     const before = meter.used;
     meter.used = Math.max(0, body.to === undefined ? meter.used + (body.by as number) : (body.to as number));
     const meterChange = meter.used - before;
-    return this.usage(feature, { outcome: "adjusted", id: meterChange === 0 ? null : this.nextId("use"), meterChange });
+    const id = meterChange === 0 ? null : this.nextId("use");
+    if (id) {
+      this.log.unshift(
+        answers.usageEvent({
+          id,
+          feature,
+          amount: meterChange,
+          kind: "adjust",
+          setTo: body.to === undefined ? null : meter.used,
+          actor: body.actor ?? null,
+          reason: body.reason ?? null,
+        }),
+      );
+    }
+    return this.usage(feature, { outcome: "adjusted", id, meterChange });
   }
 
   meterUsage(): Body[] {
@@ -583,7 +623,9 @@ class Model {
     }
     if (method === "GET" && rest === "/plans") return json(this.options.plans ?? answers.plans(context));
     if (method === "GET" && rest === "/pricing") return json(this.options.pricing ?? answers.pricing(context));
-    if (method === "GET" && rest === "/usage") return json(answers.usage({ ...context, features: this.meterUsage() }));
+    if (method === "GET" && rest === "/usage") {
+      return json(answers.usage({ ...context, features: this.meterUsage(), log: { items: this.log, next: null } }));
+    }
     if (method === "POST" && rest === "/usage") return this.record(body, key);
     if (method === "POST" && rest === "/usage/holds") return this.hold(body, key);
     if (method === "POST" && parts[1] === "usage" && parts[4] === "settle") {
@@ -591,7 +633,7 @@ class Model {
     }
     if (method === "DELETE" && parts[1] === "usage" && parts[2] === "holds")
       return this.settle(parts[3] as string, undefined);
-    if (method === "DELETE" && parts[1] === "usage") return this.cancelReport(parts[2] as string);
+    if (method === "DELETE" && parts[1] === "usage") return this.cancelReport(parts[2] as string, body);
     if (method === "POST" && parts[1] === "meters") return this.adjust(parts[2] as string, body);
     if (method === "POST" && rest === "/subscription") return json(answers.subscribeStep());
     if (rest.startsWith("/subscription") || rest === "/plan" || parts[1] === "add-ons") {
@@ -606,7 +648,13 @@ class Model {
         ...(typeof body.email === "string" ? { email: body.email } : {}),
       });
     if (method === "GET" && rest === "") {
-      return json(answers.details({ customer: summary(), entitlements: this.entitlementList() }));
+      return json(
+        answers.details({
+          customer: summary(),
+          entitlements: this.entitlementList(),
+          usage: { items: this.log, next: null },
+        }),
+      );
     }
     if (method === "PUT" && rest === "") return json(answers.registered({ externalId: this.id }));
     if (method === "PATCH" && rest === "") return json(summary());

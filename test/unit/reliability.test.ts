@@ -338,7 +338,9 @@ describe("the usage log", () => {
       kind: "use",
       setTo: null,
       source: "api",
+      by: "Server key",
       actor: null,
+      reason: null,
       at: "2026-10-09T00:00:00Z",
       cancelledAt: null,
     };
