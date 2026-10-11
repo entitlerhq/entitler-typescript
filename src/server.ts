@@ -42,6 +42,7 @@ import {
   featureKey,
   idempotencyKeyOf,
   instant,
+  requireCredential,
   requiredKey,
   requireId,
   requireText,
@@ -201,7 +202,7 @@ export class EntitlerServer {
 
   /** Creates a server client. Throws `TypeError` for a blank key, and for a publishable key, which belongs in an app. */
   constructor(options: ServerOptions) {
-    const key = requireText(options?.key, "Provide an Entitler API key from the dashboard.");
+    const key = requireCredential(options?.key, "Provide an Entitler API key from the dashboard.");
     if (trimCredential(key).startsWith("ent_pk_")) {
       throw new TypeError(
         "A publishable key belongs in EntitlerClient. Use a secret key from the dashboard on your server.",

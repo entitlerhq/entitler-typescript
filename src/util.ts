@@ -13,6 +13,18 @@ export function requireText(value: unknown, message: string): string {
   return trimCredential(value);
 }
 
+/** True for a trimmed credential every character of which lies from `!` to `~`, so it is safe in a header. @internal */
+export function headerSafe(credential: string): boolean {
+  return /^[\x21-\x7e]+$/.test(credential);
+}
+
+/** Checks a credential is not blank and holds only `!` to `~` once trimmed, failing as blank otherwise, and trims it. @internal */
+export function requireCredential(value: unknown, message: string): string {
+  const trimmed = typeof value === "string" ? trimCredential(value) : "";
+  if (!headerSafe(trimmed)) throw new TypeError(message);
+  return trimmed;
+}
+
 /** Checks an id is not blank, keeping it exactly as given. @internal */
 export function requireId(value: unknown, message: string): string {
   if (typeof value !== "string" || trimCredential(value) === "") throw new TypeError(message);
