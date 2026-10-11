@@ -533,7 +533,7 @@ class Model {
     }
     if (hold.state === "released") return this.conflict("hold_released");
     if (hold.state === "open" && amount > hold.amount) {
-      return Response.json(answers.error({ code: "invalid_amount" }), { status: 400 });
+      return Response.json(answers.error({ code: "invalid_body" }), { status: 400 });
     }
     if (hold.state === "settled") {
       if (hold.settled !== amount) return this.conflict("hold_settled");

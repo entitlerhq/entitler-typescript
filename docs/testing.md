@@ -31,7 +31,10 @@ console.log(fake.writes.map((write) => write.method));
   `refused`, holds settle and release, and a reused key records nothing and replays with `replayed`
   true: a report answers `duplicate` (or `cancelled` once cancelled), and a hold's key answers
   `duplicate` while the hold is open, else `settled` or `released`, so `startHold` throws
-  `UsageReplayedError`. Releasing a settled hold answers `409 hold_settled`.
+  `UsageReplayedError`. As in the API, settling more than a hold holds answers `400 invalid_body`,
+  settling a settled hold again answers `duplicate` for the same amount and `409 hold_settled` for
+  another, and releasing a settled hold answers `409 hold_settled`. Every report, adjustment and
+  cancel shows in the usage log that `usage()` and `details()` answer.
 - Every write is kept in `writes`, in order, with its method and arguments. Writes it does not model
   answer a plain success (`subscribe` a `done` step made now, `setPlan` and the other billing writes a
   `PlanChange` made now); `answer(method, fn)` replaces one method's answer:

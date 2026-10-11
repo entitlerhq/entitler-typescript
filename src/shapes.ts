@@ -539,6 +539,3 @@ export const decodeBatchResult: Decoder = shape({
   duplicates: amount,
   errors: amount,
 });
-
-/** Accepts any JSON object, for a call whose answer the SDK does not read. @internal */
-export const decodeAnything: Decoder = raw;

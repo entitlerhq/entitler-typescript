@@ -3,7 +3,6 @@ import { ApiError, UsageRefusedError, UsageReplayedError, UsageSettlementError }
 import { paged } from "./paging.js";
 import {
   type Decoder,
-  decodeAnything,
   decodeBillingSync,
   decodeCheck,
   decodeCustomerBilling,
@@ -61,6 +60,7 @@ import type {
 } from "./types.js";
 import {
   compact,
+  deadlineAfter,
   featureKey,
   idempotencyKeyOf,
   instant,
@@ -818,7 +818,7 @@ export class CustomerApi implements Customer {
     let used: number | undefined;
     let first: Promise<UsageResult> | undefined;
     const call = (): CallOptions => ({
-      signal: AbortSignal.timeout(timeout ?? this.#transport.timeout),
+      signal: deadlineAfter(timeout ?? this.#transport.timeout),
       ...(timeout === undefined ? {} : { timeout }),
     });
     const settle = async (): Promise<UsageResult> => {
@@ -1028,7 +1028,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     await this.write("DELETE", "", options, undefined, {
       query: { erase: "true" },
       empty: true,
-      decode: decodeAnything,
+      decode: decodeCustomerSummary,
     });
   }
 

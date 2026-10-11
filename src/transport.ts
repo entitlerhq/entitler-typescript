@@ -1,7 +1,7 @@
 import { type CacheEntry, type CacheStore, MemoryCache } from "./cache.js";
 import { ApiError, ConnectionError, type EntitlerError, type ErrorCode, TimeoutError, unreachable } from "./errors.js";
 import type { Decoder } from "./shapes.js";
-import { encode, sha256Hex, sleep, wholeNumber } from "./util.js";
+import { deadlineAfter, encode, sha256Hex, sleep, wholeNumber } from "./util.js";
 import { VERSION } from "./version.js";
 
 /** Options both clients take. */
@@ -289,6 +289,7 @@ export class Transport {
   readonly #headers: () => Record<string, string>;
   readonly #generations = new Map<string, { generation: number; at: number }>();
   #forgottenUntil = Number.NEGATIVE_INFINITY;
+  #writes = 0;
   #downUntil = 0;
   #probing = false;
 
@@ -463,7 +464,8 @@ export class Transport {
   }
 
   #bump(customer: string): void {
-    const generation = this.#generationOf(customer) + 1;
+    this.#writes += 1;
+    const generation = this.#writes;
     this.#generations.delete(customer);
     this.#generations.set(customer, { generation, at: Date.now() });
     if (this.#generations.size <= TRACKED_CUSTOMERS) return;
@@ -558,7 +560,10 @@ export class Transport {
           timeout,
           call,
         );
-        if (!received.redirect && (received.status < 300 || received.status === 304)) return received;
+        if (!received.redirect && (received.status < 300 || received.status === 304)) {
+          this.#downUntil = 0;
+          return received;
+        }
         failure = apiError(received, call.idempotencyKey);
         if (received.redirect) throw failure;
         if (received.status === 401 && !refreshed && !call.open && this.#credentials.refresh) {
@@ -592,7 +597,7 @@ export class Transport {
     timeout: number,
     call: Call,
   ): Promise<Received> {
-    const deadline = AbortSignal.timeout(timeout);
+    const deadline = deadlineAfter(timeout);
     const send = this.#fetch;
     try {
       signal?.throwIfAborted();

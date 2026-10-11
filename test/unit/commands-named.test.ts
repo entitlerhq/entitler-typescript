@@ -14,11 +14,15 @@ function filesUnder(directory: string, skip: readonly string[] = []): string[] {
 const sources = ["README.md", ...filesUnder("src"), ...filesUnder("docs", ["docs/api"]), ...filesUnder("examples")];
 
 describe("generator commands", () => {
-  it("name the scoped package in npx and bunx", () => {
+  it("name the command as users run it, from the scoped package", () => {
     const unscoped = sources.flatMap((path) =>
       readFileSync(join(root, path), "utf8")
         .split("\n")
-        .flatMap((line, index) => (/\b(?:npx|bunx) entitler\b/.test(line) ? [`${path}:${index + 1}`] : [])),
+        .flatMap((line, index) =>
+          /\b(?:npx|bunx) entitler\b|(?<![@/\w-])entitler (?:generate|snapshot-keys)\b/.test(line)
+            ? [`${path}:${index + 1}`]
+            : [],
+        ),
     );
     expect(unscoped).toEqual([]);
   });

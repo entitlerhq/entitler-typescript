@@ -226,6 +226,8 @@ export function answerFor(request: Sent): unknown {
       created: true,
     };
   }
-  if (method === "PATCH") return detailsAnswer().customer;
+  if (method === "PATCH" || (method === "DELETE" && /^\/customers\/[^/]+$/.test(path))) {
+    return detailsAnswer().customer;
+  }
   return detailsAnswer();
 }
