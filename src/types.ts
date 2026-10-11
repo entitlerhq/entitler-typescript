@@ -343,25 +343,10 @@ export interface HeldPlan {
   /** When it renews, or `null`. */
   readonly renewsAt: Date | null;
   /** The change booked for `renewsAt`, or `null`. */
-  readonly pending: PendingPlanChange | null;
+  readonly pending: PendingChange | null;
   /** Who bills it, or `null` when nothing does. The store's own page manages `apple` and `google`; the billing portal manages `stripe`. */
   readonly billedBy: BilledBy | null;
 }
-
-/** A change booked for a held plan's renewal: a move to another plan, or a cancel. */
-export type PendingPlanChange =
-  | {
-      /** A move to another plan. */
-      readonly type: "move";
-      /** The plan it moves to. */
-      readonly plan: PlanSummary;
-    }
-  | {
-      /** A cancel. */
-      readonly type: "cancel";
-      /** The default plan the cancel leads to, or `null` when the product has none. */
-      readonly movingTo: PlanSummary | null;
-    };
 
 /** A plan or add-on the customer could move to. */
 export interface OptionPlan extends PlanInfo {
@@ -884,7 +869,7 @@ export interface PlanOverride {
   readonly by: string;
 }
 
-/** A move to another plan, booked for the period's end. */
+/** A move to another plan, booked for renewal. */
 export interface PendingMove {
   /** `move`. */
   readonly type: "move";
@@ -892,13 +877,32 @@ export interface PendingMove {
   readonly plan: PlanSummary;
 }
 
-/** A cancellation, booked for the period's end. */
+/** A cancellation, booked for renewal. */
 export interface PendingCancel {
   /** `cancel`. */
   readonly type: "cancel";
-  /** The plan the customer falls back to, or `null`. */
+  /** The default plan the cancel leads to, or `null` when the product has none. */
   readonly movingTo: PlanSummary | null;
 }
+
+/** A change of who bills the plan, booked for renewal, as a `setPlan` with `billing: "end"` books it. */
+export interface PendingBilling {
+  /** `billing`. */
+  readonly type: "billing";
+  /** Who bills the plan from renewal: a payment `provider`, nothing (`outside`), or a `store`. */
+  readonly billing: "provider" | "outside" | "store" | (string & {});
+}
+
+/** A booked change this SDK does not know yet, kept with its raw object. */
+export interface PendingUnknown {
+  /** `unknown`. */
+  readonly type: "unknown";
+  /** The change as the API sent it. */
+  readonly raw: Readonly<Record<string, unknown>>;
+}
+
+/** A change booked for renewal: a move, a cancel, a change of who bills the plan, or one this SDK does not know. */
+export type PendingChange = PendingMove | PendingCancel | PendingBilling | PendingUnknown;
 
 /** A subscription. */
 export interface Subscription {
@@ -920,8 +924,8 @@ export interface Subscription {
   readonly billing: ProviderPeriod | null;
   /** The add-ons held. */
   readonly addOns: readonly HeldAddOn[];
-  /** A change booked for the period's end, or `null`. */
-  readonly pending: PendingMove | PendingCancel | null;
+  /** The change booked for `renewsAt`, or `null`. */
+  readonly pending: PendingChange | null;
   /** How it was bought. */
   readonly purchase: Purchase;
   /** A plan held apart from the plan billed, or `null`. */
