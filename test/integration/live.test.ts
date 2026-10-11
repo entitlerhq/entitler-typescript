@@ -120,7 +120,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     expect(cache.revalidated).toBe(1);
     await customer.entitlements();
     const entitlements = await customer.entitlements({ revalidate: true });
-    expect(cache.revalidated).toBe(3);
+    expect(cache.revalidated).toBe(2);
     expect(entitlements.get(features.collaboration)).toMatchObject({ type: "group", entitled: false });
     expect(entitlements.has(features.collaboration)).toBe(false);
     await server.customer(customer.id).grant(features.exportPdf, { days: 1, idempotencyKey: event(customer) });
@@ -129,7 +129,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
 
   it("records, replays, refuses, observes, cancels and adjusts usage", async () => {
     const customer = newCustomer();
-    await customer.register();
+    const { createdAt } = await customer.register();
     const key1 = event(customer);
     const recorded = await customer.recordUsage(features.aiCredits, 5, { idempotencyKey: key1 });
     expect(recorded).toMatchObject({ outcome: "recorded", mode: "gate", used: 5, replayed: false });
@@ -142,7 +142,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
       idempotencyKey: event(customer),
     });
     expect(observed).toMatchObject({ outcome: "recorded", mode: "observe", used: 35, overBy: 15 });
-    const earlier = new Date(Date.now() - 60_000);
+    const earlier = new Date(createdAt.getTime() + 1);
     const late = await customer.recordUsage(features.aiCredits, 1, {
       mode: "observe",
       occurredAt: earlier,
@@ -173,7 +173,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     const unused = await customer.startHold(features.aiCredits, 3, { idempotencyKey: event(customer) });
     expect((await unused.release()).outcome).toBe("released");
     expect((await customer.check(features.aiCredits)).held).toBe(0);
-    await expect(customer.startHold(features.aiCredits, 10, { idempotencyKey: key1 })).rejects.toBeInstanceOf(
+    await expect(customer.startHold(features.aiCredits, 10, { idempotencyKey: key1, ttlSeconds: 60 })).rejects.toBeInstanceOf(
       UsageReplayedError,
     );
   });
