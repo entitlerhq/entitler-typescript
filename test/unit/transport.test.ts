@@ -176,7 +176,7 @@ describe("errors", () => {
     expect(error.idempotencyKey).toBeUndefined();
   });
 
-  it("raises a connection error carrying the cause and the idempotency key", async () => {
+  it("raises a connection error carrying a summary of the cause and the idempotency key", async () => {
     const cause = new TypeError("fetch failed");
     const { fetch } = fakeFetch(cause);
     const error = (await server(fetch, { maxRetries: 0 })
@@ -185,7 +185,8 @@ describe("errors", () => {
       .catch((e: unknown) => e)) as ConnectionError;
     expect(error).toBeInstanceOf(ConnectionError);
     expect(error.name).toBe("ConnectionError");
-    expect(error.cause).toBe(cause);
+    expect(error.cause).not.toBe(cause);
+    expect((error.cause as Error).message).toBe("TypeError: fetch failed");
     expect(error.idempotencyKey).toBe("k1");
   });
 

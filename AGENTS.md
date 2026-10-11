@@ -22,8 +22,12 @@ other job in its `needs`.
 ## Authorship and pull requests
 
 - Every commit is authored and committed by Romain Francez
-  `<1330814+romainfrancez@users.noreply.github.com>`. Set `git config user.name` and `user.email`
-  before the first commit.
+  `<1330814+romainfrancez@users.noreply.github.com>`. Before the first commit, run:
+
+  ```sh
+  git config user.name "Romain Francez"
+  git config user.email "1330814+romainfrancez@users.noreply.github.com"
+  ```
 - Commit messages and pull requests carry no attribution to the tools that helped write them: no
   co-author or session trailers, no generated-by lines, no session links and no model names.
 - The repository never names the tools that wrote it, in any file, commit or branch. Search the tree

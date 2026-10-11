@@ -1,7 +1,7 @@
 import { type CacheEntry, type CacheStore, MemoryCache } from "./cache.js";
 import { ApiError, ConnectionError, type EntitlerError, type ErrorCode, TimeoutError, unreachable } from "./errors.js";
 import type { Decoder } from "./shapes.js";
-import { deadlineAfter, encode, sha256Hex, sleep, wholeNumber } from "./util.js";
+import { deadlineAfter, encode, redacted, saturated, sha256Hex, sleep, summaryOf, wholeNumber } from "./util.js";
 import { VERSION } from "./version.js";
 
 /** Options both clients take. */
@@ -178,7 +178,7 @@ function httpDate(value: string): number | undefined {
 function retryAfterOf(headers: Headers): number | undefined {
   const value = headers.get("retry-after")?.trim();
   if (!value) return undefined;
-  if (/^\d+$/.test(value)) return Math.min(Number(value) * 1000, Number.MAX_SAFE_INTEGER);
+  if (/^\d+$/.test(value)) return Math.min(saturated(value) * 1000, Number.MAX_SAFE_INTEGER);
   const date = httpDate(value);
   return date === undefined ? undefined : Math.max(0, date - Date.now());
 }
@@ -189,12 +189,12 @@ function directive(control: string | undefined, name: string): boolean {
 
 function maxAgeOf(control: string | undefined): number | undefined {
   const maxAge = /(?:^|[\s,])max-age=(\d+)/i.exec(control ?? "")?.[1];
-  return maxAge === undefined ? undefined : Number(maxAge);
+  return maxAge === undefined ? undefined : saturated(maxAge);
 }
 
 function ageOf(headers: Headers): number | undefined {
   const age = headers.get("age")?.trim();
-  return age && /^\d+$/.test(age) ? Number(age) : undefined;
+  return age && /^\d+$/.test(age) ? saturated(age) : undefined;
 }
 
 function apiError(received: Received, idempotencyKey: string | undefined): ApiError {
@@ -358,7 +358,7 @@ export class Transport {
     const headers = this.#requestHeaders(call);
     const auth: Authorised = call.open
       ? { headers: {}, kind: "key", credential: "" }
-      : await this.#credentials.authorise(signal);
+      : redacted(await this.#credentials.authorise(signal));
     if (!call.cached || !this.#cache) {
       const received = await this.#exchange(call, url, headers, { auth });
       if (received.status === 304) throw apiError(received, call.idempotencyKey);
@@ -497,7 +497,8 @@ export class Transport {
 
   async #set(cache: CacheStore, key: string, entry: CacheEntry): Promise<void> {
     try {
-      await cache.set(key, entry, this.#staleFor + (maxAgeOf(entry.cacheControl) ?? 0) * 1000);
+      const ttl = this.#staleFor + (maxAgeOf(entry.cacheControl) ?? 0) * 1000;
+      await cache.set(key, entry, Math.min(ttl, Number.MAX_SAFE_INTEGER));
     } catch (error) {
       this.report(error);
     }
@@ -570,8 +571,8 @@ export class Transport {
           refreshed = true;
           const next = await this.#credentials.refresh(current, signal);
           if (next) {
-            current = next;
-            used.auth = next;
+            current = redacted(next);
+            used.auth = current;
             continue;
           }
         }
@@ -621,11 +622,14 @@ export class Transport {
       if (signal?.aborted) throw signal.reason;
       if (deadline.aborted) {
         throw new TimeoutError(`Entitler did not answer within ${timeout} ms.`, {
-          cause,
+          cause: summaryOf(cause),
           idempotencyKey: call.idempotencyKey,
         });
       }
-      throw new ConnectionError("Entitler could not be reached.", { cause, idempotencyKey: call.idempotencyKey });
+      throw new ConnectionError("Entitler could not be reached.", {
+        cause: summaryOf(cause),
+        idempotencyKey: call.idempotencyKey,
+      });
     }
   }
 }
