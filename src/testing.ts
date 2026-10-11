@@ -413,6 +413,15 @@ interface Report {
 
 type Replay = () => Response;
 
+function refusalOf(
+  meter: { value: Value; used: number; held: number },
+  amount: number,
+): "not_entitled" | "over_allowance" | undefined {
+  const left = meter.value === "unlimited" ? Number.POSITIVE_INFINITY : Number(meter.value) - meter.used - meter.held;
+  if (left <= 0 && (meter.value === 0 || meter.value === true)) return "not_entitled";
+  return amount > left ? "over_allowance" : undefined;
+}
+
 class Model {
   readonly meters = new Map<string, { value: Value; used: number; held: number }>();
   readonly flags = new Map<string, Value>();
@@ -477,9 +486,9 @@ class Model {
     if (!meter) return this.notFound(feature);
     const amount = body.amount as number;
     const mode = (body.mode as string | undefined) ?? "gate";
-    const left = meter.value === "unlimited" ? Number.POSITIVE_INFINITY : Number(meter.value) - meter.used - meter.held;
-    if (mode === "gate" && amount > left) {
-      return this.usage(feature, { outcome: "refused", refusal: "over_allowance", id: null, mode, amount });
+    const refusal = mode === "gate" ? refusalOf(meter, amount) : undefined;
+    if (refusal) {
+      return this.usage(feature, { outcome: "refused", refusal, id: null, mode, amount });
     }
     meter.used += amount;
     const id = this.nextId("use");
@@ -500,8 +509,8 @@ class Model {
     const meter = this.meters.get(feature);
     if (!meter) return this.notFound(feature);
     const amount = body.amount as number;
-    const left = meter.value === "unlimited" ? Number.POSITIVE_INFINITY : Number(meter.value) - meter.used - meter.held;
-    if (amount > left) return this.usage(feature, { outcome: "refused", refusal: "over_allowance", id: null, amount });
+    const refusal = refusalOf(meter, amount);
+    if (refusal) return this.usage(feature, { outcome: "refused", refusal, id: null, amount });
     const holdId = this.nextId("hld");
     const expiresAt = new Date(Date.now() + ((body.ttlSeconds as number | undefined) ?? 300) * 1000).toISOString();
     const hold: Hold = { feature, amount, state: "open", expiresAt };

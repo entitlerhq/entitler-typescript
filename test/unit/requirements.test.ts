@@ -288,3 +288,23 @@ describe("durations", () => {
     expect((await server.customer("u").check("f", { timeout: 3e10 })).entitled).toBe(true);
   });
 });
+
+describe("backoff", () => {
+  it("never overflows its bound, however many retries are allowed", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], now: 0 });
+    vi.spyOn(Math, "random").mockReturnValue(0.999999);
+    const { fetch, sent } = fakeFetch(apiError(503, "unavailable"));
+    const server = new EntitlerServer({ key: "k", fetch, cache: false, maxRetries: 64 });
+    const call = server
+      .customer("u")
+      .check("f")
+      .catch((caught: unknown) => caught);
+    await vi.runAllTimersAsync();
+    expect(await call).toMatchObject({ status: 503 });
+    expect(sent).toHaveLength(65);
+    const waited = Date.now();
+    expect(Number.isFinite(waited)).toBe(true);
+    expect(waited).toBeGreaterThan(500 * 0.99 + 1000 * 0.99 + 2000 * 0.99 + 4000 * 0.99 + 60 * 8000 * 0.99);
+    expect(waited).toBeLessThanOrEqual(500 + 1000 + 2000 + 4000 + 60 * 8000);
+  });
+});
