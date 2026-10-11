@@ -7,7 +7,11 @@ const root = join(import.meta.dirname, "../..");
 function filesUnder(directory: string, skip: readonly string[] = []): string[] {
   return readdirSync(join(root, directory), { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
-    .map((entry) => join(entry.parentPath, entry.name).slice(root.length + 1))
+    .map((entry) =>
+      join(entry.parentPath, entry.name)
+        .slice(root.length + 1)
+        .replaceAll("\\", "/"),
+    )
     .filter((path) => !skip.some((skipped) => path.startsWith(skipped)));
 }
 
