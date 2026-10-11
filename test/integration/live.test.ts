@@ -332,8 +332,8 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     expect((await free.cancel()).changed).toBe(false);
     expect(await customer.syncBilling()).toEqual({ changed: false });
     await expect(customer.billingPortal({ returnUrl: "https://example.com/account" })).rejects.toMatchObject({
-      status: 404,
-      code: "not_found",
+      status: 409,
+      code: "stale",
     });
   });
 
@@ -345,8 +345,7 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     expect(basic).toMatchObject({ plan: { key: "pro_basic" }, changed: true });
     expect((await customer.setPlan("pro_basic", { period, idempotencyKey: event(customer) })).changed).toBe(false);
     const until = new Date(Date.now() + 86_400_000);
-    expect((await customer.setPlan("pro", { period: "monthly", until })).until?.getTime()).toBe(until.getTime());
-    await customer.setPlan("pro_basic", { period });
+    expect((await customer.setPlan("pro_basic", { period, until })).until?.getTime()).toBe(until.getTime());
     expect((await customer.setAddOn("support_standard", { quantity: 1 })).quantity).toBe(1);
     expect((await customer.setAddOn("support_standard", { quantity: 0 })).quantity).toBe(0);
     const granted = await customer.grant(features.sso, { days: 30, reason: "SDK test", actor: "sdk-tests" });

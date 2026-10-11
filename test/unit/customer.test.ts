@@ -1151,11 +1151,7 @@ describe("booked changes", () => {
       { type: "billing", billing: "outside" },
       { type: "billing", billing: "outside" },
     ],
-    [
-      "a change this SDK does not know",
-      { type: "pause", resumes: "next_period" },
-      { type: "unknown", raw: { type: "pause", resumes: "next_period" } },
-    ],
+    ["a change this SDK does not know", { type: "pause", resumes: "next_period" }, { type: "unknown", raw: "pause" }],
   ] as const;
 
   function held(pending: unknown) {

@@ -893,12 +893,12 @@ export interface PendingBilling {
   readonly billing: "provider" | "outside" | "store" | (string & {});
 }
 
-/** A booked change this SDK does not know yet, kept with its raw object. */
+/** A booked change this SDK does not know yet, kept with its raw type. */
 export interface PendingUnknown {
   /** `unknown`. */
   readonly type: "unknown";
-  /** The change as the API sent it. */
-  readonly raw: Readonly<Record<string, unknown>>;
+  /** The change's type as the API sent it. */
+  readonly raw: string;
 }
 
 /** A change booked for renewal: a move, a cancel, a change of who bills the plan, or one this SDK does not know. */
