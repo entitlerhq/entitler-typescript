@@ -1,8 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, defineFeature, UsageRefusedError } from "../../src/index.js";
-import { isCheck } from "../../src/shapes.js";
+import { defineFeature, UsageRefusedError, UsageReplayedError } from "../../src/index.js";
+import {
+  decodeBatchResult,
+  decodeBillingSync,
+  decodeCheck,
+  decodeCustomerBilling,
+  decodeCustomerPage,
+  decodeCustomerSummary,
+  decodeCustomerToken,
+  decodeCustomerTrack,
+  decodeDetails,
+  decodeEntitlements,
+  decodeFeatureList,
+  decodeGrantChange,
+  decodeIssuedSnapshot,
+  decodePlanChange,
+  decodePlans,
+  decodePricing,
+  decodeProviderPage,
+  decodeRegistered,
+  decodeScopes,
+  decodeSnapshotKeys,
+  decodeStep,
+  decodeUsage,
+  decodeUsageResult,
+} from "../../src/shapes.js";
 import { answers, fakeCustomer } from "../../src/testing.js";
-import { parseAnswer } from "../../src/transport.js";
 
 const credits = defineFeature("ai_credits", "metered");
 const exportPdf = defineFeature("export_pdf", "boolean");
@@ -28,7 +51,7 @@ describe("fakeCustomer", () => {
     const recorded = await customer.recordUsage(credits, 2, { idempotencyKey: "job-2" });
     expect(recorded).toMatchObject({ outcome: "recorded", used: 99, replayed: false });
     const replayed = await customer.recordUsage(credits, 2, { idempotencyKey: "job-2" });
-    expect(replayed).toMatchObject({ outcome: "recorded", used: 99, replayed: true });
+    expect(replayed).toMatchObject({ outcome: "duplicate", used: 99, meterChange: 0, replayed: true });
     await expect(customer.startHold(credits, 5, { idempotencyKey: "job-3" })).rejects.toBeInstanceOf(UsageRefusedError);
     const hold = await customer.startHold(credits, 1, { idempotencyKey: "job-4" });
     hold.use(1);
@@ -47,28 +70,107 @@ describe("fakeCustomer", () => {
     await customer.erase();
     expect(customer.writes.map((write) => write.method)).toEqual(["subscribe", "subscribe", "setPlan", "erase"]);
     expect(customer.writes[0]?.args).toEqual(["pro", { period: "monthly" }]);
-    await expect(customer.billingPortal({ returnUrl: "https://app.example" })).rejects.toBeInstanceOf(ApiError);
+    expect(await customer.billingPortal({ returnUrl: "https://app.example" })).toMatchObject({ provider: "stripe" });
+  });
+
+  it("replays a hold's key by the hold's state", async () => {
+    const customer = fakeCustomer({ ai_credits: { value: 10 } });
+    const hold = await customer.startHold(credits, 2, { idempotencyKey: "hold-1" });
+    const again = await customer.startHold(credits, 2, { idempotencyKey: "hold-1" });
+    expect(again).toMatchObject({ id: hold.id, duplicate: true });
+    await hold.finish();
+    await expect(customer.startHold(credits, 2, { idempotencyKey: "hold-1" })).rejects.toBeInstanceOf(
+      UsageReplayedError,
+    );
+    await expect(customer.releaseUsage(hold.id)).rejects.toMatchObject({ status: 409, code: "hold_settled" });
+  });
+
+  it("cancels a usage report, once", async () => {
+    const customer = fakeCustomer({ ai_credits: { value: 10, used: 1 } });
+    const recorded = await customer.recordUsage(credits, 3, { idempotencyKey: "job-1" });
+    const cancelled = await customer.cancelUsage(recorded.id as string);
+    expect(cancelled).toMatchObject({ outcome: "cancelled", used: 1, meterChange: -3 });
+    expect(await customer.recordUsage(credits, 3, { idempotencyKey: "job-1" })).toMatchObject({
+      outcome: "cancelled",
+      replayed: true,
+    });
+  });
+
+  it("answers every method through the real decoders", async () => {
+    const customer = fakeCustomer({ export_pdf: true, ai_credits: { value: 10, used: 4 } }, { id: "user_1" });
+    const usage = await customer.usage();
+    expect(usage.features.map((feature) => [feature.feature, feature.used, feature.remaining])).toEqual([
+      ["ai_credits", 4, 6],
+    ]);
+    const calls: (() => Promise<unknown>)[] = [
+      () => customer.check(exportPdf),
+      () => customer.entitlements(),
+      () => customer.plans(),
+      () => customer.pricing(),
+      () => customer.details(),
+      () => customer.billing(),
+      () => customer.register({ name: "Ada" }),
+      () => customer.update({ name: "Ada" }),
+      () => customer.token(),
+      () => customer.snapshot(),
+      () => customer.setTrack("Beta"),
+      () => customer.subscribe("pro"),
+      () => customer.cancel(),
+      () => customer.undoPendingChange(),
+      () => customer.billingPortal({ returnUrl: "https://app.example" }),
+      () => customer.syncBilling(),
+      () => customer.setPlan("pro"),
+      () => customer.setAddOn("seats", { quantity: 2 }),
+      () => customer.grant("sso"),
+      () => customer.revokeGrant("grt_1"),
+      () => customer.adjustMeter(credits, { by: 1, idempotencyKey: "adjust-1" }),
+      () => customer.erase(),
+    ];
+    for (const call of calls) await expect(call()).resolves.not.toBeInstanceOf(Error);
+    expect((await customer.update({ name: "Grace" })).name).toBe("Grace");
+  });
+
+  it("types answer() by the method it replaces", () => {
+    const customer = fakeCustomer({});
+    // @ts-expect-error entitled is a boolean, and a check has more fields
+    customer.answer("check", () => ({ entitled: "yes" }));
+    // @ts-expect-error id is not a method
+    expect(() => customer.answer("id", () => "x")).toThrow(TypeError);
   });
 });
 
 describe("answers", () => {
-  it("builds bodies the real decoder reads", () => {
-    const check = parseAnswer(JSON.stringify(answers.check({ feature: "export_pdf" }))) as Record<string, unknown>;
-    expect(isCheck(check)).toBe(true);
-    const metered = parseAnswer(JSON.stringify(answers.check({ feature: "ai_credits", used: 3, value: 10 })));
-    expect(isCheck(metered as Record<string, unknown>)).toBe(true);
-    for (const body of [
-      answers.entitlements({ entitlements: [answers.entitlement({ key: "sso" })] }),
-      answers.plans({ options: [answers.moveOption()] }),
-      answers.pricing(),
-      answers.usageResult({ feature: "ai_credits" }),
-      answers.planChange(),
-      answers.subscribeStep(),
-      answers.grantChange(),
-      answers.registered(),
-      answers.customerToken(),
-    ]) {
-      expect(() => parseAnswer(JSON.stringify(body))).not.toThrow();
-    }
+  it("builds bodies the real decoders read", () => {
+    const wire = (body: unknown) => JSON.parse(JSON.stringify(body));
+    expect(() => decodeCheck(wire(answers.check({ feature: "export_pdf" })))).not.toThrow();
+    expect(() => decodeCheck(wire(answers.check({ feature: "ai_credits", used: 3, value: 10 })))).not.toThrow();
+    const cases: [unknown, (value: unknown) => unknown][] = [
+      [answers.entitlements({ entitlements: [answers.entitlement({ key: "sso" })] }), decodeEntitlements],
+      [answers.plans({ options: [answers.moveOption()] }), decodePlans],
+      [answers.pricing(), decodePricing],
+      [answers.usageResult({ feature: "ai_credits" }), decodeUsageResult],
+      [answers.planChange(), decodePlanChange],
+      [answers.subscribeStep(), decodeStep],
+      [answers.grantChange(), decodeGrantChange],
+      [answers.registered(), decodeRegistered],
+      [answers.customerToken(), decodeCustomerToken],
+      [answers.subscribeStep({ next: "pay" }), decodeStep],
+      [answers.subscribeStep({ next: "confirming" }), decodeStep],
+      [answers.subscribeStep({ next: "manage" }), decodeStep],
+      [answers.usage({ features: [answers.featureUsage({ feature: "ai_credits", value: 5 })] }), decodeUsage],
+      [answers.details(), decodeDetails],
+      [answers.customerSummary(), decodeCustomerSummary],
+      [answers.customerPage({ items: [answers.customerSummary()] }), decodeCustomerPage],
+      [answers.features(), decodeFeatureList],
+      [answers.scopes(), decodeScopes],
+      [answers.snapshotKeys(), decodeSnapshotKeys],
+      [answers.snapshot(), decodeIssuedSnapshot],
+      [answers.customerTrack(), decodeCustomerTrack],
+      [answers.providerPage(), decodeProviderPage],
+      [answers.billingSync(), decodeBillingSync],
+      [answers.customerBilling(), decodeCustomerBilling],
+      [answers.batchResult({ results: [{}, { outcome: "duplicate" }] }), decodeBatchResult],
+    ];
+    for (const [body, decode] of cases) expect(() => decode(wire(body))).not.toThrow();
   });
 });

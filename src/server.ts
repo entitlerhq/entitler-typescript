@@ -3,7 +3,15 @@ import { type PricingOptions, type ServerCustomer, ServerCustomerApi, usageAmoun
 import { type ClientDescription, describe, knownScopes } from "./describe.js";
 import { ApiError, TimeoutError } from "./errors.js";
 import { paged } from "./paging.js";
-import { detailsOf } from "./shapes.js";
+import {
+  decodeBatchResult,
+  decodeCustomerPage,
+  decodeDetails,
+  decodeFeatureList,
+  decodePricing,
+  decodeScopes,
+  decodeSnapshotKeys,
+} from "./shapes.js";
 import { type SnapshotExpectation, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
 import {
   type CallOptions,
@@ -159,13 +167,27 @@ function errorOf(error: unknown): { code: string; message: string } {
   };
 }
 
+function coversEach(answer: UsageBatchResult, count: number): boolean {
+  const indexes = new Set(answer.results.map((result) => result.index));
+  return answer.results.length === count && indexes.size === count && [...indexes].every((index) => index < count);
+}
+
+function unreadable(answer: UsageBatchResult): ApiError {
+  return new ApiError({
+    status: 200,
+    code: "invalid_response",
+    message: "Entitler sent an answer this SDK cannot read.",
+    cause: new TypeError(`The answer holds ${answer.results.length} results that do not match the events sent.`),
+  });
+}
+
 /**
  * The server client, built from a secret project key. It runs on your servers and acts on any
  * customer.
  *
  * @example
  * ```ts
- * const server = new EntitlerServer({ key: process.env.ENTITLER_KEY });
+ * const server = new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "" });
  * const customer = server.customer("user_123");
  * await customer.register({ name: "Ada", email: "ada@example.com" });
  * if (await customer.isEntitled(features.exportPdf, { default: false })) exportPdf();
@@ -204,6 +226,7 @@ export class EntitlerServer {
               includeTest: list.includeTest === true ? "true" : undefined,
               cursor,
             },
+            decode: decodeCustomerPage,
             options: list,
           });
           const { items, next: following, used, limit } = answer.data;
@@ -217,8 +240,8 @@ export class EntitlerServer {
           path: "/customers",
           body,
           idempotencyKey: idempotencyKeyOf(options?.idempotencyKey),
-          changes: [`/customers/${encodeURIComponent(externalId)}`],
-          map: detailsOf,
+          changes: [`/customers/${segment(externalId)}`],
+          decode: decodeDetails,
           options,
         });
         const customer = new ServerCustomerApi(transport, externalId);
@@ -281,9 +304,11 @@ export class EntitlerServer {
           path: "/usage/events",
           body: { ...(options?.register === undefined ? {} : { register: options.register }), events: chunk },
           idempotencyKey: await batchKey(register, chunk),
-          changes: chunk.map((event) => `/customers/${encodeURIComponent(event.customer)}`),
+          changes: chunk.map((event) => `/customers/${segment(event.customer)}`),
+          decode: decodeBatchResult,
           options,
         });
+        if (!coversEach(sent.data, chunk.length)) throw unreadable(sent.data);
         answer = sent.data;
         replayed = sent.replayed;
       } catch (error) {
@@ -323,6 +348,7 @@ export class EntitlerServer {
       cached: true,
       revalidate: options?.revalidate,
       headers: { "Entitler-Visitor": visitorOf(options?.visitor) },
+      decode: decodePricing,
       options,
     });
     return { ...answer.data, stale: answer.stale };
@@ -335,6 +361,7 @@ export class EntitlerServer {
       path: "/pricing/features",
       cached: true,
       revalidate: options?.revalidate,
+      decode: decodeFeatureList,
       options,
     });
     return { ...answer.data, stale: answer.stale };
@@ -342,14 +369,25 @@ export class EntitlerServer {
 
   /** The scopes this client's key holds, asked afresh on each call. */
   async scopes(options?: CallOptions): Promise<Scopes> {
-    const answer = await this.#transport.send<{ scopes: string[] }>({ method: "GET", path: "/keys/self", options });
+    const answer = await this.#transport.send<{ scopes: string[] }>({
+      method: "GET",
+      path: "/keys/self",
+      decode: decodeScopes,
+      options,
+    });
     return { scopes: knownScopes(answer.data.scopes) };
   }
 
   /** The public keys that verify snapshots. Sends no credential. */
   async snapshotKeys(options?: CallOptions): Promise<SnapshotKeys> {
     return (
-      await this.#transport.send<SnapshotKeys>({ method: "GET", path: "/customers/snapshot-keys", open: true, options })
+      await this.#transport.send<SnapshotKeys>({
+        method: "GET",
+        path: "/customers/snapshot-keys",
+        open: true,
+        decode: decodeSnapshotKeys,
+        options,
+      })
     ).data;
   }
 

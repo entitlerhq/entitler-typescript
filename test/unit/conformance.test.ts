@@ -259,7 +259,9 @@ describe("conformance: cache-keys.json", () => {
             ? { ...BODY, held: [], options: [] }
             : built.route.endsWith("/entitlements")
               ? { ...BODY, entitlements: [] }
-              : BODY,
+              : built.route.endsWith("/pricing")
+                ? { ...BODY, customer: null, defaultPlan: null, products: [], plans: [] }
+                : BODY,
         { headers: { etag: '"1"' } },
       ),
     );

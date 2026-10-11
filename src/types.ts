@@ -428,8 +428,8 @@ export interface ChannelListing {
 
 /** A period of a plan, as listed on each channel. */
 export interface PeriodListing {
-  /** The billing period. */
-  readonly period: Period;
+  /** The billing period, or `null`. */
+  readonly period: Period | null;
   /** Each channel's listing. */
   readonly channels: readonly ChannelListing[];
 }
@@ -588,8 +588,8 @@ export interface Paged<T, P extends Page<T> = Page<T>> extends AsyncIterable<T> 
 export interface CustomerPage extends Page<CustomerSummary> {
   /** How many customers the project holds. */
   readonly used: number;
-  /** The most customers the project may hold, or `null` for no limit. */
-  readonly limit: number | null;
+  /** The most customers the project may hold: a number, `"unlimited"`, or `null`. */
+  readonly limit: Limit | null;
 }
 
 /**
@@ -859,8 +859,8 @@ export interface ProviderPeriod {
 export interface PlanOverride {
   /** The plan the provider bills. */
   readonly from: PlanSummary;
-  /** Its period. */
-  readonly period: string;
+  /** Its billing period, or `null`. */
+  readonly period: Period | null;
   /** The channel that bills it, or `null`. */
   readonly billedBy: Channel | null;
   /** When the override started. */
@@ -914,14 +914,16 @@ export interface Subscription {
   readonly version: number;
   /** The cohort, or `null`. */
   readonly cohort: number | null;
-  /** The billing period's key. */
-  readonly period: string;
+  /** The billing period, or `null`. */
+  readonly period: Period | null;
   /** When it started. */
   readonly startedAt: Date;
   /** When it renews. */
   readonly renewsAt: Date;
   /** The provider's billing period, or `null`. */
   readonly billing: ProviderPeriod | null;
+  /** When a store purchase ends unless renewed, or `null`. */
+  readonly until: Date | null;
   /** The add-ons held. */
   readonly addOns: readonly HeldAddOn[];
   /** The change booked for `renewsAt`, or `null`. */
@@ -1218,7 +1220,7 @@ export interface GrantChange extends Replayed {
 
 /**
  * A feature constant: its key, its type and, for a group, its leaf members. Declare one with
- * {@link defineFeature}, or generate them all with `npx entitler generate`.
+ * {@link defineFeature}, or generate them all with `npx @entitlerhq/entitler generate`.
  */
 export interface Feature<T extends FeatureType = FeatureType> {
   /** The feature's key. */

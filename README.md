@@ -91,9 +91,15 @@ Generate typed constants for your catalogue, so checks are typed by the feature'
 or archived feature shows up in your editor:
 
 ```sh
-ENTITLER_KEY=ent_test_… npx @entitlerhq/entitler generate --out src/entitler.gen.ts
+ENTITLER_KEY=ent_live_… npx @entitlerhq/entitler generate --out src/entitler.gen.ts
 npx @entitlerhq/entitler generate --check
 ```
+
+Generate from the live environment's key, with `plans:read`: a test environment can hold features
+that are not released yet. Run `--check` in CI wherever that key is available (pushes to the main
+branch, and pull requests from the same repository; forks receive no secrets, so skip it there).
+When Entitler lists no features, the generator refuses to empty a file holding constants unless you
+pass `--allow-empty`.
 
 `check(features.aiCredits)` then answers a `Check<"metered">` with `used`, `held`, `remaining` and
 `resetsAt`, and usage methods accept only metered features. Without the generator, declare constants

@@ -1,6 +1,7 @@
 import { MemoryCache } from "./cache.js";
 import { type Customer, CustomerApi, type PricingOptions } from "./customer.js";
 import { type ClientDescription, describe, knownScopes } from "./describe.js";
+import { decodePricing, decodeRegistered, decodeScopes, decodeSnapshotKeys } from "./shapes.js";
 import { type SnapshotExpectation, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
 import { type TokenProvider, TokenSource } from "./tokens.js";
 import {
@@ -124,7 +125,12 @@ export interface EntitlerClientConstructor {
    *
    * @example
    * ```ts
-   * const client = new EntitlerClient({ token: async () => (await fetch("/api/entitler-token")).text() });
+   * const client = new EntitlerClient({
+   *   token: async ({ signal }) => {
+   *     const response = await fetch("/api/entitler-token", { signal, credentials: "include" });
+   *     return ((await response.json()) as { token: string }).token;
+   *   },
+   * });
    * if (await client.me.isEntitled(features.exportPdf, { default: false })) showExport();
    * ```
    */
@@ -141,6 +147,11 @@ export interface EntitlerClientConstructor {
    * ```
    */
   new (options: PublishableClientOptions): EntitlerClient<"publishable">;
+  /**
+   * Creates an in-app client from options chosen at run time, such as
+   * `signedIn ? { key, identityToken } : { key }`, answering the client for whichever kind they are.
+   */
+  new (options: TokenClientOptions | IdentityClientOptions | PublishableClientOptions): EntitlerClient;
   /** The prototype every in-app client shares. */
   readonly prototype: EntitlerClient;
 }
@@ -249,6 +260,7 @@ class InAppClient {
       path: "/customers/me",
       idempotencyKey: idempotencyKeyOf(options?.idempotencyKey),
       changes: ["/customers/me"],
+      decode: decodeRegistered,
       options,
     });
     return { ...answer.data, replayed: answer.replayed };
@@ -259,6 +271,7 @@ class InAppClient {
     const answer = await this.#transport.send<{ scopes: string[]; registration?: boolean }>({
       method: "GET",
       path: "/keys/self",
+      decode: decodeScopes,
       options,
     });
     const scopes = knownScopes(answer.data.scopes);
@@ -275,6 +288,7 @@ class InAppClient {
       cached: true,
       revalidate: options?.revalidate,
       headers: { "Entitler-Visitor": visitorOf(options?.visitor) },
+      decode: decodePricing,
       options,
     });
     return { ...answer.data, stale: answer.stale };
@@ -282,7 +296,13 @@ class InAppClient {
 
   async snapshotKeys(options?: CallOptions): Promise<SnapshotKeys> {
     return (
-      await this.#transport.send<SnapshotKeys>({ method: "GET", path: "/customers/snapshot-keys", open: true, options })
+      await this.#transport.send<SnapshotKeys>({
+        method: "GET",
+        path: "/customers/snapshot-keys",
+        open: true,
+        decode: decodeSnapshotKeys,
+        options,
+      })
     ).data;
   }
 

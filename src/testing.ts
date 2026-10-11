@@ -34,12 +34,22 @@ export interface FakeWrite {
   readonly args: readonly unknown[];
 }
 
+/** The name of a method of {@link ServerCustomer}, such as `check` or `recordUsage`. */
+export type CustomerMethod = {
+  [K in keyof ServerCustomer]: ServerCustomer[K] extends (...args: never[]) => unknown ? K : never;
+}[keyof ServerCustomer];
+
+/** A replacement answer for one method: it takes that method's arguments and answers its result, or a promise of it. */
+export type FakeAnswer<M extends CustomerMethod> = ServerCustomer[M] extends (...args: infer A) => infer R
+  ? (...args: A) => R | Awaited<R>
+  : never;
+
 /** A {@link ServerCustomer} that makes no request, for an app's own tests. */
 export interface FakeCustomer extends ServerCustomer {
   /** Every write received, in order. */
   readonly writes: readonly FakeWrite[];
   /** Replaces one method's answer: `fn` receives the call's arguments and answers in its place. */
-  answer<M extends keyof ServerCustomer>(method: M, fn: (...args: unknown[]) => unknown): void;
+  answer<M extends CustomerMethod>(method: M, fn: NoInfer<FakeAnswer<M>>): void;
 }
 
 const WRITES = new Set([
@@ -193,11 +203,12 @@ export const answers = {
       ...fields,
     };
   },
-  /** `subscribe`'s next step: by default `done`, made now. */
+  /** `subscribe`'s next step: by default `done`, made now; `pay` has a checkout `url` and `manage` a `billedBy`. */
   subscribeStep(fields: Body = {}): Body {
-    return fields.next === undefined || fields.next === "done"
-      ? { next: "done", ...answers.planChange(fields) }
-      : fields;
+    if (fields.next === "pay") return { url: "https://checkout.stripe.com/c/pay_1", ...fields };
+    if (fields.next === "manage") return { billedBy: "apple", ...fields };
+    if (fields.next === undefined || fields.next === "done") return { next: "done", ...answers.planChange(fields) };
+    return fields;
   },
   /** A grant made or revoked. */
   grantChange(fields: Body = {}): Body {
@@ -237,6 +248,128 @@ export const answers = {
       ...fields,
     };
   },
+  /** One metered feature in {@link answers}' `usage`. */
+  featureUsage(fields: { feature: string } & Body): Body {
+    const value = (fields.value as Value | undefined) ?? 0;
+    const metered = meter(value, (fields.used as number | undefined) ?? 0, (fields.held as number | undefined) ?? 0);
+    const entitled = metered.remaining === "unlimited" || (metered.remaining as number) > 0;
+    return { type: "metered", entitled, value, sources: [], ...metered, ...fields };
+  },
+  /** The customer's meters and the first page of their usage log. */
+  usage(fields: Body = {}): Body {
+    return {
+      ...context(),
+      customer: "customer_1",
+      asOf: NOW(),
+      metersStartAgainAt: null,
+      features: [],
+      log: { items: [], next: null },
+      ...fields,
+    };
+  },
+  /** A customer as a list, an update or the details show them. */
+  customerSummary(fields: Body = {}): Body {
+    return {
+      id: "cus_1",
+      externalId: "customer_1",
+      name: "Customer",
+      email: "customer@example.com",
+      environmentId: "env_test",
+      sample: false,
+      createdAt: NOW(),
+      plan: null,
+      plans: [],
+      defaultPlan: null,
+      status: "active",
+      kind: "default",
+      metadata: {},
+      track: { id: "trk_all", name: "All customers" },
+      testCustomer: true,
+      ...fields,
+    };
+  },
+  /** A page of the customer list. */
+  customerPage(fields: Body = {}): Body {
+    return { items: [], next: null, used: 0, limit: null, ...fields };
+  },
+  /** A customer's details, with the first page of their usage log. */
+  details(fields: Body = {}): Body {
+    return {
+      customer: answers.customerSummary(),
+      asOf: NOW(),
+      subscription: null,
+      defaultPlan: null,
+      products: [],
+      addOns: [],
+      entitlements: [],
+      banked: {},
+      moveOptions: [],
+      grants: [],
+      usage: { items: [], next: null },
+      activity: [],
+      environment: context().environment,
+      ...fields,
+    };
+  },
+  /** The catalogue's features. */
+  features(fields: Body = {}): Body {
+    const { environment, track, release, change } = context();
+    return { environment, track, release, change, features: [], ...fields };
+  },
+  /** The scopes a credential holds. */
+  scopes(fields: Body = {}): Body {
+    return { scopes: ["plans:read", "entitlements:read"], ...fields };
+  },
+  /** The snapshot key set. */
+  snapshotKeys(fields: Body = {}): Body {
+    return { keys: [], ...fields };
+  },
+  /** A signed snapshot. */
+  snapshot(fields: Body = {}): Body {
+    return { token: "header.payload.signature", expiresAt: NOW(), keyId: "key_1", ...fields };
+  },
+  /** The customer's track after `setTrack`. */
+  customerTrack(fields: Body = {}): Body {
+    return {
+      customer: "customer_1",
+      environmentId: "env_test",
+      track: { id: "trk_all", name: "All customers" },
+      source: "server",
+      previousTrackId: null,
+      ...fields,
+    };
+  },
+  /** A provider page: a checkout or the billing portal. */
+  providerPage(fields: Body = {}): Body {
+    return { provider: "stripe", url: "https://billing.stripe.com/p/session_1", ...fields };
+  },
+  /** A billing sync's answer. */
+  billingSync(fields: Body = {}): Body {
+    return { changed: false, ...fields };
+  },
+  /** The payment provider's view of the customer. */
+  customerBilling(fields: Body = {}): Body {
+    return { provider: null, status: null, sku: null, items: 0, drift: null, products: [], ...fields };
+  },
+  /** A usage batch's answer: by default every event recorded. */
+  batchResult(fields: { results?: readonly Body[] } & Body = {}): Body {
+    const results = (fields.results ?? []).map((result, index) => ({
+      index,
+      outcome: "recorded",
+      id: `use_${index + 1}`,
+      late: false,
+      error: null,
+      ...result,
+    }));
+    const count = (outcome: string) => results.filter((result) => result.outcome === outcome).length;
+    return {
+      recorded: count("recorded"),
+      duplicates: count("duplicate"),
+      errors: count("error"),
+      ...fields,
+      results,
+    };
+  },
   /** An API error body, such as `{ code: "feature_not_found" }`. */
   error(fields: { code: string; message?: string } & Body): Body {
     return { error: { message: `The request failed with ${fields.code}.`, ...fields } };
@@ -251,11 +384,21 @@ interface Hold {
   expiresAt: string;
 }
 
+interface Report {
+  feature: string;
+  amount: number;
+  mode: string;
+  cancelled: boolean;
+}
+
+type Replay = () => Response;
+
 class Model {
   readonly meters = new Map<string, { value: Value; used: number; held: number }>();
   readonly flags = new Map<string, Value>();
   readonly holds = new Map<string, Hold>();
-  readonly replies = new Map<string, Response>();
+  readonly reports = new Map<string, Report>();
+  readonly replays = new Map<string, Replay>();
   readonly id: string;
   readonly options: FakeCustomerOptions;
   #next = 0;
@@ -303,7 +446,11 @@ class Model {
     });
   }
 
-  record(body: Body): Response {
+  conflict(code: string): Response {
+    return Response.json(answers.error({ code }), { status: 409 });
+  }
+
+  record(body: Body, key: string | null): Response {
     const feature = body.feature as string;
     const meter = this.meters.get(feature);
     if (!meter) return this.notFound(feature);
@@ -314,18 +461,19 @@ class Model {
       return this.usage(feature, { outcome: "refused", refusal: "over_allowance", id: null, mode, amount });
     }
     meter.used += amount;
+    const id = this.nextId("use");
+    const report: Report = { feature, amount, mode, cancelled: false };
+    this.reports.set(id, report);
+    if (key) {
+      this.replays.set(key, () =>
+        this.usage(feature, { outcome: report.cancelled ? "cancelled" : "duplicate", id, mode, amount }),
+      );
+    }
     const overBy = meter.value === "unlimited" ? 0 : Math.max(0, meter.used - Number(meter.value));
-    return this.usage(feature, {
-      outcome: "recorded",
-      id: this.nextId("use"),
-      mode,
-      amount,
-      meterChange: amount,
-      overBy,
-    });
+    return this.usage(feature, { outcome: "recorded", id, mode, amount, meterChange: amount, overBy });
   }
 
-  hold(body: Body): Response {
+  hold(body: Body, key: string | null): Response {
     const feature = body.feature as string;
     const meter = this.meters.get(feature);
     if (!meter) return this.notFound(feature);
@@ -334,25 +482,36 @@ class Model {
     if (amount > left) return this.usage(feature, { outcome: "refused", refusal: "over_allowance", id: null, amount });
     const holdId = this.nextId("hld");
     const expiresAt = new Date(Date.now() + ((body.ttlSeconds as number | undefined) ?? 300) * 1000).toISOString();
-    this.holds.set(holdId, { feature, amount, state: "open", expiresAt });
+    const hold: Hold = { feature, amount, state: "open", expiresAt };
+    this.holds.set(holdId, hold);
     meter.held += amount;
+    if (key) this.replays.set(key, () => this.heldAgain(holdId, hold));
     return this.usage(feature, { outcome: "held", id: null, holdId, amount, expiresAt });
+  }
+
+  heldAgain(holdId: string, hold: Hold): Response {
+    const fields = { id: null, holdId, amount: hold.amount, expiresAt: hold.expiresAt };
+    if (hold.state === "settled")
+      return this.usage(hold.feature, { ...fields, outcome: "settled", amount: hold.settled });
+    if (hold.state === "released") return this.usage(hold.feature, { ...fields, outcome: "released" });
+    return this.usage(hold.feature, { ...fields, outcome: "duplicate" });
   }
 
   settle(holdId: string, amount: number | undefined): Response {
     const hold = this.holds.get(holdId);
     if (!hold) return Response.json(answers.error({ code: "not_found" }), { status: 404 });
-    if (hold.state === "released") return Response.json(answers.error({ code: "hold_released" }), { status: 409 });
     const meter = this.meters.get(hold.feature) as { used: number; held: number };
     if (amount === undefined) {
+      if (hold.state === "settled") return this.conflict("hold_settled");
       if (hold.state === "open") {
         hold.state = "released";
         meter.held -= hold.amount;
       }
       return this.usage(hold.feature, { outcome: "released", id: null, holdId, amount: hold.amount });
     }
+    if (hold.state === "released") return this.conflict("hold_released");
     if (hold.state === "settled") {
-      if (hold.settled !== amount) return Response.json(answers.error({ code: "hold_settled" }), { status: 409 });
+      if (hold.settled !== amount) return this.conflict("hold_settled");
       return this.usage(hold.feature, { outcome: "duplicate", holdId, amount });
     }
     hold.state = "settled";
@@ -368,6 +527,22 @@ class Model {
     });
   }
 
+  cancelReport(id: string): Response {
+    const report = this.reports.get(id);
+    if (!report) return Response.json(answers.error({ code: "not_found" }), { status: 404 });
+    const meter = this.meters.get(report.feature) as { used: number };
+    const meterChange = report.cancelled ? 0 : -Math.min(report.amount, meter.used);
+    meter.used += meterChange;
+    report.cancelled = true;
+    return this.usage(report.feature, {
+      outcome: "cancelled",
+      id,
+      mode: report.mode,
+      amount: report.amount,
+      meterChange,
+    });
+  }
+
   adjust(feature: string, body: Body): Response {
     const meter = this.meters.get(feature);
     if (!meter) return this.notFound(feature);
@@ -377,7 +552,17 @@ class Model {
     return this.usage(feature, { outcome: "adjusted", id: meterChange === 0 ? null : this.nextId("use"), meterChange });
   }
 
-  route(method: string, path: string, body: Body): Response {
+  meterUsage(): Body[] {
+    return [...this.meters.entries()].map(([feature, meter]) =>
+      answers.featureUsage({ feature, value: meter.value, used: meter.used, held: meter.held }),
+    );
+  }
+
+  entitlementList(): Body[] {
+    return [...this.flags.keys(), ...this.meters.keys()].sort().map((key) => this.item(key) as Body);
+  }
+
+  route(method: string, path: string, body: Body, key: string | null): Response {
     const self = `/customers/${encodeURIComponent(this.id)}`;
     const rest = path.startsWith(self) ? path.slice(self.length) : undefined;
     const json = (value: Body, status = 200) => Response.json(value, { status });
@@ -387,29 +572,23 @@ class Model {
     if (method === "GET" && parts[1] === "entitlements" && parts[2] !== undefined) {
       const item = this.item(parts[2]);
       if (!item) return json(answers.error({ code: "feature_not_found" }), 404);
-      const { key, ...fields } = item;
-      return json(answers.check({ ...context, ...fields, feature: key as string }));
+      const { key: feature, ...fields } = item;
+      return json(answers.check({ ...context, ...fields, feature: feature as string }));
     }
     if (method === "GET" && rest === "/entitlements") {
-      const keys = [...this.flags.keys(), ...this.meters.keys()].sort();
-      return json(answers.entitlements({ ...context, entitlements: keys.map((key) => this.item(key) as Body) }));
+      return json(answers.entitlements({ ...context, entitlements: this.entitlementList() }));
     }
     if (method === "GET" && rest === "/plans") return json(this.options.plans ?? answers.plans(context));
     if (method === "GET" && rest === "/pricing") return json(this.options.pricing ?? answers.pricing(context));
-    if (method === "GET" && rest === "/usage") {
-      const meters = [...this.meters.keys()].map((key) => this.item(key) as Body);
-      return json({ ...answers.entitlements(context), meters, log: { items: [], next: null } });
-    }
-    if (method === "POST" && rest === "/usage") return this.record(body);
-    if (method === "POST" && rest === "/usage/holds") return this.hold(body);
+    if (method === "GET" && rest === "/usage") return json(answers.usage({ ...context, features: this.meterUsage() }));
+    if (method === "POST" && rest === "/usage") return this.record(body, key);
+    if (method === "POST" && rest === "/usage/holds") return this.hold(body, key);
     if (method === "POST" && parts[1] === "usage" && parts[4] === "settle") {
       return this.settle(parts[3] as string, body.amount as number);
     }
     if (method === "DELETE" && parts[1] === "usage" && parts[2] === "holds")
       return this.settle(parts[3] as string, undefined);
-    if (method === "DELETE" && parts[1] === "usage") {
-      return json(answers.error({ code: "not_found" }), 404);
-    }
+    if (method === "DELETE" && parts[1] === "usage") return this.cancelReport(parts[2] as string);
     if (method === "POST" && parts[1] === "meters") return this.adjust(parts[2] as string, body);
     if (method === "POST" && rest === "/subscription") return json(answers.subscribeStep());
     if (rest.startsWith("/subscription") || rest === "/plan" || parts[1] === "add-ons") {
@@ -417,39 +596,56 @@ class Model {
     }
     if (method === "POST" && rest === "/grants") return json(answers.grantChange({ feature: body.feature }), 201);
     if (parts[1] === "grants") return json(answers.grantChange({ id: parts[2], revokedAt: NOW() }));
+    const summary = () =>
+      answers.customerSummary({
+        externalId: this.id,
+        ...(typeof body.name === "string" ? { name: body.name } : {}),
+        ...(typeof body.email === "string" ? { email: body.email } : {}),
+      });
+    if (method === "GET" && rest === "") {
+      return json(answers.details({ customer: summary(), entitlements: this.entitlementList() }));
+    }
     if (method === "PUT" && rest === "") return json(answers.registered({ externalId: this.id }));
-    if (method === "PATCH" && rest === "") return json({ externalId: this.id, ...body });
+    if (method === "PATCH" && rest === "") return json(summary());
     if (method === "DELETE" && rest === "") return new Response(null, { status: 204 });
     if (rest === "/tokens") return json(answers.customerToken(context));
-    if (rest === "/snapshots") return json({ token: "header.payload.signature", expiresAt: NOW(), keyId: "key_1" });
-    if (rest === "/billing-portal") return json(answers.error({ code: "not_found" }), 404);
-    if (rest === "/billing/sync") return json({ changed: false });
-    if (rest === "/track")
-      return json({
-        ...context,
-        track: { id: "trk_1", name: body.track ?? "All customers" },
-        source: "server",
-        previousTrackId: null,
-      });
+    if (rest === "/snapshots") return json(answers.snapshot());
+    if (rest === "/billing-portal") return json(answers.providerPage());
+    if (rest === "/billing/sync") return json(answers.billingSync());
+    if (rest === "/billing") return json(answers.customerBilling());
+    if (rest === "/track") {
+      return json(
+        answers.customerTrack({
+          ...context,
+          track: { id: "trk_1", name: typeof body.track === "string" ? body.track : "All customers" },
+        }),
+      );
+    }
     return json(answers.error({ code: "not_found" }), 404);
   }
 
   async fetch(input: string, init: RequestInit): Promise<Response> {
     const url = new URL(input);
     const key = new Headers(init.headers).get("idempotency-key");
-    const replay = key ? this.replies.get(key) : undefined;
-    if (replay) {
-      const headers = new Headers(replay.headers);
-      headers.set("Idempotent-Replayed", "true");
-      return new Response(await replay.clone().text(), { status: replay.status, headers });
-    }
+    const replay = key ? this.replays.get(key) : undefined;
+    if (replay) return replayed(replay());
     const body = typeof init.body === "string" ? (JSON.parse(init.body) as Body) : {};
-    const response = this.route(init.method ?? "GET", url.pathname, body);
+    const response = this.route(init.method ?? "GET", url.pathname, body, key);
+    if (!key || !response.ok || this.replays.has(key)) return response;
     const text = await response.clone().text();
-    const refused = response.ok && text !== "" && (JSON.parse(text) as Body).outcome === "refused";
-    if (key && response.ok && !refused) this.replies.set(key, response.clone());
+    const refused = text !== "" && (JSON.parse(text) as Body).outcome === "refused";
+    if (!refused) {
+      const kept = response.clone();
+      this.replays.set(key, () => kept.clone());
+    }
     return response;
   }
+}
+
+function replayed(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Idempotent-Replayed", "true");
+  return new Response(response.body, { status: response.status, headers });
 }
 
 /**
@@ -484,6 +680,8 @@ export function fakeCustomer(values: Record<string, FakeValue>, options: FakeCus
       if (property === "writes") return writes;
       if (property === "answer") {
         return (method: string, fn: (...args: unknown[]) => unknown) => {
+          if (typeof Reflect.get(target, method) !== "function") throw new TypeError("Name a method of the customer.");
+          if (typeof fn !== "function") throw new TypeError("Pass the answer as a function.");
           overrides.set(method, fn);
         };
       }

@@ -76,13 +76,45 @@ export function idempotencyKeyOf(key: string | undefined, max = 200): string {
   return key;
 }
 
-const RFC_3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+const ANSWER_INSTANT = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-](\d{2}):(\d{2}))$/;
+const GIVEN_INSTANT = /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(\.\d+)?([Zz]|[+-](\d{2}):(\d{2}))$/;
+
+function onCalendar(parts: RegExpExecArray): boolean {
+  const [year, month, day, hours, minutes, seconds] = parts.slice(1, 7).map(Number) as number[];
+  const offsetHours = parts[9] === undefined ? 0 : Number(parts[9]);
+  const offsetMinutes = parts[10] === undefined ? 0 : Number(parts[10]);
+  const date = new Date(0);
+  date.setUTCFullYear(year as number, (month as number) - 1, day);
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === (month as number) - 1 &&
+    date.getUTCDate() === day &&
+    (hours as number) < 24 &&
+    (minutes as number) < 60 &&
+    (seconds as number) < 60 &&
+    offsetHours < 24 &&
+    offsetMinutes < 60
+  );
+}
+
+function instantFrom(text: string, pattern: RegExp): Date | undefined {
+  const parts = pattern.exec(text);
+  if (!parts || !onCalendar(parts)) return undefined;
+  const date = new Date(text.replace(" ", "T"));
+  const year = date.getUTCFullYear();
+  return Number.isNaN(date.getTime()) || year < 1 || year > 9999 ? undefined : date;
+}
+
+/** An answer's RFC 3339 instant as a `Date`, or `undefined` when it is not one on the calendar from year 1 to 9999. @internal */
+export function calendarInstant(text: string): Date | undefined {
+  return instantFrom(text, ANSWER_INSTANT);
+}
 
 /** @internal */
 export function instant(value: Date | string | undefined, message: string): string | undefined {
   if (value === undefined) return undefined;
   const date =
-    value instanceof Date ? value : typeof value === "string" && RFC_3339.test(value) ? new Date(value) : undefined;
+    value instanceof Date ? value : typeof value === "string" ? instantFrom(value, GIVEN_INSTANT) : undefined;
   if (!date || Number.isNaN(date.getTime())) throw new TypeError(message);
   return date.toISOString();
 }

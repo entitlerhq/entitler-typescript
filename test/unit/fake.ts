@@ -108,6 +108,22 @@ export function usageAnswer(overrides: Record<string, unknown> = {}) {
   };
 }
 
+export function pricingAnswer(overrides: Record<string, unknown> = {}) {
+  return { ...context, customer: "user_1", defaultPlan: null, products: [], plans: [], ...overrides };
+}
+
+export function customerUsageAnswer(overrides: Record<string, unknown> = {}) {
+  return {
+    customer: "user_1",
+    ...context,
+    asOf: "2026-10-09T01:00:00.000Z",
+    metersStartAgainAt: null,
+    features: [],
+    log: { items: [], next: null },
+    ...overrides,
+  };
+}
+
 export function detailsAnswer(overrides: Record<string, unknown> = {}) {
   return {
     customer: {
@@ -163,6 +179,8 @@ export function answerFor(request: Sent): unknown {
   if (path.endsWith("/plans")) {
     return { customer: "user_1", ...context, asOf: "2026-10-09T01:00:00.000Z", held: [], options: [] };
   }
+  if (path.endsWith("/pricing")) return pricingAnswer();
+  if (method === "GET" && path.endsWith("/usage")) return customerUsageAnswer();
   if (path.includes("/usage") || path.includes("/meters/")) return usageAnswer();
   if (path.includes("/grants")) {
     const grant = {
@@ -180,7 +198,34 @@ export function answerFor(request: Sent): unknown {
   }
   if (method === "POST" && path.endsWith("/subscription")) return { next: "done", ...change };
   if (path.endsWith("/plan") || path.includes("/add-ons") || path.includes("/subscription")) return change;
+  if (path.endsWith("/snapshot-keys")) return { keys: [] };
   if (path.endsWith("/billing-portal")) return { provider: "stripe", url: "https://billing.stripe.com/p/1" };
   if (path.endsWith("/billing/sync")) return { changed: false };
-  return { ...checkAnswer(), ...detailsAnswer() };
+  if (path.endsWith("/billing")) {
+    return { provider: null, status: null, sku: null, items: 0, drift: null, products: [] };
+  }
+  if (path.endsWith("/tokens")) {
+    return { token: "a.b.c", customer: "user_1", scopes: ["entitlements:read"], expiresAt: "2026-10-09T02:00:00.000Z" };
+  }
+  if (path.endsWith("/snapshots")) return { token: "a.b.c", expiresAt: "2026-10-10T01:00:00.000Z", keyId: "key_1" };
+  if (path.endsWith("/track")) {
+    return {
+      customer: "user_1",
+      environmentId: "env_1",
+      track: context.track,
+      source: "server",
+      previousTrackId: null,
+    };
+  }
+  if (method === "PUT" && /^\/customers\/[^/]+$/.test(path)) {
+    return {
+      id: "cus_1",
+      externalId: "user_1",
+      environmentId: "env_1",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      created: true,
+    };
+  }
+  if (method === "PATCH") return detailsAnswer().customer;
+  return detailsAnswer();
 }

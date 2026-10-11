@@ -98,6 +98,26 @@ describe("the answer cache", () => {
     ]);
   });
 
+  it("still revalidates after writes to more customers than it tracks", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1000 });
+    const { fetch, sent } = fakeFetch((request) => {
+      if (request.method === "POST") return json(usageAnswer());
+      return request.headers["if-none-match"]
+        ? new Response(null, { status: 304, headers: fresh })
+        : json(checkAnswer(), 200, fresh);
+    });
+    const server = new EntitlerServer({ key: "k", fetch });
+    await server.customer("u").check("f");
+    vi.setSystemTime(2000);
+    await server.customer("u").recordUsage(aiCredits, 1, { idempotencyKey: "k" });
+    for (let index = 0; index < 1000; index += 1) {
+      await server.customer(`other_${index}`).recordUsage(aiCredits, 1, { idempotencyKey: `k${index}` });
+    }
+    vi.setSystemTime(3000);
+    await server.customer("u").check("f");
+    expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');
+  });
+
   it("fails a 304 with nothing kept", async () => {
     const { fetch } = fakeFetch(new Response(null, { status: 304 }));
     const error = await new EntitlerServer({ key: "k", fetch })

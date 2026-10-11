@@ -253,6 +253,26 @@ describe("verifySnapshot", () => {
     );
   });
 
+  it("refuses now when it is not a valid Date", async () => {
+    const token = await sign(claims({ exp: NOW.getTime() / 1000 }));
+    for (const now of [new Date(Number.NaN), "2026-10-09T00:00:00Z", NOW.getTime()]) {
+      await expect(verifySnapshot(token, { ...expected, now } as never)).rejects.toThrow(
+        new TypeError("Pass now as a valid Date."),
+      );
+    }
+  });
+
+  it.each([
+    ["no kid", { alg: "ES256", typ: "entitlements+jwt" }],
+    ["a null kid", { alg: "ES256", typ: "entitlements+jwt", kid: null }],
+    ["a numeric kid", { alg: "ES256", typ: "entitlements+jwt", kid: 1 }],
+  ])("refuses a header with %s, even against a key with no kid", async (_name, header) => {
+    const { kid: _kid, ...unnamed } = key;
+    const keys = [unnamed as SnapshotKey, { ...key, kid: 1 as never }, { ...key, kid: null as never }];
+    const error = await failure(await sign(claims(), { header }), { keys });
+    expect(error.message).toBe("None of the keys passed signed this snapshot. Fetch them again with snapshotKeys().");
+  });
+
   it.each([-1, 301, 1.5, "60"])("refuses clockSkewSeconds %j as a range error", async (clockSkewSeconds) => {
     await expect(verifySnapshot("a.b.c", { ...expected, clockSkewSeconds } as never)).rejects.toThrow(
       new RangeError("Pass clockSkewSeconds as a whole number from 0 to 300."),

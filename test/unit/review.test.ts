@@ -7,7 +7,7 @@ import {
   EntitlerServer,
   TokenError,
 } from "../../src/index.js";
-import { apiError, checkAnswer, fakeFetch, json, jwt, usageAnswer } from "./fake.js";
+import { apiError, checkAnswer, detailsAnswer, fakeFetch, json, jwt, usageAnswer } from "./fake.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -196,8 +196,12 @@ describe("freshness", () => {
 
 describe("explicit nulls", () => {
   it("send null metadata values and omit absent options", async () => {
-    const { fetch, sent } = fakeFetch(
-      json({ id: "c", externalId: "u", environmentId: "e", createdAt: "2026-10-09T00:00:00Z", created: false }),
+    const { fetch, sent } = fakeFetch((request) =>
+      json(
+        request.method === "PATCH"
+          ? detailsAnswer().customer
+          : { id: "c", externalId: "u", environmentId: "e", createdAt: "2026-10-09T00:00:00Z", created: false },
+      ),
     );
     const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
     await customer.register({ name: undefined, metadata: { team: null, role: "admin" } });
