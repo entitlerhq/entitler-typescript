@@ -327,7 +327,7 @@ describe("conformance: cache-keys.json", () => {
 
 describe("conformance: path-encoding.json", () => {
   conformance("path-encoding.json", async (c) => {
-    const { fetch, sent } = fake(() => Response.json({ ...BODY, items: [], next: null, used: 0, limit: null }));
+    const { fetch, sent } = fake(() => Response.json({ ...BODY, items: [], next: null, used: 0, limit: 1000 }));
     const server = new EntitlerServer({
       key: SERVER_KEY,
       fetch,

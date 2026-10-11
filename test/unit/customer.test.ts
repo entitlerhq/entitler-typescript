@@ -365,7 +365,7 @@ describe("usage", () => {
   });
 
   it("sends includeTest only when true, and no other option unless given", async () => {
-    const { server, sent } = setup(json({ items: [], next: null, used: 0, limit: null }));
+    const { server, sent } = setup(json({ items: [], next: null, used: 0, limit: 1000 }));
     for await (const _ of server.customers.list({ includeTest: false })) void _;
     for await (const _ of server.customers.list()) void _;
     expect(sent.map((request) => request.query)).toEqual([{}, {}]);

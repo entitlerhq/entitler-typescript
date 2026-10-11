@@ -37,7 +37,7 @@ describe("instants decode at their schema paths only", () => {
 
   it("keeps metadata as strings in the customer list and in update", async () => {
     const { server } = serverFor(
-      json({ items: [{ ...summary, metadata }], next: null, used: 1, limit: null }),
+      json({ items: [{ ...summary, metadata }], next: null, used: 1, limit: 1000 }),
       json({ ...summary, metadata }),
     );
     for await (const item of server.customers.list()) expect(item.metadata).toEqual(metadata);
@@ -118,6 +118,18 @@ describe("every answer is checked against its schema", () => {
     );
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ code: "invalid_response" });
+  });
+
+  it("answers invalid_response for a customer page with no limit, or billing with no products", async () => {
+    const { server } = serverFor(
+      json({ items: [], next: null, used: 0, limit: null }),
+      json({ provider: null, status: null, sku: null, items: 0, drift: null }),
+    );
+    const list = async () => {
+      for await (const _ of server.customers.list()) break;
+    };
+    await expect(list()).rejects.toMatchObject({ code: "invalid_response" });
+    await expect(server.customer("user_1").billing()).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("answers a batch chunk's events error when its answer does not decode", async () => {
