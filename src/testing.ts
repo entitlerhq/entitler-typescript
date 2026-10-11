@@ -510,6 +510,9 @@ class Model {
       return this.usage(hold.feature, { outcome: "released", id: null, holdId, amount: hold.amount });
     }
     if (hold.state === "released") return this.conflict("hold_released");
+    if (hold.state === "open" && amount > hold.amount) {
+      return Response.json(answers.error({ code: "invalid_amount" }), { status: 400 });
+    }
     if (hold.state === "settled") {
       if (hold.settled !== amount) return this.conflict("hold_settled");
       return this.usage(hold.feature, { outcome: "duplicate", holdId, amount });

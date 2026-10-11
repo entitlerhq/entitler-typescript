@@ -64,6 +64,7 @@ export type ErrorCode = Open<
   | "return_url_required"
   | "scope_required"
   | "sign_ups_closed"
+  | "snapshot_key_unavailable"
   | "stale"
   | "switch_in_use"
   | "switch_needed"

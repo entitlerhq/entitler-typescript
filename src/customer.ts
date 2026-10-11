@@ -715,6 +715,7 @@ export class CustomerApi implements Customer {
 
   async isEntitled(feature: Feature | string, options: ServerIsEntitledOptions): Promise<boolean> {
     if (typeof options?.default !== "boolean") throw new TypeError("Pass default as true or false.");
+    this.#transport.checkTimeout(options);
     const key = featureKey(feature);
     const headers = this.asOf(options);
     try {
