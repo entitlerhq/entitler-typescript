@@ -1032,7 +1032,7 @@ describe("ServerCustomer requests", () => {
       new TypeError("Pass product: the product whose plan ends."),
     );
     await expect(customer.setPlan(null, { product: " " })).rejects.toThrow(
-      new TypeError("Name the product by its key or its id."),
+      new TypeError("Name the product by its id or its key."),
     );
     for (const extra of [{ period: "monthly" }, { until: "2026-12-01T00:00:00Z" }, { version: "latest" }]) {
       await expect(customer.setPlan(null, { product: "app", ...extra } as never)).rejects.toThrow(
@@ -1040,7 +1040,7 @@ describe("ServerCustomer requests", () => {
       );
     }
     await expect(customer.setPlan("pro", { product: "app" } as never)).rejects.toThrow(
-      new TypeError("Pass product only when ending a plan with null."),
+      new TypeError("Pass product only when ending a plan."),
     );
     await expect(customer.grant("f", { value: -1 })).rejects.toThrow(RangeError);
     await expect(customer.setPlan("pro", { until: "soon" })).rejects.toThrow(

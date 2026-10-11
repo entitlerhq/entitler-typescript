@@ -1028,11 +1028,11 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
         throw new TypeError("Pass no period, until or version when ending a plan.");
       }
     } else if (options?.product !== undefined) {
-      throw new TypeError("Pass product only when ending a plan with null.");
+      throw new TypeError("Pass product only when ending a plan.");
     }
     return this.planWrite("PUT", "/plan", options, {
       ...(plan === null
-        ? { plan: null, product: requireId(options?.product, "Name the product by its key or its id.") }
+        ? { plan: null, product: requireId(options?.product, "Name the product by its id or its key.") }
         : choice(plan)),
       ...compact({
         version: options?.version,
