@@ -2,18 +2,26 @@ import { Entitlements, type EntitlementsInit } from "./entitlements.js";
 import { ApiError, UsageRefusedError, UsageReplayedError, UsageSettlementError } from "./errors.js";
 import { paged } from "./paging.js";
 import {
-  detailsOf,
-  grantChangeOf,
-  isBillingSync,
-  isCheck,
-  isEntitlements,
-  isGrantChange,
-  isPlanChange,
-  isPlans,
-  isProviderPage,
-  isStep,
-  isUsageResult,
-  plansOf,
+  type Decoder,
+  decodeAnything,
+  decodeBillingSync,
+  decodeCheck,
+  decodeCustomerBilling,
+  decodeCustomerSummary,
+  decodeCustomerToken,
+  decodeCustomerTrack,
+  decodeDetails,
+  decodeEntitlements,
+  decodeGrantChange,
+  decodeIssuedSnapshot,
+  decodePlanChange,
+  decodePlans,
+  decodePricing,
+  decodeProviderPage,
+  decodeRegistered,
+  decodeStep,
+  decodeUsage,
+  decodeUsageResult,
 } from "./shapes.js";
 import {
   type Call,
@@ -538,6 +546,8 @@ export interface ServerCustomer extends Customer {
    * ```
    */
   setPlan(none: null, options: EndPlanOptions): Promise<PlanChange>;
+  /** Moves the customer to a {@link PlanChoice} held in a variable: a plan, a store purchase's SKU, or `null` with `product`. */
+  setPlan(choice: PlanChoice, options?: SetPlanOptions | EndPlanOptions): Promise<PlanChange>;
   /** Adds an add-on, sets its quantity, or removes it at `0`, always taking effect now. */
   setAddOn(addOn: string, options: SetAddOnOptions): Promise<PlanChange>;
   /** Grants a feature for a while, or for good, and answers the grant made so a support tool keeps its id. */
@@ -555,7 +565,14 @@ const USAGE_AMOUNT = `Pass amount as a whole number from 1 to ${Number.MAX_SAFE_
 const SETTLED_AMOUNT = "Pass amount as a whole number from 0 to the held amount.";
 const AMOUNT_USED = "Pass the amount used as a whole number of 0 or more.";
 const ADJUSTMENT = "Pass either by, a whole number other than 0, or to, a whole number of 0 or more.";
-const STEPS = new Set(["done", "pay", "confirming", "manage"]);
+type Extra = Omit<Partial<Call>, "decode"> & { readonly decode: Decoder };
+type TypedWrite = [
+  method: Call["method"],
+  path: string,
+  options: CallOptions | undefined,
+  body?: unknown,
+  extra?: Omit<Partial<Call>, "decode"> & { key?: string },
+];
 
 /** Checks a usage amount. @internal */
 export function usageAmount(amount: unknown): number {
@@ -595,11 +612,7 @@ function idOf(value: string, message: string): string {
 }
 
 function stepOf(data: Raw, replayed: boolean): SubscribeStep {
-  const next = data.next;
-  if (typeof next === "string" && STEPS.has(next)) {
-    return (next === "done" ? { ...data, replayed } : data) as unknown as SubscribeStep;
-  }
-  return { next: "unknown", raw: String(next) };
+  return (data.next === "done" ? { ...data, replayed } : data) as unknown as SubscribeStep;
 }
 
 function asOfHeader(options: AsOfOptions | undefined): Record<string, string | undefined> {
@@ -648,8 +661,8 @@ export class CustomerApi implements Customer {
     method: Call["method"],
     path: string,
     options: CallOptions | undefined,
-    body?: unknown,
-    extra: Partial<Call> & { key?: string } = {},
+    body: unknown,
+    extra: Extra & { key?: string },
   ): Promise<T & Replayed> {
     const { key, ...call } = extra;
     const idempotencyKey = key ?? idempotencyKeyOf((options as WriteOptions | undefined)?.idempotencyKey);
@@ -659,31 +672,27 @@ export class CustomerApi implements Customer {
   }
 
   /** @internal */
-  usageWrite(...[method, path, options, body, extra]: Parameters<CustomerApi["write"]>): Promise<UsageResult> {
-    return this.write<UsageResult>(method, path, options, body, { shape: isUsageResult, ...extra });
+  usageWrite(...[method, path, options, body, extra]: TypedWrite): Promise<UsageResult> {
+    return this.write<UsageResult>(method, path, options, body, { ...extra, decode: decodeUsageResult });
   }
 
   /** @internal */
-  planWrite(...[method, path, options, body, extra]: Parameters<CustomerApi["write"]>): Promise<PlanChange> {
-    return this.write<PlanChange>(method, path, options, body, { shape: isPlanChange, ...extra });
+  planWrite(...[method, path, options, body, extra]: TypedWrite): Promise<PlanChange> {
+    return this.write<PlanChange>(method, path, options, body, { ...extra, decode: decodePlanChange });
   }
 
   /** @internal */
-  grantWrite(...[method, path, options, body, extra]: Parameters<CustomerApi["write"]>): Promise<GrantChange> {
-    return this.write<GrantChange>(method, path, options, body, { shape: isGrantChange, map: grantChangeOf, ...extra });
+  grantWrite(...[method, path, options, body, extra]: TypedWrite): Promise<GrantChange> {
+    return this.write<GrantChange>(method, path, options, body, { ...extra, decode: decodeGrantChange });
   }
 
   /** @internal */
-  async read<T>(path: string, options: CallOptions | undefined, extra: Partial<Call> = {}): Promise<T> {
+  async read<T>(path: string, options: CallOptions | undefined, extra: Extra): Promise<T> {
     return (await this.send<T>({ method: "GET", path, options, ...extra })).data;
   }
 
   /** @internal */
-  async cached<T>(
-    path: string,
-    options: ReadOptions | undefined,
-    extra: Partial<Call> = {},
-  ): Promise<T & { stale: boolean }> {
+  async cached<T>(path: string, options: ReadOptions | undefined, extra: Extra): Promise<T & { stale: boolean }> {
     const answer = await this.send<T>({
       method: "GET",
       path,
@@ -699,7 +708,7 @@ export class CustomerApi implements Customer {
   check(feature: string, options?: ServerReadOptions): Promise<Check>;
   async check(feature: Feature | string, options?: ServerReadOptions): Promise<Check> {
     return this.cached<Check>(`/entitlements/${segment(featureKey(feature))}`, options, {
-      shape: isCheck,
+      decode: decodeCheck,
       headers: this.asOf(options),
     });
   }
@@ -709,7 +718,8 @@ export class CustomerApi implements Customer {
     const key = featureKey(feature);
     const headers = this.asOf(options);
     try {
-      return (await this.cached<Check>(`/entitlements/${segment(key)}`, options, { shape: isCheck, headers })).entitled;
+      return (await this.cached<Check>(`/entitlements/${segment(key)}`, options, { decode: decodeCheck, headers }))
+        .entitled;
     } catch (error) {
       if ((options.signal?.aborted && error === options.signal.reason) || isClosed(error)) throw error;
       this.onError(error);
@@ -720,24 +730,31 @@ export class CustomerApi implements Customer {
   async entitlements(options?: ServerReadOptions): Promise<Entitlements> {
     return new Entitlements(
       await this.cached<EntitlementsInit>("/entitlements", options, {
-        shape: isEntitlements,
+        decode: decodeEntitlements,
         headers: this.asOf(options),
       }),
     );
   }
 
   async plans(options?: ServerReadOptions): Promise<CustomerPlans> {
-    return this.cached<CustomerPlans>("/plans", options, { shape: isPlans, map: plansOf, headers: this.asOf(options) });
+    return this.cached<CustomerPlans>("/plans", options, { decode: decodePlans, headers: this.asOf(options) });
   }
 
   async pricing(options?: PricingOptions): Promise<Pricing> {
-    return this.cached<Pricing>("/pricing", options, { headers: { "Entitler-Visitor": visitorOf(options?.visitor) } });
+    return this.cached<Pricing>("/pricing", options, {
+      decode: decodePricing,
+      headers: { "Entitler-Visitor": visitorOf(options?.visitor) },
+    });
   }
 
   async usage(options?: ServerUsageOptions): Promise<CustomerUsage> {
     const headers = this.asOf(options);
     const page = (cursor: string | undefined) =>
-      this.read<CustomerUsage & { log: Page<UsageEvent> }>("/usage", options, { query: { cursor }, headers });
+      this.read<CustomerUsage & { log: Page<UsageEvent> }>("/usage", options, {
+        query: { cursor },
+        headers,
+        decode: decodeUsage,
+      });
     const first = await page(options?.cursor);
     return { ...first, log: usageLog(first.log, async (cursor) => (await page(cursor)).log) };
   }
@@ -787,10 +804,10 @@ export class CustomerApi implements Customer {
     const answer = await this.holdUsage(feature, amount, { ...options, idempotencyKey: key });
     if (answer.outcome === "refused") throw new UsageRefusedError(answer);
     const open =
-      (answer.outcome === "held" || answer.outcome === "duplicate") &&
       answer.holdId !== null &&
       answer.expiresAt !== null &&
-      answer.expiresAt.getTime() > Date.now();
+      (answer.outcome === "held" ||
+        (answer.outcome === "duplicate" && answer.expiresAt.getTime() > answer.asOf.getTime()));
     if (!open) throw new UsageReplayedError(answer);
     return this.#handle(feature, key, answer, options.timeout);
   }
@@ -894,6 +911,7 @@ export class CustomerApi implements Customer {
       "/snapshots",
       options,
       compact({ ttlSeconds: options?.ttlSeconds }),
+      { decode: decodeIssuedSnapshot },
     );
     return snapshot;
   }
@@ -908,7 +926,7 @@ export class CustomerApi implements Customer {
         register: options?.register,
       }),
     };
-    const { replayed, ...data } = await this.write<Raw>("POST", "/subscription", options, body, { shape: isStep });
+    const { replayed, ...data } = await this.write<Raw>("POST", "/subscription", options, body, { decode: decodeStep });
     return stepOf(data, replayed);
   }
 
@@ -927,9 +945,9 @@ export class CustomerApi implements Customer {
     if (options?.addOn !== undefined) {
       return this.planWrite("DELETE", `/subscription/add-ons/${segment(planKey(options.addOn))}${suffix}`, options);
     }
-    return this.planWrite("DELETE", `/subscription${suffix}`, options, undefined, {
-      query: { product: options?.product },
-    });
+    const product =
+      options?.product === undefined ? undefined : requireId(options.product, "Name the product by its key.");
+    return this.planWrite("DELETE", `/subscription${suffix}`, options, undefined, { query: { product } });
   }
 
   async billingPortal(options: BillingPortalOptions): Promise<ProviderPage> {
@@ -938,14 +956,14 @@ export class CustomerApi implements Customer {
       "/billing-portal",
       options,
       { returnUrl: requireText(options?.returnUrl, "Pass returnUrl as the page to send the customer back to.") },
-      { shape: isProviderPage },
+      { decode: decodeProviderPage },
     );
     return page;
   }
 
   async syncBilling(options?: CallOptions): Promise<BillingSync> {
     const { replayed: _, ...sync } = await this.write<BillingSync>("POST", "/billing/sync", options, undefined, {
-      shape: isBillingSync,
+      decode: decodeBillingSync,
     });
     return sync;
   }
@@ -973,6 +991,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     const details = compact({ name: options?.name, email: options?.email, metadata: options?.metadata });
     return this.write<RegisteredCustomer>("PUT", "", options, Object.keys(details).length ? details : undefined, {
       headers: { "Entitler-Visitor": visitorOf(options?.visitor) },
+      decode: decodeRegistered,
     });
   }
 
@@ -990,7 +1009,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     return this.read<CustomerDetails & { usage: Page<UsageEvent> }>("", options, {
       query: { cursor },
       headers: asOfHeader(options),
-      map: detailsOf,
+      decode: decodeDetails,
     });
   }
 
@@ -1000,11 +1019,16 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
       "",
       options,
       compact({ name: options?.name, email: options?.email, metadata: options?.metadata }),
+      { decode: decodeCustomerSummary },
     );
   }
 
   async erase(options?: WriteOptions): Promise<void> {
-    await this.write("DELETE", "", options, undefined, { query: { erase: "true" }, empty: true });
+    await this.write("DELETE", "", options, undefined, {
+      query: { erase: "true" },
+      empty: true,
+      decode: decodeAnything,
+    });
   }
 
   async token(options?: TokenOptions): Promise<IssuedCustomerToken> {
@@ -1013,18 +1037,25 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
       "/tokens",
       options,
       compact({ scopes: options?.scopes, ttlSeconds: options?.ttlSeconds }),
+      { decode: decodeCustomerToken },
     );
     return token;
   }
 
   async setTrack(track: string | null, options?: WriteOptions): Promise<CustomerTrack> {
-    return this.write<CustomerTrack>("PUT", "/track", options, {
-      track: track === null ? null : requireText(track, "Name the track by its name."),
-    });
+    return this.write<CustomerTrack>(
+      "PUT",
+      "/track",
+      options,
+      {
+        track: track === null ? null : requireText(track, "Name the track by its name."),
+      },
+      { decode: decodeCustomerTrack },
+    );
   }
 
   async billing(options?: CallOptions): Promise<CustomerBilling> {
-    return this.read("/billing", options);
+    return this.read("/billing", options, { decode: decodeCustomerBilling });
   }
 
   async setPlan(plan: PlanChoice, given?: SetPlanOptions | EndPlanOptions): Promise<PlanChange> {

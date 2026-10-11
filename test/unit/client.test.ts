@@ -1,5 +1,5 @@
 import { inspect } from "node:util";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
   defineFeature,
   EntitlerClient,
@@ -109,6 +109,15 @@ describe("construction", () => {
     expect(() => new EntitlerClient({ token: "t", visitor: "short" })).toThrow(
       new TypeError("Pass visitor as an id of 16 to 64 letters, numbers, hyphens or underscores."),
     );
+  });
+
+  it.each([true, false])("builds from options chosen at run time (signed in: %s)", (signedIn) => {
+    const options = signedIn ? { key: "ent_pk_test_1", identityToken: "i" } : { token: "t" };
+    const client = new EntitlerClient(options);
+    expectTypeOf(client).toEqualTypeOf<EntitlerClient>();
+    expect(client.kind).toBe(signedIn ? "identity" : "token");
+    const chosen = signedIn ? { key: "ent_pk_test_1" } : { token: "t" };
+    expect(new EntitlerClient(chosen).kind).toBe(signedIn ? "publishable" : "token");
   });
 });
 

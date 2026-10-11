@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import process from "node:process";
-import { ApiError, TimeoutError } from "./errors.js";
+import { ApiError, ConnectionError, TimeoutError } from "./errors.js";
 import { holdsConstants, renderFeatures, sameFeatures } from "./generate.js";
 import { EntitlerServer } from "./server.js";
 
@@ -48,8 +48,24 @@ async function readExisting(file: string): Promise<string | undefined> {
 function failure(error: unknown): string {
   const message = (error instanceof Error ? error.message : String(error)).replace(/\.$/, "");
   const code =
-    error instanceof ApiError ? error.code : error instanceof TimeoutError ? "timed_out" : "connection_failed";
-  return `Entitler request failed: ${message} (${code}).\n`;
+    error instanceof ApiError
+      ? error.code
+      : error instanceof TimeoutError
+        ? "timed_out"
+        : error instanceof ConnectionError
+          ? "connection_failed"
+          : undefined;
+  return `Entitler request failed: ${message}${code === undefined ? "" : ` (${code})`}.\n`;
+}
+
+function serverFor(key: string, options: Options): EntitlerServer | string {
+  const baseUrl = options["base-url"] as string | undefined;
+  try {
+    return new EntitlerServer({ key, cache: false, ...(baseUrl ? { baseUrl } : {}) });
+  } catch (error) {
+    if (error instanceof TypeError || error instanceof RangeError) return `${error.message}\n`;
+    throw error;
+  }
 }
 
 function parse(command: keyof typeof COMMANDS, rest: readonly string[]): Options | string {
@@ -86,10 +102,11 @@ async function generate(options: Options, env: Record<string, string | undefined
   const key = (options.key as string | undefined) ?? env.ENTITLER_KEY;
   if (!key?.trim())
     return [1, "Provide an API key with --key or set ENTITLER_KEY. The key needs the plans:read scope.\n"];
+  const server = serverFor(key, options);
+  if (typeof server === "string") return [1, server];
   let source: Awaited<ReturnType<EntitlerServer["features"]>>;
   try {
-    const baseUrl = options["base-url"] as string | undefined;
-    source = await new EntitlerServer({ key, cache: false, ...(baseUrl ? { baseUrl } : {}) }).features();
+    source = await server.features();
   } catch (error) {
     return [1, failure(error)];
   }
@@ -113,10 +130,11 @@ async function generate(options: Options, env: Record<string, string | undefined
 
 async function snapshotKeys(options: Options): Promise<[number, string]> {
   const file = (options.out as string | undefined) ?? "entitler-snapshot-keys.json";
-  const baseUrl = options["base-url"] as string | undefined;
+  const server = serverFor("unused", options);
+  if (typeof server === "string") return [1, server];
   let keys: Awaited<ReturnType<EntitlerServer["snapshotKeys"]>>;
   try {
-    keys = await new EntitlerServer({ key: "unused", cache: false, ...(baseUrl ? { baseUrl } : {}) }).snapshotKeys();
+    keys = await server.snapshotKeys();
   } catch (error) {
     return [1, failure(error)];
   }

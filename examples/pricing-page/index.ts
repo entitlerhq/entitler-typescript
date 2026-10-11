@@ -1,7 +1,7 @@
 import { EntitlerClient, EntitlerServer, type Pricing, type PricingPlan } from "@entitlerhq/entitler";
 
 function priceOf(plan: PricingPlan, period: string): string {
-  const listing = plan.listings.find((each) => each.period.key === period);
+  const listing = plan.listings.find((each) => each.period?.key === period);
   const price = listing?.channels.find((channel) => channel.purchasable && channel.price)?.price;
   if (!price) return "Coming soon";
   return `${(price.amount / 100).toFixed(2)} ${price.currency.toUpperCase()}`;

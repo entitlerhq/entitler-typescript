@@ -10,8 +10,11 @@ fetched.
 
 ## The generator
 
+Generate from the live environment's key, with `plans:read`. A test environment can hold features
+that are not released yet, and constants generated from it would ship them in your code.
+
 ```sh
-ENTITLER_KEY=ent_test_… npx @entitlerhq/entitler generate --out src/entitler.gen.ts
+ENTITLER_KEY=ent_live_… npx @entitlerhq/entitler generate --out src/entitler.gen.ts
 bunx @entitlerhq/entitler generate --out=src/entitler.gen.ts --check
 ```
 
@@ -20,8 +23,14 @@ bunx @entitlerhq/entitler generate --out=src/entitler.gen.ts --check
 | `--out <file>` | the file to write; `src/entitler.gen.ts` by default |
 | `--key <key>` | an API key with `plans:read`; `ENTITLER_KEY` by default |
 | `--base-url <url>` | the API's base URL |
-| `--check` | exit 1 unless the file is up to date, ignoring the release it was read from |
+| `--check` | exit 1 unless the file is up to date, ignoring the release it was read from; writes nothing |
+| `--allow-empty` | write the file even when Entitler lists no features |
 | `--help` | show the usage |
+
+When Entitler lists no features and the file already holds constants, the generator leaves the file
+as it is and exits 1, since an empty catalogue usually means a key for the wrong environment. Pass
+`--allow-empty` to write the file with no features instead. With no file there yet, it writes one
+either way.
 
 Each feature becomes a constant named in camelCase, sorted by key, with its name, description, unit,
 a group's members, and `@deprecated Archived in Entitler.` once archived. When the file already
@@ -29,7 +38,17 @@ exists, each feature keeps the name it had, so adding a feature never renames an
 not a valid identifier, is a reserved word, or is taken is escaped deterministically: a leading `_`
 before a digit, a trailing `_` after a reserved word, then a number.
 
-Run `--check` in CI to catch a catalogue change the code has not caught up with.
+Run `--check` in CI to catch a catalogue change the code has not caught up with, wherever the key is
+available: on pushes to the main branch and on pull requests from branches of the same repository.
+Pull requests from forks receive no secrets, so skip the check there rather than fail it, for
+example in GitHub Actions:
+
+```yaml
+- if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+  run: npx @entitlerhq/entitler generate --check
+  env:
+    ENTITLER_KEY: ${{ secrets.ENTITLER_LIVE_KEY }}
+```
 
 `renderFeatures` from `@entitlerhq/entitler/generate` renders the same file, for build tooling.
 

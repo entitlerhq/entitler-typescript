@@ -61,17 +61,40 @@ off. In-app clients take only a `MemoryCache` size or `false`: their principal c
 token, so a store kept across launches would never be read again, and only snapshots survive a
 relaunch.
 
+Within one process, the default `MemoryCache` already bounds its size and drops the least recently
+used answer; pass `new MemoryCache({ maxEntries })` to change the bound. A store of your own must
+honour the `ttl` that `set` receives and bound its size, as this one does, dropping expired entries
+when read and the oldest entry when full:
+
 ```ts
 import { type CacheEntry, type CacheStore, EntitlerServer } from "@entitlerhq/entitler";
 
-const kept = new Map<string, CacheEntry>();
-const store: CacheStore = {
-  get: (key) => kept.get(key),
-  set: (key, entry) => {
-    kept.set(key, entry);
-  },
-};
-const shared = new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "", cache: store });
+interface Kept {
+  entry: CacheEntry;
+  expiresAt: number;
+}
+
+export function boundedStore(maxEntries = 1000): CacheStore {
+  const kept = new Map<string, Kept>();
+  return {
+    get: (key) => {
+      const found = kept.get(key);
+      if (!found) return undefined;
+      if (found.expiresAt <= Date.now()) {
+        kept.delete(key);
+        return undefined;
+      }
+      return found.entry;
+    },
+    set: (key, entry, ttl) => {
+      kept.delete(key);
+      kept.set(key, { entry, expiresAt: Date.now() + ttl });
+      if (kept.size > maxEntries) kept.delete(kept.keys().next().value as string);
+    },
+  };
+}
+
+const shared = new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "", cache: boundedStore() });
 console.log(shared);
 ```
 

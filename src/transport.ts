@@ -1,5 +1,6 @@
 import { type CacheEntry, type CacheStore, MemoryCache } from "./cache.js";
 import { ApiError, ConnectionError, type EntitlerError, type ErrorCode, TimeoutError, unreachable } from "./errors.js";
+import type { Decoder } from "./shapes.js";
 import { encode, sha256Hex, sleep, wholeNumber } from "./util.js";
 import { VERSION } from "./version.js";
 
@@ -21,7 +22,7 @@ export interface ClientOptions {
    */
   onError?: (error: unknown) => void;
   /** The `fetch` to send requests with, for tests, proxies and instrumentation. Defaults to the global `fetch`. */
-  fetch?: typeof fetch;
+  fetch?: (input: string, init: RequestInit) => Promise<Response>;
 }
 
 /** Options every method takes. */
@@ -80,8 +81,7 @@ export interface Call {
   readonly idempotencyKey?: string;
   readonly cached?: boolean;
   readonly revalidate?: boolean | undefined;
-  readonly shape?: (data: Record<string, unknown>) => boolean;
-  readonly map?: (data: Record<string, unknown>) => unknown;
+  readonly decode: Decoder;
   readonly customer?: string;
   readonly changes?: readonly string[];
   readonly open?: boolean;
@@ -120,51 +120,14 @@ export interface TransportOptions extends ClientOptions {
   readonly cache?: CacheStore | false | undefined;
 }
 
-const DATE_KEYS = new Set([
-  "addedAt",
-  "asOf",
-  "at",
-  "cancelledAt",
-  "cancelsAt",
-  "createdAt",
-  "endsAt",
-  "expiresAt",
-  "from",
-  "lastAt",
-  "metersStartAgainAt",
-  "observedAt",
-  "occurredAt",
-  "openedAt",
-  "paidAt",
-  "readAt",
-  "renewsAt",
-  "resetsAt",
-  "resolvedAt",
-  "revokedAt",
-  "seenAt",
-  "since",
-  "startedAt",
-  "startsAt",
-  "trialEndsAt",
-  "until",
-]);
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+const TRACKED_CUSTOMERS = 1000;
 const RETRIED = new Set([408, 429, 500, 502, 503, 504]);
 const PAYMENT_STATUSES = new Set(["declined", "requires_action", "processing", "pending"]);
 
-/** Parses an answer body, turning its timestamps into `Date`s. @internal */
+/** Parses an answer body as plain JSON; each call's decoder turns its instants into `Date`s. @internal */
 export function parseAnswer(text: string): unknown {
   if (text === "") return undefined;
-  return JSON.parse(text, (key, value) => (DATE_KEYS.has(key) && typeof value === "string" ? instantOf(value) : value));
-}
-
-function instantOf(text: string): Date {
-  const date = new Date(text);
-  const year = date.getUTCFullYear();
-  if (!TIMESTAMP.test(text) || Number.isNaN(date.getTime()) || year < 1 || year > 9999) {
-    throw new TypeError("An instant in the answer is not an RFC 3339 timestamp from year 1 to 9999.");
-  }
-  return date;
+  return JSON.parse(text);
 }
 
 function runtime(): string | undefined {
@@ -317,10 +280,11 @@ export class Transport {
   readonly #ownsCache: boolean;
   #closing: AbortController | undefined;
   #closed = false;
-  readonly #fetch: typeof fetch;
+  readonly #fetch: (input: string, init: RequestInit) => Promise<Response>;
   readonly #credentials: Credentials;
   readonly #headers: () => Record<string, string>;
   readonly #generations = new Map<string, { generation: number; at: number }>();
+  #forgottenUntil = Number.NEGATIVE_INFINITY;
   #downUntil = 0;
   #probing = false;
 
@@ -378,7 +342,7 @@ export class Transport {
       ? AbortSignal.any([given.options.signal, this.#closing.signal])
       : this.#closing.signal;
     const call: Call = { ...given, options: { ...given.options, signal } };
-    for (const customer of call.changes ?? []) this.#bump(customer);
+    if (this.#cache) for (const customer of call.changes ?? []) this.#bump(customer);
     const url = this.#url(call);
     const headers = this.#requestHeaders(call);
     const auth: Authorised = call.open
@@ -488,13 +452,20 @@ export class Transport {
   }
 
   #bump(customer: string): void {
-    this.#generations.set(customer, { generation: this.#generationOf(customer) + 1, at: Date.now() });
+    const generation = this.#generationOf(customer) + 1;
+    this.#generations.delete(customer);
+    this.#generations.set(customer, { generation, at: Date.now() });
+    if (this.#generations.size <= TRACKED_CUSTOMERS) return;
+    const [oldest, { at }] = this.#generations.entries().next().value as [string, { at: number }];
+    this.#generations.delete(oldest);
+    this.#forgottenUntil = Math.max(this.#forgottenUntil, at);
   }
 
   #fresh(entry: CacheEntry, customer: string | undefined): boolean {
     const maxAge = maxAgeOf(entry.cacheControl);
     if (maxAge === undefined || directive(entry.cacheControl, "no-cache")) return false;
     if ((Date.now() - entry.receivedAt) / 1000 + (entry.age ?? 0) >= maxAge) return false;
+    if (entry.receivedAt <= this.#forgottenUntil) return false;
     const bumped = customer === undefined ? undefined : this.#generations.get(customer)?.at;
     return bumped === undefined || bumped < entry.receivedAt;
   }
@@ -525,10 +496,7 @@ export class Transport {
       if (data === null || typeof data !== "object" || Array.isArray(data)) {
         throw new TypeError("The answer is not a JSON object.");
       }
-      if (call.shape && !call.shape(data as Record<string, unknown>)) {
-        throw new TypeError("The answer lacks a required field, or holds one of another type.");
-      }
-      return (call.map ? call.map(data as Record<string, unknown>) : data) as T;
+      return call.decode(data) as T;
     } catch (cause) {
       throw new ApiError({
         status: received?.status ?? 200,

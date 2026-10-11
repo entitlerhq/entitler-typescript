@@ -41,7 +41,19 @@ const RESERVED = new Set(
     "type typeof undefined unique unknown var void while with yield"
   ).split(" "),
 );
-const KEPT = /^ {2}([A-Za-z_$][\w$]*): defineFeature\(\s*("(?:[^"\\]|\\.)*")/gm;
+const CONSTANT = /^ {2}([A-Za-z_$][\w$]*):\s*defineFeature\(/m;
+const KEPT = new RegExp(String.raw`${CONSTANT.source}\s*("(?:[^"\\]|\\.)*")`, "gm");
+const LINE_BREAK = /\r\n|[\r\n\u2028\u2029]/;
+
+function flat(text: string): string {
+  return text.split(LINE_BREAK).join(" ");
+}
+
+function literal(text: string): string {
+  return JSON.stringify(text)
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
 
 function camel(key: string): string {
   const words = key.split(/[^A-Za-z0-9]+/).filter(Boolean);
@@ -100,11 +112,13 @@ function leaves(key: string, byKey: Map<string, FeatureSource["features"][number
 }
 
 function docLines(feature: FeatureSource["features"][number]): string[] {
-  const lines = [feature.name.trim() || feature.key];
+  const lines = [flat(feature.name).trim() || flat(feature.key)];
   const description = feature.description.trim();
-  if (description) lines.push("", ...description.split(/\r?\n/).map((line) => line.trimEnd()));
-  if (feature.unit.trim()) lines.push("", `Counted in ${feature.unit.trim()}.`);
-  if (feature.type === "group" && feature.includes.length) lines.push("", `Includes ${feature.includes.join(", ")}.`);
+  if (description) lines.push("", ...description.split(LINE_BREAK).map((line) => line.trimEnd()));
+  const unit = flat(feature.unit).trim();
+  if (unit) lines.push("", `Counted in ${unit}.`);
+  if (feature.type === "group" && feature.includes.length)
+    lines.push("", `Includes ${feature.includes.map(flat).join(", ")}.`);
   if (feature.archived) lines.push("", "@deprecated Archived in Entitler.");
   return lines.map((line) => line.replace(/\*\//g, "*\\/"));
 }
@@ -126,8 +140,8 @@ function call(indent: string, args: string[], quoted: string[]): string[] {
 }
 
 function constant(name: string, feature: FeatureSource["features"][number], members: string[]): string[] {
-  const args = [JSON.stringify(feature.key), JSON.stringify(feature.type)];
-  const quoted = members.map((member) => JSON.stringify(member));
+  const args = [literal(feature.key), literal(feature.type)];
+  const quoted = members.map(literal);
   const all = [...args, ...(quoted.length ? [`[${quoted.join(", ")}]`] : [])];
   const inline = `  ${name}: defineFeature(${all.join(", ")}),`;
   if (inline.length <= LINE_WIDTH) return [inline];
@@ -144,9 +158,9 @@ function constant(name: string, feature: FeatureSource["features"][number], memb
 function readFrom(source: FeatureSource): string {
   const catalogue =
     source.change !== null && source.release === null
-      ? `change ${source.change}`
+      ? `change ${flat(source.change)}`
       : `release ${source.release ?? "none"}`;
-  return `// Read from ${source.environment.name}, ${source.track.name}, ${catalogue}.`;
+  return `// Read from ${flat(source.environment.name)}, ${flat(source.track.name)}, ${catalogue}.`;
 }
 
 /**
@@ -189,7 +203,7 @@ export function renderFeatures(source: FeatureSource, options: RenderOptions = {
 
 /** True when a generated file holds at least one constant. @internal */
 export function holdsConstants(text: string): boolean {
-  return /^ {2}[A-Za-z_$][\w$]*: defineFeature\(/m.test(text);
+  return CONSTANT.test(text);
 }
 
 /** True when two generated files hold the same features, whichever release they were read from. */

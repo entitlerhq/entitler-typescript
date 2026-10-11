@@ -7,6 +7,7 @@ import {
   EntitlerClient,
   EntitlerServer,
   type HoldContext,
+  type PlanChoice,
   type ServerCustomer,
   UsageRefusedError,
   UsageReplayedError,
@@ -364,7 +365,7 @@ describe("usage", () => {
   });
 
   it("sends includeTest only when true, and no other option unless given", async () => {
-    const { server, sent } = setup(json({ items: [], next: null }));
+    const { server, sent } = setup(json({ items: [], next: null, used: 0, limit: null }));
     for await (const _ of server.customers.list({ includeTest: false })) void _;
     for await (const _ of server.customers.list()) void _;
     expect(sent.map((request) => request.query)).toEqual([{}, {}]);
@@ -413,6 +414,41 @@ describe("holds", () => {
       { amount: 500 },
       { amount: 0 },
     ]);
+  });
+
+  it("answers a handle for a fresh hold whatever the local clock says", async () => {
+    const { customer, sent } = holdFlow(undefined, {
+      asOf: "2026-10-09T01:00:00.000Z",
+      expiresAt: "2026-10-09T01:05:00.000Z",
+    });
+    vi.useFakeTimers({ now: new Date("2026-10-09T01:15:00.000Z"), toFake: ["Date"] });
+    try {
+      const hold = await customer.startHold(features.aiCredits, 500, key);
+      expect(hold.id).toBe("hold_1");
+      expect(paths(sent)).toEqual(["POST/customers/user_1/usage/holds"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("judges a duplicate open by the answer's asOf, not the local clock", async () => {
+    const open = holdFlow(undefined, {
+      outcome: "duplicate",
+      asOf: "2026-10-09T01:00:00.000Z",
+      expiresAt: "2026-10-09T01:05:00.000Z",
+    });
+    vi.useFakeTimers({ now: new Date("2026-10-09T01:15:00.000Z"), toFake: ["Date"] });
+    try {
+      expect((await open.customer.startHold(features.aiCredits, 500, key)).duplicate).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+    const expired = holdFlow(undefined, {
+      outcome: "duplicate",
+      asOf: "2026-10-09T01:05:00.000Z",
+      expiresAt: "2026-10-09T01:05:00.000Z",
+    });
+    await expect(expired.customer.startHold(features.aiCredits, 500, key)).rejects.toBeInstanceOf(UsageReplayedError);
   });
 
   it("answers a handle for an open duplicate, with duplicate true", async () => {
@@ -776,6 +812,18 @@ describe("batches", () => {
   });
 });
 
+describe("setPlan with a PlanChoice", () => {
+  it.each<[string, PlanChoice, Record<string, unknown>]>([
+    ["a plan", "pro", { plan: "pro" }],
+    ["a SKU", { sku }, { sku }],
+    ["none", null, { plan: null, product: "app" }],
+  ])("takes %s held in a PlanChoice variable", async (_name, choice, body) => {
+    const { customer, sent } = setup((request) => json(answerFor(request)));
+    await customer.setPlan(choice, choice === null ? { product: "app" } : {});
+    expect(sent[0]?.body).toEqual(body);
+  });
+});
+
 describe("ServerCustomer requests", () => {
   const who = { reason: "Deal won", actor: "hubspot" };
   it.each([
@@ -1052,6 +1100,12 @@ describe("ServerCustomer requests", () => {
     await expect(customer.undoPendingChange({ addOn: " " })).rejects.toThrow(
       new TypeError("Name the plan by its id or its key."),
     );
+    for (const product of ["", " "]) {
+      await expect(customer.cancel({ product })).rejects.toThrow(new TypeError("Name the product by its key."));
+      await expect(customer.undoPendingChange({ product })).rejects.toThrow(
+        new TypeError("Name the product by its key."),
+      );
+    }
     const adjustment = new TypeError(
       "Pass either by, a whole number other than 0, or to, a whole number of 0 or more.",
     );
@@ -1173,13 +1227,14 @@ describe("booked changes", () => {
       plan: pro,
       version: 1,
       cohort: null,
-      period: "monthly",
+      period: { key: "monthly", label: "Monthly" },
       startedAt: "2026-10-09T00:00:00Z",
       renewsAt: "2026-11-09T00:00:00Z",
       billing: null,
+      until: null,
       addOns: [],
       pending,
-      purchase: { kind: "provider" },
+      purchase: { money: "real", channel: null, release: 1, change: null, arm: null },
       override: null,
     };
   }
@@ -1241,6 +1296,7 @@ describe("details", () => {
               revokedAt: null,
               reason: "",
               by: "api",
+              actor: null,
             },
           ],
         }),

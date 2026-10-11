@@ -28,7 +28,10 @@ console.log(fake.writes.map((write) => write.method));
 - Reads answer complete `Check` and `Entitlements` values. A key it does not hold answers
   `404 feature_not_found`, so `isEntitled` answers its default.
 - Usage writes move the meters as Entitler would: a gated report past the allowance answers
-  `refused`, holds settle and release, and a reused key replays with `replayed` true.
+  `refused`, holds settle and release, and a reused key records nothing and replays with `replayed`
+  true: a report answers `duplicate` (or `cancelled` once cancelled), and a hold's key answers
+  `duplicate` while the hold is open, else `settled` or `released`, so `startHold` throws
+  `UsageReplayedError`. Releasing a settled hold answers `409 hold_settled`.
 - Every write is kept in `writes`, in order, with its method and arguments. Writes it does not model
   answer a plain success (`subscribe` a `done` step made now, `setPlan` and the other billing writes a
   `PlanChange` made now); `answer(method, fn)` replaces one method's answer:
@@ -43,7 +46,10 @@ paying.answer("subscribe", () => ({ next: "pay", url: "https://checkout.stripe.c
 ## Faking `fetch`
 
 Tests that exercise the real client against a fake `fetch` build answer bodies with `answers`, so a
-fixture missing one field never decodes as `invalid_response` and passes a test for the wrong reason:
+fixture missing one field never decodes as `invalid_response` and passes a test for the wrong reason.
+There is one builder per answer the SDK decodes, from `answers.check` and `answers.usageResult` to
+`answers.details`, `answers.customerPage`, `answers.batchResult` and `answers.providerPage`; each
+takes the fields that matter to the test and fills the rest:
 
 ```ts
 import { EntitlerServer } from "@entitlerhq/entitler";
