@@ -101,13 +101,20 @@ const sku = shape({
   ids: (value) => isObject(value) && Object.values(value).every(str),
   price: optional(nullable(price)),
 });
+const KNOWN_PENDING: Record<string, Rule> = {
+  move: (value) => plan((value as Json).plan),
+  cancel: (value) => nullable(plan)((value as Json).movingTo),
+  billing: (value) => str((value as Json).billing),
+};
 const pending = nullable(
-  (value) =>
-    isObject(value) &&
-    ((value.type === "move" && plan(value.plan)) ||
-      (value.type === "cancel" && nullable(plan)(value.movingTo)) ||
-      (typeof value.type === "string" && value.type !== "move" && value.type !== "cancel")),
+  (value) => isObject(value) && typeof value.type === "string" && (KNOWN_PENDING[value.type]?.(value) ?? true),
 );
+
+/** A booked change as the SDK answers it: a type this SDK does not know becomes `unknown` with its raw object. @internal */
+export function pendingOf(value: unknown): unknown {
+  if (!isObject(value) || Object.hasOwn(KNOWN_PENDING, value.type as string)) return value;
+  return { type: "unknown", raw: value };
+}
 
 /** True for the customer's plans. @internal */
 export const isPlans: Rule = shape({
@@ -142,13 +149,28 @@ export const isPlans: Rule = shape({
   ...context,
 });
 
-/** The customer's plans with each SKU's missing price as `null`. @internal */
+/** The customer's plans with each SKU's missing price as `null` and each booked change decoded. @internal */
 export function plansOf(data: Json): Json {
+  const held = (data.held as Json[]).map((each) => ({ ...each, pending: pendingOf(each.pending) }));
   const options = (data.options as Json[]).map((option) => ({
     ...option,
     skus: (option.skus as Json[]).map((each) => ({ ...each, price: each.price ?? null })),
   }));
-  return { ...data, options };
+  return { ...data, held, options };
+}
+
+function subscriptionOf(value: unknown): unknown {
+  return isObject(value) ? { ...value, pending: pendingOf(value.pending) } : value;
+}
+
+/** A customer's details with each subscription's booked change decoded. @internal */
+export function detailsOf(data: Json): Json {
+  const products = Array.isArray(data.products)
+    ? data.products.map((each) =>
+        isObject(each) ? { ...each, subscription: subscriptionOf(each.subscription) } : each,
+      )
+    : data.products;
+  return { ...data, subscription: subscriptionOf(data.subscription), products };
 }
 
 /** True for a usage write's answer. @internal */

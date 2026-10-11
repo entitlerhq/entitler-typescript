@@ -8,10 +8,34 @@ the customer's own choices: `subscribe`, `cancel`, `undoPendingChange`, `billing
 
 `plans()` answers the plans the customer holds (`held`) and the moves open to them (`options`):
 
-- each held plan's `period` (`{ key, label }`), `renewsAt`, `pending` (a move or a cancel booked for
-  `renewsAt`) and `billedBy` (`stripe`, `apple`, `google`, or `null` when nothing bills it);
+- each held plan's `period` (`{ key, label }`), `renewsAt`, `pending` (the change booked for
+  `renewsAt`, or `null`) and `billedBy` (`stripe`, `apple`, `google`, or `null` when nothing bills
+  it);
 - each option's `move` (`subscribe`, `upgrade`, `downgrade`, `switch`, `add` or `replace`), its
   `action`, its `periods`, its `impact` on the customer's features and limits, and its `skus`.
+
+`pending` is a union on `type`: `move` with the `plan` the customer moves to, `cancel` with the
+default plan it leads to (`movingTo`, `null` when the product has none), `billing` with who bills the
+plan from renewal (`provider`, `outside` for no payment provider, or `store`), and `unknown` with the
+`raw` object for a change this SDK does not know yet. The subscriptions in `details()` carry the
+same `pending`.
+
+```ts
+import type { PendingChange } from "@entitlerhq/entitler";
+
+function describePending(pending: PendingChange): string {
+  switch (pending.type) {
+    case "move":
+      return `Moves to ${pending.plan.name} at renewal.`;
+    case "cancel":
+      return pending.movingTo ? `Ends at renewal, then ${pending.movingTo.name}.` : "Ends at renewal.";
+    case "billing":
+      return pending.billing === "outside" ? "Invoiced from renewal." : "Billing changes at renewal.";
+    case "unknown":
+      return "A change is booked for renewal.";
+  }
+}
+```
 
 `action` decides the button: `buy` when the customer can make the move alone, `contact` for a
 sales-led move only your team can make, and `unavailable` (with `reason`, a sentence for you, not

@@ -22,7 +22,8 @@ await customer.setPlan("enterprise", {
   as a deliberate exception such as a goodwill upgrade, until a later `setPlan`.
 - `billing: "end"` ends the provider's subscription when the change takes effect (now, prorated; or
   at renewal), and the customer then holds the plan outside any provider, as with an invoiced
-  contract. Moving a Stripe payer onto invoiced Enterprise is this one write.
+  contract. Moving a Stripe payer onto invoiced Enterprise is this one write. Booked for renewal, it
+  shows in `plans()` as a `pending` of type `billing` until then.
 - `when` is `now` or `end` (at renewal); left out, the project's policy decides.
 - `until` returns the customer to the product's default plan at that instant, unless a later
   `setPlan` moved them or set a later `until`.

@@ -3,6 +3,7 @@ import { type PricingOptions, type ServerCustomer, ServerCustomerApi, usageAmoun
 import { type ClientDescription, describe, knownScopes } from "./describe.js";
 import { ApiError, TimeoutError } from "./errors.js";
 import { paged } from "./paging.js";
+import { detailsOf } from "./shapes.js";
 import { type SnapshotExpectation, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
 import {
   type CallOptions,
@@ -217,6 +218,7 @@ export class EntitlerServer {
           body,
           idempotencyKey: idempotencyKeyOf(options?.idempotencyKey),
           changes: [`/customers/${encodeURIComponent(externalId)}`],
+          map: detailsOf,
           options,
         });
         const customer = new ServerCustomerApi(transport, externalId);

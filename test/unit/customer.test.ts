@@ -1141,6 +1141,81 @@ describe("billing", () => {
   });
 });
 
+describe("booked changes", () => {
+  const pro = { id: "pln_pro", key: "pro", name: "Pro" };
+  const cases = [
+    ["a move", { type: "move", plan: pro }, { type: "move", plan: pro }],
+    ["a cancel", { type: "cancel", movingTo: null }, { type: "cancel", movingTo: null }],
+    [
+      "a change of who bills the plan",
+      { type: "billing", billing: "outside" },
+      { type: "billing", billing: "outside" },
+    ],
+    [
+      "a change this SDK does not know",
+      { type: "pause", resumes: "next_period" },
+      { type: "unknown", raw: { type: "pause", resumes: "next_period" } },
+    ],
+  ] as const;
+
+  function held(pending: unknown) {
+    return {
+      plan: { ...pro, kind: "plan" },
+      product: null,
+      version: 1,
+      byDefault: false,
+      period: { key: "monthly", label: "Monthly" },
+      renewsAt: "2026-11-09T00:00:00Z",
+      pending,
+      billedBy: "stripe",
+    };
+  }
+
+  function subscription(pending: unknown) {
+    return {
+      product: { key: "app", name: "App" },
+      plan: pro,
+      version: 1,
+      cohort: null,
+      period: "monthly",
+      startedAt: "2026-10-09T00:00:00Z",
+      renewsAt: "2026-11-09T00:00:00Z",
+      billing: null,
+      addOns: [],
+      pending,
+      purchase: { kind: "provider" },
+      override: null,
+    };
+  }
+
+  it.each(cases)("decodes %s held in plans()", async (_name, body, pending) => {
+    const { customer } = setup((request) => json({ ...(answerFor(request) as object), held: [held(body)] }));
+    const plans = await customer.plans();
+    expect(plans.held[0]?.pending).toEqual(pending);
+  });
+
+  it.each(cases)("decodes %s on the subscriptions in details()", async (_name, body, pending) => {
+    const { customer } = setup(
+      json(
+        detailsAnswer({
+          subscription: subscription(body),
+          products: [{ product: { key: "app", name: "App" }, defaultPlan: null, subscription: subscription(body) }],
+        }),
+      ),
+    );
+    const details = await customer.details();
+    expect(details.subscription?.pending).toEqual(pending);
+    expect(details.products[0]?.subscription?.pending).toEqual(pending);
+  });
+
+  it("fails a known change missing its fields as invalid_response", async () => {
+    const { customer } = setup((request) =>
+      json({ ...(answerFor(request) as object), held: [held({ type: "billing" })] }),
+    );
+    await expect(customer.plans()).rejects.toMatchObject({ code: "invalid_response" });
+  });
+});
+
 describe("details", () => {
   it("decodes details with the usage log as pages", async () => {
     const event = {

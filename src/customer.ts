@@ -2,6 +2,7 @@ import { Entitlements, type EntitlementsInit } from "./entitlements.js";
 import { ApiError, UsageRefusedError, UsageReplayedError, UsageSettlementError } from "./errors.js";
 import { paged } from "./paging.js";
 import {
+  detailsOf,
   grantChangeOf,
   isBillingSync,
   isCheck,
@@ -984,6 +985,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     return this.read<CustomerDetails & { usage: Page<UsageEvent> }>("", options, {
       query: { cursor },
       headers: asOfHeader(options),
+      map: detailsOf,
     });
   }
 
