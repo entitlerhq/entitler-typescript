@@ -27,8 +27,23 @@ await customer.setPlan("enterprise", {
 - `until` returns the customer to the product's default plan at that instant, unless a later
   `setPlan` moved them or set a later `until`.
 
+- `version: "latest"` moves the customer now to the newest version of the plan they hold, ending a
+  grandfathered version; `changed` is false when they are already on it.
+- `until` comes after any change booked for renewal, and while Stripe bills the product it needs
+  `billing: "end"` (`400 invalid_body` otherwise).
+
+To end the customer's plan in a product, pass `null` and the product. They move to its default plan,
+or hold no plan when it has none, now or at renewal; `billing: "keep"` is refused, and `period`,
+`until` and `version` never go with it:
+
+```ts
+await customer.setPlan(null, { product: "app", when: "end", actor: "hubspot", idempotencyKey: "deal-8841-lost" });
+```
+
 The plan the customer already holds, with the same period, billing and `until`, changes nothing and
-answers `changed: false`, so a redelivered webhook is harmless even with a new key.
+answers `changed: false`, so a redelivered webhook is harmless even with a new key. Two exceptions
+change something: naming the plan held undoes a change booked for renewal, and naming it with
+`billing` `provider` or `end` ends a `keep` exception.
 
 ## Add-ons: `setAddOn`
 
@@ -38,7 +53,11 @@ effect now (an add-on change cannot be booked for renewal):
 ```ts
 await customer.setAddOn("extra_seats", { quantity: 150, actor: "salesforce" });
 await customer.setAddOn("extra_seats", { quantity: 0, reason: "Seats moved into the plan" });
+await customer.setAddOn("support_premium", { quantity: 1, replaces: "support_standard" });
 ```
+
+`replaces` swaps one add-on for another in one write, as `plans()` lists a `replace` move. Naming an
+add-on's held quantity undoes an add-on move booked for renewal.
 
 ## Grants
 

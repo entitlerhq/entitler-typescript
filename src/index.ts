@@ -17,6 +17,7 @@ export type {
   BillingPortalOptions,
   CompanyOptions,
   Customer,
+  EndPlanOptions,
   GrantOptions,
   Hold,
   HoldContext,
