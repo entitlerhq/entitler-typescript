@@ -150,16 +150,16 @@ const checkFields = {
   ...meter,
 };
 
-/** Decodes an entitlement in a list or a snapshot. @internal */
-export const decodeEntitlement: Decoder = shape({
-  key: str,
-  type: str,
-  entitled: bool,
-  value,
-  sources: optional(list(source)),
-  upgrades: optional(list(upgrade)),
-  ...meter,
-});
+const entitlementFields = { key: str, type: str, entitled: bool, value, sources: list(source), ...meter };
+
+/** Decodes an entitlement in a list. @internal */
+export const decodeEntitlement: Decoder = shape({ ...entitlementFields, upgrades: list(upgrade) });
+
+/** Decodes an entitlement a snapshot signs, which has no upgrades, giving it none. @internal */
+export const decodeSignedEntitlement: Decoder = then(shape(entitlementFields), (decoded) => ({
+  ...decoded,
+  upgrades: [],
+}));
 
 /** Decodes a check. @internal */
 export const decodeCheck: Decoder = shape(checkFields);
@@ -292,7 +292,9 @@ const usageEvent = shape({
   kind: str,
   setTo: nullable(int),
   source: str,
+  by: nullable(str),
   actor: nullable(str),
+  reason: nullable(str),
   at: instant,
   cancelledAt: nullable(instant),
 });
@@ -424,7 +426,7 @@ export const decodeDetails: Decoder = shape({
   moveOptions: list(moveOption),
   grants: list(grant),
   usage: decodeUsagePage,
-  activity: list(shape({ text: str, at: instant })),
+  activity: list(shape({ text: str, at: instant, by: nullable(str), actor: nullable(str), reason: nullable(str) })),
   environment,
 });
 
@@ -502,6 +504,7 @@ export const decodeIssuedSnapshot: Decoder = shape({ token: str, expiresAt: inst
 /** Decodes the customer's track after `setTrack`. @internal */
 export const decodeCustomerTrack: Decoder = shape({
   customer: str,
+  environmentId: str,
   track,
   source: nullable(str),
   previousTrackId: nullable(str),

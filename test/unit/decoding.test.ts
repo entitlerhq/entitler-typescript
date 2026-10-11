@@ -163,3 +163,75 @@ describe("every answer is checked against its schema", () => {
     expect(result).toMatchObject({ recorded: 0, errors: 1 });
   });
 });
+
+describe("answers match the API's schemas", () => {
+  const event = {
+    id: "use_1",
+    feature: "ai_credits",
+    amount: 2,
+    kind: "adjust",
+    setTo: 5,
+    source: "dashboard",
+    by: "Ada Lovelace",
+    actor: "support",
+    reason: "Refund for an outage.",
+    at: "2026-10-09T00:00:00.000Z",
+    cancelledAt: null,
+  };
+
+  it("decodes a usage event's by, actor and reason, and refuses one without them", async () => {
+    const { server } = serverFor(json(detailsAnswer({ usage: { items: [event], next: null } })));
+    const details = await server.customer("user_1").details();
+    expect(details.usage.items[0]).toMatchObject({
+      by: "Ada Lovelace",
+      actor: "support",
+      reason: "Refund for an outage.",
+    });
+    for (const field of ["by", "actor", "reason"]) {
+      const { [field]: _, ...without } = event as Record<string, unknown>;
+      const { server: other } = serverFor(json(detailsAnswer({ usage: { items: [without], next: null } })));
+      await expect(other.customer("user_1").details()).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+
+  it("decodes an activity entry's by, actor and reason", async () => {
+    const activity = {
+      text: "Moved to Pro.",
+      at: "2026-10-09T00:00:00.000Z",
+      by: "Server key",
+      actor: null,
+      reason: null,
+    };
+    const { server } = serverFor(
+      json(detailsAnswer({ activity: [activity] })),
+      json(detailsAnswer({ activity: [{ text: "x", at: activity.at }] })),
+    );
+    expect((await server.customer("user_1").details()).activity[0]).toMatchObject({ by: "Server key", actor: null });
+    await expect(server.customer("user_1").details()).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("decodes the track's environmentId, and refuses a track without it", async () => {
+    const track = {
+      customer: "user_1",
+      environmentId: "env_1",
+      track: context.track,
+      source: "server",
+      previousTrackId: null,
+    };
+    const { environmentId: _, ...without } = track;
+    const { server } = serverFor(json(track), json(without));
+    expect((await server.customer("user_1").setTrack("Beta")).environmentId).toBe("env_1");
+    await expect(server.customer("user_1").setTrack("Beta")).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("refuses an entitlement list whose entitlements lack upgrades or sources", async () => {
+    const item = { key: "sso", type: "boolean", entitled: true, value: true, sources: [], upgrades: [] };
+    for (const field of ["upgrades", "sources"]) {
+      const { [field]: _, ...without } = item as Record<string, unknown>;
+      const { server } = serverFor(
+        json({ customer: "user_1", asOf: "2026-10-09T00:00:00.000Z", ...context, entitlements: [without] }),
+      );
+      await expect(server.customer("user_1").entitlements()).rejects.toMatchObject({ code: "invalid_response" });
+    }
+  });
+});

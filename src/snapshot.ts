@@ -1,6 +1,6 @@
 import { Entitlements } from "./entitlements.js";
 import { SnapshotError } from "./errors.js";
-import { decodeEntitlement } from "./shapes.js";
+import { decodeSignedEntitlement } from "./shapes.js";
 import { parseAnswer } from "./transport.js";
 import type { Entitlement, EnvironmentRef, SnapshotKey, SnapshotKeys, TrackRef } from "./types.js";
 import { base64UrlDecode, decodeJson, requireText } from "./util.js";
@@ -89,7 +89,7 @@ function claimsOf(value: unknown): Claims | undefined {
     instantSeconds(iat) &&
     instantSeconds(exp);
   return shaped
-    ? ({ ...value, entitlements: (entitlements as unknown[]).map(decodeEntitlement) } as unknown as Claims)
+    ? ({ ...value, entitlements: (entitlements as unknown[]).map(decodeSignedEntitlement) } as unknown as Claims)
     : undefined;
 }
 
@@ -225,7 +225,7 @@ export async function verifySnapshot(token: string, expected: SnapshotExpectatio
       change: claims.change,
       testers: claims.testers,
       experiment: null,
-      entitlements: claims.entitlements.map((entitlement) => ({ ...entitlement, upgrades: [] })),
+      entitlements: claims.entitlements,
       stale: false,
     }),
   };

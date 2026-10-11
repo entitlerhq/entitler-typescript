@@ -252,6 +252,8 @@ export interface Entitlement {
   readonly value: Value;
   /** Where the value comes from; a group names its member features. */
   readonly sources: readonly EntitlementSource[];
+  /** Plan moves that would give the customer the feature; empty in a snapshot. */
+  readonly upgrades: readonly Upgrade[];
   /** How much was used, for a metered feature. */
   readonly used?: number;
   /** How much open holds reserve, for a metered feature. */
@@ -555,8 +557,12 @@ export interface UsageEvent {
   readonly setTo: number | null;
   /** Who reported it. */
   readonly source: UsageSource;
-  /** The person who reported it, or `null`. */
+  /** The name of the key or person that recorded it, or `null`. */
+  readonly by: string | null;
+  /** The person or system that decided a meter adjustment or the cancel of a report, or `null`. */
   readonly actor: string | null;
+  /** Why it was recorded, adjusted or cancelled, or `null`. */
+  readonly reason: string | null;
   /** When it happened. */
   readonly at: Date;
   /** When it was cancelled, or `null`. */
@@ -972,6 +978,12 @@ export interface Activity {
   readonly text: string;
   /** When it happened. */
   readonly at: Date;
+  /** The name of the key or person that made the change, or `null`. */
+  readonly by: string | null;
+  /** The person or system that decided it, or `null`. */
+  readonly actor: string | null;
+  /** Why it was made, or `null`. */
+  readonly reason: string | null;
 }
 
 /** A customer's details: plans, add-ons, grants, entitlements and usage log. */
@@ -1008,6 +1020,8 @@ export interface CustomerDetails {
 export interface CustomerTrack extends Replayed {
   /** The customer's external id. */
   readonly customer: string;
+  /** The environment's id. */
+  readonly environmentId: string;
   /** The track. */
   readonly track: TrackRef;
   /** Who placed the customer on it, or `null`. */
@@ -1192,7 +1206,7 @@ export interface SubscribeManage {
   /** `manage`. */
   readonly next: "manage";
   /** `apple` or `google`. */
-  readonly billedBy: BilledBy;
+  readonly billedBy: Open<"apple" | "google">;
 }
 
 /** A step this SDK does not know yet, kept with its raw answer. */

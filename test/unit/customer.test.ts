@@ -241,7 +241,7 @@ describe("Entitlements", () => {
     ...context,
     asOf: "2026-10-09T01:00:00.000Z",
     entitlements: [
-      { key: "export_pdf", type: "boolean", entitled: true, value: true, sources: [] },
+      { key: "export_pdf", type: "boolean", entitled: true, value: true, sources: [], upgrades: [] },
       {
         key: "ai_credits",
         type: "metered",
@@ -252,6 +252,7 @@ describe("Entitlements", () => {
         held: 0,
         remaining: 0,
         resetsAt: "2026-11-01T00:00:00Z",
+        upgrades: [],
       },
       {
         key: "collaboration",
@@ -259,8 +260,16 @@ describe("Entitlements", () => {
         entitled: false,
         value: 0,
         sources: [{ type: "group", features: ["team_seats", "shared_folders"] }],
+        upgrades: [],
       },
-      { key: "future", type: "brand_new", entitled: true, value: "unlimited", sources: [{ type: "mystery" }] },
+      {
+        key: "future",
+        type: "brand_new",
+        entitled: true,
+        value: "unlimited",
+        sources: [{ type: "mystery" }],
+        upgrades: [],
+      },
     ],
   };
 
@@ -309,7 +318,9 @@ describe("usage", () => {
       kind: "use",
       setTo: null,
       source: "api",
+      by: "Server key",
       actor: null,
+      reason: null,
       at: "2026-10-09T00:00:00Z",
       cancelledAt: null,
     });
@@ -1276,7 +1287,9 @@ describe("details", () => {
       kind: "use",
       setTo: null,
       source: "api",
+      by: "Server key",
       actor: null,
+      reason: null,
       at: "2026-10-09T00:00:00Z",
       cancelledAt: null,
     };
