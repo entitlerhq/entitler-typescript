@@ -417,7 +417,7 @@ export interface SetPlanOptions extends CompanyOptions {
 
 /** Options for ending the customer's plan in a product with {@link ServerCustomer.setPlan}`(null, …)`. */
 export interface EndPlanOptions extends CompanyOptions {
-  /** The product whose plan ends, by key or public id. */
+  /** The product whose plan ends, by its key. */
   product: string;
   /** `now`, or `end` at renewal; the project's policy when left out. */
   when?: "now" | "end";
@@ -1032,7 +1032,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     }
     return this.planWrite("PUT", "/plan", options, {
       ...(plan === null
-        ? { plan: null, product: requireId(options?.product, "Name the product by its id or its key.") }
+        ? { plan: null, product: requireId(options?.product, "Name the product by its key.") }
         : choice(plan)),
       ...compact({
         version: options?.version,

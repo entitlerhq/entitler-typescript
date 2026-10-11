@@ -1032,7 +1032,7 @@ describe("ServerCustomer requests", () => {
       new TypeError("Pass product: the product whose plan ends."),
     );
     await expect(customer.setPlan(null, { product: " " })).rejects.toThrow(
-      new TypeError("Name the product by its id or its key."),
+      new TypeError("Name the product by its key."),
     );
     for (const extra of [{ period: "monthly" }, { until: "2026-12-01T00:00:00Z" }, { version: "latest" }]) {
       await expect(customer.setPlan(null, { product: "app", ...extra } as never)).rejects.toThrow(
