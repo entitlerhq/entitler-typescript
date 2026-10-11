@@ -911,6 +911,15 @@ describe("ServerCustomer requests", () => {
       {},
     ],
     [
+      "setAddOn bought through a store",
+      (c: ServerCustomer) =>
+        c.setAddOn("extra_seats", { quantity: 5, sku: { connector: "google", ids: { productId: "seats" } } }),
+      "PUT",
+      "/customers/user_1/add-ons/extra_seats",
+      { quantity: 5, sku: { connector: "google", ids: { productId: "seats" } } },
+      {},
+    ],
+    [
       "grant",
       (c: ServerCustomer) => c.grant(features.exportPdf),
       "POST",
@@ -991,6 +1000,7 @@ describe("ServerCustomer requests", () => {
     await expect(customer.billingPortal({ returnUrl: "" })).rejects.toThrow(TypeError);
     await expect(customer.setPlan({ sku: null } as never)).rejects.toThrow(TypeError);
     await expect(customer.setAddOn("seats", { quantity: 10_001 })).rejects.toThrow(RangeError);
+    await expect(customer.setAddOn("seats", { quantity: 1, sku: null as never })).rejects.toThrow(TypeError);
     await expect(customer.grant("f", { value: -1 })).rejects.toThrow(RangeError);
     await expect(customer.setPlan("pro", { until: "soon" })).rejects.toThrow(
       new TypeError("Pass until as a valid date."),

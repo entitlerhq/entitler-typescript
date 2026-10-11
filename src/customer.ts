@@ -413,6 +413,11 @@ export interface SetPlanOptions extends CompanyOptions {
 export interface SetAddOnOptions extends CompanyOptions {
   /** The quantity, 0 to 10,000; `0` removes the add-on. The change always takes effect now. */
   quantity: number;
+  /**
+   * The App Store or Google Play SKU the customer bought the add-on through, recorded as its biller;
+   * Stripe is never charged, and `409 billed_elsewhere` answers when Stripe bills the product.
+   */
+  sku?: Sku;
 }
 
 /** Options for {@link ServerCustomer.grant}. */
@@ -1003,6 +1008,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
   async setAddOn(addOn: string, options: SetAddOnOptions): Promise<PlanChange> {
     return this.planWrite("PUT", `/add-ons/${segment(planKey(addOn))}`, options, {
       quantity: wholeNumber(options?.quantity, "quantity", 0, 10_000),
+      ...(options.sku === undefined ? {} : choice({ sku: options.sku })),
       ...compact({ reason: options.reason, actor: options.actor }),
     });
   }

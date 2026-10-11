@@ -29,11 +29,25 @@ await customer.setPlan(
 3. It records the plan until the subscription's expiry, with `connector: "google"` and the product
    and base plan ids, and again on each Real-time developer notification of a renewal.
 
+## Add-ons bought in a store
+
+An add-on bought through the App Store or Google Play is recorded the same way, with `setAddOn` and
+the SKU that sells it. The store is recorded as the add-on's biller, and Stripe is never charged:
+
+```ts
+await customer.setAddOn("extra_seats", {
+  quantity: 5,
+  sku: { connector: "apple", ids: { productId: "seats.5" } },
+  actor: "app-store",
+  idempotencyKey: "apple-tx-2000000812345679",
+});
+```
+
 ## Why `until`
 
 `until` makes a missed store notification end the plan instead of keeping it for ever. A store SKU
-never touches Stripe: when Stripe already bills that product, Entitler answers
-`409 billed_elsewhere` and changes nothing.
+never touches Stripe: when Stripe already bills that product, `setPlan` and `setAddOn` answer
+`409 billed_elsewhere` and change nothing.
 
 ## Deleting an account
 
