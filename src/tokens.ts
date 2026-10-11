@@ -1,5 +1,5 @@
 import { TokenError } from "./errors.js";
-import { readClaims, requireText, trimCredential } from "./util.js";
+import { deadlineAfter, readClaims, requireText, trimCredential } from "./util.js";
 
 /**
  * A function that answers a fresh token, such as one that asks your server for a customer
@@ -74,7 +74,7 @@ export class TokenSource {
   }
 
   async #ask(): Promise<string> {
-    const timer = AbortSignal.timeout(this.#timeout);
+    const timer = deadlineAfter(this.#timeout);
     const closing = this.#closing();
     const deadline = closing ? AbortSignal.any([timer, closing]) : timer;
     let answer: unknown;

@@ -257,7 +257,7 @@ describe("verifySnapshot", () => {
     const token = await sign(claims({ exp: NOW.getTime() / 1000 }));
     for (const now of [new Date(Number.NaN), "2026-10-09T00:00:00Z", NOW.getTime()]) {
       await expect(verifySnapshot(token, { ...expected, now } as never)).rejects.toThrow(
-        new TypeError("Pass now as a valid Date."),
+        new TypeError("Pass now as a valid instant."),
       );
     }
   });

@@ -116,7 +116,7 @@ async function generate(options: Options, env: Record<string, string | undefined
   if (options.check) {
     if (existing !== undefined && sameFeatures(existing, rendered))
       return [0, `${file} is up to date with ${count}.\n`];
-    return [1, `${file} is out of date. Run entitler generate to update it.\n`];
+    return [1, `${file} is out of date. Run npx @entitlerhq/entitler generate to update it.\n`];
   }
   if (source.features.length === 0 && !options["allow-empty"] && existing !== undefined && holdsConstants(existing)) {
     return [

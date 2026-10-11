@@ -167,6 +167,18 @@ export async function sha256Hex(text: string): Promise<string> {
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+const LONGEST_TIMER = 2_147_483_647;
+
+/** A duration in milliseconds clamped to what timers can represent, so it never overflows into 0. @internal */
+export function timerDelay(ms: number): number {
+  return Math.min(Math.max(0, ms), LONGEST_TIMER);
+}
+
+/** An `AbortSignal` that aborts after `ms`, clamped to what timers can represent. @internal */
+export function deadlineAfter(ms: number): AbortSignal {
+  return AbortSignal.timeout(timerDelay(ms));
+}
+
 /** @internal */
 export function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -178,7 +190,7 @@ export function sleep(ms: number, signal: AbortSignal | undefined): Promise<void
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
-    }, ms);
+    }, timerDelay(ms));
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }

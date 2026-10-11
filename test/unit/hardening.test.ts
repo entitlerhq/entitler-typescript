@@ -165,7 +165,7 @@ describe("the fake's holds", () => {
     expect(await customer.settleUsage(hold.id, 10)).toMatchObject({ outcome: "duplicate" });
     await expect(customer.settleUsage(hold.id, 11)).rejects.toMatchObject({ status: 409, code: "hold_settled" });
     const other = await customer.startHold(credits, 5, { idempotencyKey: "job-2" });
-    await expect(customer.settleUsage(other.id, 6)).rejects.toMatchObject({ status: 400, code: "invalid_amount" });
+    await expect(customer.settleUsage(other.id, 6)).rejects.toMatchObject({ status: 400, code: "invalid_body" });
   });
 });
 

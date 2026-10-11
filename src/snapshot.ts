@@ -133,7 +133,7 @@ export async function verifySnapshot(token: string, expected: SnapshotExpectatio
   const keyList = Array.isArray(expected.keys) ? expected.keys : (expected.keys as SnapshotKeys | undefined)?.keys;
   if (!Array.isArray(keyList)) throw new TypeError("Pass keys as the key set snapshotKeys() answers, or its keys.");
   if (expected.now !== undefined && !(expected.now instanceof Date && !Number.isNaN(expected.now.getTime()))) {
-    throw new TypeError("Pass now as a valid Date.");
+    throw new TypeError("Pass now as a valid instant.");
   }
   const now = (expected.now ?? new Date()).getTime() / 1000;
 

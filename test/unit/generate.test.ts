@@ -187,6 +187,33 @@ describe("renderFeatures", () => {
     expect(source).toContain('defineFeature("odd*/\\u2028x", "boolean")');
   });
 
+  it("turns NEL into a space, drops other control characters and escapes quotes in literals", () => {
+    const injected = "process.env.KEY";
+    const source = renderFeatures({
+      environment: { name: `Live\u0085${injected}` },
+      track: { name: "Beta\u0007\u001b[31m" },
+      release: 1,
+      change: null,
+      features: [
+        feature('say"hi\\', {
+          name: `Bell\u0007 \u0085${injected}`,
+          description: "Tab\there\u0085next\u0000",
+          unit: "u\u009bnit",
+        }),
+      ],
+    });
+    const control = Array.from(source).filter((char) => {
+      const code = char.charCodeAt(0);
+      return char !== "\n" && (code < 0x20 || (code >= 0x7f && code <= 0x9f));
+    });
+    expect(control).toEqual([]);
+    expect(source.split("\n")[1]).toBe(`// Read from Live ${injected}, Beta[31m, release 1.`);
+    expect(source).toContain("   * Tab here\n   * next\n");
+    expect(source).toContain('defineFeature("say\\"hi\\\\", "boolean")');
+    const code = ts.transpileModule(source, { compilerOptions: { removeComments: true } }).outputText;
+    expect(code).not.toContain(injected);
+  });
+
   it("keeps the names of constants wrapped onto their own line", () => {
     const long = "a_feature_key_long_enough_that_its_constant_name_alone_overflows_the_whole_line";
     const wrapped = renderFeatures({ ...catalogue, features: [feature(long)] });
@@ -305,7 +332,7 @@ describe("entitler generate", () => {
     expect(await run(["generate", "--out", file, "--check"])).toEqual({
       code: 1,
       stdout: "",
-      stderr: `${file} is out of date. Run entitler generate to update it.\n`,
+      stderr: `${file} is out of date. Run npx @entitlerhq/entitler generate to update it.\n`,
     });
     expect((await run(["generate", "--out", file])).stdout).toBe(`Wrote 2 features to ${file}.\n`);
   });
