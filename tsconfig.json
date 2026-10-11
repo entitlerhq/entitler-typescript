@@ -15,7 +15,10 @@
     "erasableSyntaxOnly": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@entitlerhq/entitler": ["./src/index.ts"]
+    }
   },
   "include": ["src", "test", "vitest.config.ts"],
   "exclude": ["test/smoke", "test/docs/out"]
