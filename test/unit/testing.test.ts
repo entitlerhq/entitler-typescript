@@ -209,3 +209,32 @@ describe("answers", () => {
     for (const [body, decode] of cases) expect(() => decode(wire(body))).not.toThrow();
   });
 });
+
+describe("the fake's refusals", () => {
+  it("refuses a gated report and a hold with not_entitled when the meter's value is 0", async () => {
+    const customer = fakeCustomer({ ai_credits: { value: 0 } });
+    expect(await customer.recordUsage(credits, 1, { idempotencyKey: "r1" })).toMatchObject({
+      outcome: "refused",
+      refusal: "not_entitled",
+    });
+    const error = await customer.startHold(credits, 1, { idempotencyKey: "h1" }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(UsageRefusedError);
+    expect((error as UsageRefusedError).result.refusal).toBe("not_entitled");
+    expect(await customer.recordUsage(credits, 1, { idempotencyKey: "o1", mode: "observe" })).toMatchObject({
+      outcome: "recorded",
+    });
+  });
+
+  it("refuses past the allowance with over_allowance", async () => {
+    const customer = fakeCustomer({ ai_credits: { value: 10, used: 10 } });
+    expect(await customer.recordUsage(credits, 1, { idempotencyKey: "r1" })).toMatchObject({
+      refusal: "over_allowance",
+    });
+    const error = await customer.startHold(credits, 5, { idempotencyKey: "h1" }).catch((caught: unknown) => caught);
+    expect((error as UsageRefusedError).result.refusal).toBe("over_allowance");
+    const partly = fakeCustomer({ ai_credits: { value: 10, used: 8 } });
+    expect(await partly.recordUsage(credits, 3, { idempotencyKey: "r2" })).toMatchObject({
+      refusal: "over_allowance",
+    });
+  });
+});
