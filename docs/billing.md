@@ -140,7 +140,7 @@ member); without it, Entitler answers `403 scope_required`.
 | `billingPortal` | `403 scope_required`, `404 not_found`, `409 capability_required` |
 | `syncBilling` | `403 scope_required`, `409 capability_required`, `429 rate_limited`, `503` |
 | `setPlan` | `400 invalid_body`, `402 payment_required`, `404 customer_not_found`, `409 billed_elsewhere`, `503` |
-| `setAddOn` | `400 invalid_body`, `402 payment_required`, `404 not_found`, `404 customer_not_found` |
+| `setAddOn` | `400 invalid_body`, `402 payment_required`, `404 not_found`, `404 customer_not_found`, `409 billed_elsewhere` |
 
 API messages are written for you, the developer, not for the customer. See
 [company decisions](company-decisions.md) for the changes your team makes.
