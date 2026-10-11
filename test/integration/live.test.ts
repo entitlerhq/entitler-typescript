@@ -238,6 +238,8 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     const plans = await customer.plans();
     expect(plans.held.map((held) => held.plan.key)).toEqual(["free"]);
     expect(plans.held[0]?.billedBy).toBeNull();
+    expect(plans.held[0]?.byDefault).toBe(false);
+    expect(plans.held[0]?.period?.key).toBe("monthly");
     const pro = plans.options.find((option) => option.plan.key === "pro");
     expect(pro?.action).toBe("buy");
     expect(pro?.periods.map((period) => period.key)).toEqual(["monthly", "yearly"]);
