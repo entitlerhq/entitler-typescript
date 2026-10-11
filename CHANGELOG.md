@@ -20,7 +20,7 @@ All notable changes to this package are listed here. The format follows
   keys derive from their events.
 - Billing by intent: `subscribe` answering its next step (`done`, `pay`, `confirming`, `manage`),
   `cancel`, `undoPendingChange`, `billingPortal` and `syncBilling`; and the company's `setPlan` with
-  `billing` and `until`, `setAddOn`, `grant`, `revokeGrant`, `adjustMeter` and `cancelUsage`.
+  `billing`, `until`, `version` and `null` to end a product's plan, `setAddOn` with `sku` and `replaces`, `grant`, `revokeGrant`, `adjustMeter` and `cancelUsage`.
 - Registration, details, `erase()`, customer tokens with the fewest scopes, tracks by name, and
   `asOf` on the server customer's reads.
 - Timeouts, retries with backoff and `Retry-After`, idempotency keys on every write with `replayed` on

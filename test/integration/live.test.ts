@@ -173,9 +173,9 @@ describe.skipIf(!key)("the live API", { timeout: 60_000 }, () => {
     const unused = await customer.startHold(features.aiCredits, 3, { idempotencyKey: event(customer) });
     expect((await unused.release()).outcome).toBe("released");
     expect((await customer.check(features.aiCredits)).held).toBe(0);
-    await expect(customer.startHold(features.aiCredits, 10, { idempotencyKey: key1, ttlSeconds: 60 })).rejects.toBeInstanceOf(
-      UsageReplayedError,
-    );
+    await expect(
+      customer.startHold(features.aiCredits, 10, { idempotencyKey: key1, ttlSeconds: 60 }),
+    ).rejects.toBeInstanceOf(UsageReplayedError);
   });
 
   it("settles, charges for reported work, and releases inside withHold", async () => {

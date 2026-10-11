@@ -375,7 +375,7 @@ export interface TokenOptions extends CallOptions {
 }
 
 /** A plan by key or public id, or a SKU the customer bought, which names its own period. */
-export type PlanChoice = string | SkuChoice;
+export type PlanChoice = string | SkuChoice | null;
 
 /** A SKU the customer bought, in place of a plan. */
 export interface SkuChoice {
@@ -403,8 +403,26 @@ export interface SetPlanOptions extends CompanyOptions {
    * provider's subscription when the change takes effect, as with an invoiced contract.
    */
   billing?: "provider" | "keep" | "end";
-  /** An instant in the future when the customer returns to the default plan unless renewed, such as a store purchase's expiry. */
+  /**
+   * An instant in the future, after any change booked for renewal, when the customer returns to
+   * the default plan unless renewed, such as a store purchase's expiry. While Stripe bills the
+   * product it needs `billing: "end"`.
+   */
   until?: Date | string;
+  /** `latest` moves the customer now to the newest version of the plan they hold, ending a grandfathered version. */
+  version?: "latest";
+  /** Registers a customer not registered yet. */
+  register?: boolean;
+}
+
+/** Options for ending the customer's plan in a product with {@link ServerCustomer.setPlan}`(null, …)`. */
+export interface EndPlanOptions extends CompanyOptions {
+  /** The product whose plan ends, by key or public id. */
+  product: string;
+  /** `now`, or `end` at renewal; the project's policy when left out. */
+  when?: "now" | "end";
+  /** `provider` (the default) or `end`; `keep` is refused. */
+  billing?: "provider" | "end";
   /** Registers a customer not registered yet. */
   register?: boolean;
 }
@@ -413,6 +431,8 @@ export interface SetPlanOptions extends CompanyOptions {
 export interface SetAddOnOptions extends CompanyOptions {
   /** The quantity, 0 to 10,000; `0` removes the add-on. The change always takes effect now. */
   quantity: number;
+  /** The add-on this one takes the place of, by key or public id, swapped in one write as a `replace` move; quantity at least 1. */
+  replaces?: string;
   /**
    * The App Store or Google Play SKU the customer bought the add-on through, recorded as its biller;
    * Stripe is never charged, and `409 billed_elsewhere` answers when Stripe bills the product.
@@ -502,6 +522,16 @@ export interface ServerCustomer extends Customer {
   setPlan(plan: string, options?: SetPlanOptions): Promise<PlanChange>;
   /** Records a verified store purchase by its SKU, which names its own period. */
   setPlan(purchase: SkuChoice, options?: Omit<SetPlanOptions, "period">): Promise<PlanChange>;
+  /**
+   * Ends the customer's plan in `product`: they move to its default plan, or hold no plan when it
+   * has none, now or at renewal.
+   *
+   * @example
+   * ```ts
+   * await customer.setPlan(null, { product: "app", when: "end", idempotencyKey: churnEventId });
+   * ```
+   */
+  setPlan(none: null, options: EndPlanOptions): Promise<PlanChange>;
   /** Adds an add-on, sets its quantity, or removes it at `0`, always taking effect now. */
   setAddOn(addOn: string, options: SetAddOnOptions): Promise<PlanChange>;
   /** Grants a feature for a while, or for good, and answers the grant made so a support tool keeps its id. */
@@ -990,10 +1020,22 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     return this.read("/billing", options);
   }
 
-  async setPlan(plan: PlanChoice, options?: SetPlanOptions): Promise<PlanChange> {
+  async setPlan(plan: PlanChoice, given?: SetPlanOptions | EndPlanOptions): Promise<PlanChange> {
+    const options = given as (SetPlanOptions & { product?: string }) | undefined;
+    if (plan === null) {
+      if (options?.product === undefined) throw new TypeError("Pass product: the product whose plan ends.");
+      if (options.period !== undefined || options.until !== undefined || options.version !== undefined) {
+        throw new TypeError("Pass no period, until or version when ending a plan.");
+      }
+    } else if (options?.product !== undefined) {
+      throw new TypeError("Pass product only when ending a plan with null.");
+    }
     return this.planWrite("PUT", "/plan", options, {
-      ...choice(plan),
+      ...(plan === null
+        ? { plan: null, product: requireId(options?.product, "Name the product by its key or its id.") }
+        : choice(plan)),
       ...compact({
+        version: options?.version,
         period: options?.period,
         when: options?.when,
         billing: options?.billing,
@@ -1009,6 +1051,7 @@ export class ServerCustomerApi extends CustomerApi implements ServerCustomer {
     return this.planWrite("PUT", `/add-ons/${segment(planKey(addOn))}`, options, {
       quantity: wholeNumber(options?.quantity, "quantity", 0, 10_000),
       ...(options.sku === undefined ? {} : choice({ sku: options.sku })),
+      ...(options.replaces === undefined ? {} : { replaces: planKey(options.replaces) }),
       ...compact({ reason: options.reason, actor: options.actor }),
     });
   }

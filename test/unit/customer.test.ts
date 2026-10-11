@@ -911,6 +911,30 @@ describe("ServerCustomer requests", () => {
       {},
     ],
     [
+      "setPlan to the newest version",
+      (c: ServerCustomer) => c.setPlan("pro", { version: "latest" }),
+      "PUT",
+      "/customers/user_1/plan",
+      { plan: "pro", version: "latest" },
+      {},
+    ],
+    [
+      "setPlan ending the plan in a product",
+      (c: ServerCustomer) => c.setPlan(null, { product: "app", when: "end", billing: "end", ...who }),
+      "PUT",
+      "/customers/user_1/plan",
+      { plan: null, product: "app", when: "end", billing: "end", ...who },
+      {},
+    ],
+    [
+      "setAddOn replacing another",
+      (c: ServerCustomer) => c.setAddOn("support_premium", { quantity: 1, replaces: "support_standard" }),
+      "PUT",
+      "/customers/user_1/add-ons/support_premium",
+      { quantity: 1, replaces: "support_standard" },
+      {},
+    ],
+    [
       "setAddOn bought through a store",
       (c: ServerCustomer) =>
         c.setAddOn("extra_seats", { quantity: 5, sku: { connector: "google", ids: { productId: "seats" } } }),
@@ -1001,6 +1025,23 @@ describe("ServerCustomer requests", () => {
     await expect(customer.setPlan({ sku: null } as never)).rejects.toThrow(TypeError);
     await expect(customer.setAddOn("seats", { quantity: 10_001 })).rejects.toThrow(RangeError);
     await expect(customer.setAddOn("seats", { quantity: 1, sku: null as never })).rejects.toThrow(TypeError);
+    await expect(customer.setAddOn("seats", { quantity: 1, replaces: " " })).rejects.toThrow(
+      new TypeError("Name the plan by its id or its key."),
+    );
+    await expect(customer.setPlan(null, {} as never)).rejects.toThrow(
+      new TypeError("Pass product: the product whose plan ends."),
+    );
+    await expect(customer.setPlan(null, { product: " " })).rejects.toThrow(
+      new TypeError("Name the product by its key or its id."),
+    );
+    for (const extra of [{ period: "monthly" }, { until: "2026-12-01T00:00:00Z" }, { version: "latest" }]) {
+      await expect(customer.setPlan(null, { product: "app", ...extra } as never)).rejects.toThrow(
+        new TypeError("Pass no period, until or version when ending a plan."),
+      );
+    }
+    await expect(customer.setPlan("pro", { product: "app" } as never)).rejects.toThrow(
+      new TypeError("Pass product only when ending a plan with null."),
+    );
     await expect(customer.grant("f", { value: -1 })).rejects.toThrow(RangeError);
     await expect(customer.setPlan("pro", { until: "soon" })).rejects.toThrow(
       new TypeError("Pass until as a valid date."),
