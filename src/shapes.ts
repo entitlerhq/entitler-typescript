@@ -110,10 +110,10 @@ const pending = nullable(
   (value) => isObject(value) && typeof value.type === "string" && (KNOWN_PENDING[value.type]?.(value) ?? true),
 );
 
-/** A booked change as the SDK answers it: a type this SDK does not know becomes `unknown` with its raw object. @internal */
+/** A booked change as the SDK answers it: a type this SDK does not know becomes `unknown` with its raw type. @internal */
 export function pendingOf(value: unknown): unknown {
   if (!isObject(value) || Object.hasOwn(KNOWN_PENDING, value.type as string)) return value;
-  return { type: "unknown", raw: value };
+  return { type: "unknown", raw: value.type };
 }
 
 /** True for the customer's plans. @internal */

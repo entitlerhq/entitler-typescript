@@ -309,11 +309,15 @@ export interface Customer {
   subscribe(plan: string, options?: SubscribeOptions): Promise<SubscribeStep>;
   /** Cancels the plan, or the add-on `addOn` names, as the customer's own choice; the project's policy decides when. */
   cancel(options?: PlanTargetOptions): Promise<PlanChange>;
-  /** Undoes the change booked for renewal on the plan, or on the add-on `addOn` names. */
+  /**
+   * Undoes the change booked for renewal on the plan, or on the add-on `addOn` names. A `billing`
+   * change, which only the company books, answers `403 not_self_serve`; undo it with `setPlan`.
+   */
   undoPendingChange(options?: PlanTargetOptions): Promise<PlanChange>;
   /**
-   * Opens the provider's page for payment details and invoices. It changes no plan, and a customer
-   * the provider has never billed answers `404 not_found`.
+   * Opens the provider's page for payment details and invoices. It changes no plan. A customer the
+   * provider has never billed answers `404 not_found`, and an environment with no payment provider
+   * connected answers `409 stale`.
    */
   billingPortal(options: BillingPortalOptions): Promise<ProviderPage>;
   /**
