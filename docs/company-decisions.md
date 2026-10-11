@@ -32,7 +32,8 @@ answers `changed: false`, so a redelivered webhook is harmless even with a new k
 
 ## Add-ons: `setAddOn`
 
-`setAddOn` adds an add-on, sets its quantity, or removes it at `0`, in one write:
+`setAddOn` adds an add-on, sets its quantity, or removes it at `0`, in one write that always takes
+effect now (an add-on change cannot be booked for renewal):
 
 ```ts
 await customer.setAddOn("extra_seats", { quantity: 150, actor: "salesforce" });

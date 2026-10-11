@@ -904,10 +904,10 @@ describe("ServerCustomer requests", () => {
     ],
     [
       "setAddOn",
-      (c: ServerCustomer) => c.setAddOn("support_standard", { quantity: 0, when: "now", ...who }),
+      (c: ServerCustomer) => c.setAddOn("support_standard", { quantity: 0, when: "end", ...who } as never),
       "PUT",
       "/customers/user_1/add-ons/support_standard",
-      { quantity: 0, when: "now", ...who },
+      { quantity: 0, ...who },
       {},
     ],
     [
