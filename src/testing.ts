@@ -543,13 +543,12 @@ class Model {
     hold.settled = amount;
     meter.held -= hold.amount;
     meter.used += amount;
-    return this.usage(hold.feature, {
-      outcome: "settled",
-      id: this.nextId("use"),
-      holdId,
-      amount,
-      meterChange: amount,
-    });
+    const id = amount > 0 ? this.nextId("use") : null;
+    if (id) {
+      this.reports.set(id, { feature: hold.feature, amount, mode: "gate", cancelled: false });
+      this.log.unshift(answers.usageEvent({ id, feature: hold.feature, amount }));
+    }
+    return this.usage(hold.feature, { outcome: "settled", id, holdId, amount, meterChange: amount });
   }
 
   cancelReport(id: string, body: Body): Response {

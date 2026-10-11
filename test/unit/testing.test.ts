@@ -109,6 +109,22 @@ describe("fakeCustomer", () => {
     expect((await customer.details()).usage.items).toHaveLength(2);
   });
 
+  it("logs a settlement above 0 as a use, and holds, releases and a 0 settlement as nothing", async () => {
+    const customer = fakeCustomer({ ai_credits: { value: 10 } });
+    const settled = await customer.startHold(credits, 4, { idempotencyKey: "hold-1" });
+    settled.use(3);
+    const result = await settled.finish();
+    await (await customer.startHold(credits, 2, { idempotencyKey: "hold-2" })).release();
+    const empty = await customer.startHold(credits, 2, { idempotencyKey: "hold-3" });
+    empty.use(0);
+    await empty.finish();
+    const log = (await customer.usage()).log.items;
+    expect(log.map((entry) => [entry.id, entry.kind, entry.amount])).toEqual([[result.id, "use", 3]]);
+    expect((await customer.details()).usage.items).toHaveLength(1);
+    await customer.cancelUsage(result.id as string);
+    expect((await customer.usage()).log.items[0]?.cancelledAt).toBeInstanceOf(Date);
+  });
+
   it("answers every method through the real decoders", async () => {
     const customer = fakeCustomer({ export_pdf: true, ai_credits: { value: 10, used: 4 } }, { id: "user_1" });
     const usage = await customer.usage();
