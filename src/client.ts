@@ -13,7 +13,7 @@ import {
   type WriteOptions,
 } from "./transport.js";
 import type { Pricing, RegisteredCustomer, Scopes, SnapshotKeys } from "./types.js";
-import { idempotencyKeyOf, requireText, trimCredential } from "./util.js";
+import { idempotencyKeyOf, requireCredential } from "./util.js";
 import { Visitor, visitorOf } from "./visitor.js";
 
 /** Options every in-app client takes. */
@@ -217,7 +217,7 @@ class InAppClient {
         new TokenSource(token, "Provide a customer token minted by your server.", timeout, closing),
       );
     } else {
-      const publishable = trimCredential(requireText(key, "Provide an Entitler API key from the dashboard."));
+      const publishable = requireCredential(key, "Provide an Entitler API key from the dashboard.");
       const identity =
         identityToken === undefined
           ? undefined

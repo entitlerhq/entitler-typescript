@@ -1,5 +1,5 @@
 import { TokenError } from "./errors.js";
-import { deadlineAfter, readClaims, requireText, trimCredential } from "./util.js";
+import { deadlineAfter, headerSafe, readClaims, requireCredential, trimCredential } from "./util.js";
 
 /**
  * A function that answers a fresh token, such as one that asks your server for a customer
@@ -48,7 +48,7 @@ export class TokenSource {
     this.#timeout = timeout;
     this.#closing = closing;
     if (typeof value === "function") this.#provider = value;
-    else this.#current = requireText(value, blankMessage);
+    else this.#current = requireCredential(value, blankMessage);
   }
 
   get refreshable(): boolean {
@@ -90,7 +90,9 @@ export class TokenSource {
     if (closing?.aborted) throw closing.reason;
     const token = typeof answer === "string" ? trimCredential(answer) : "";
     if (token === "") throw new TokenError("The token provider answered a blank token.");
-    if (!readable(token)) throw new TokenError("The token provider answered a token that is not a readable JWT.");
+    if (!headerSafe(token) || !readable(token)) {
+      throw new TokenError("The token provider answered a token that is not a readable JWT.");
+    }
     this.#current = token;
     this.#receivedAt = Date.now();
     return token;

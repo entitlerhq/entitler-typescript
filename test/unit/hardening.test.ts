@@ -253,3 +253,32 @@ describe("header numbers", () => {
     expect(Number.isSafeInteger(entries[0]?.age)).toBe(true);
   });
 });
+
+describe("credentials outside ! to ~", () => {
+  const inside = [" ", "\t", "é", "\u0007"];
+  const key = "Provide an Entitler API key from the dashboard.";
+  const minted = () => jwt({ sub: "u", exp: Math.floor(Date.now() / 1000) + 3600 });
+
+  it.each(inside)("refuses a server key holding %j as a blank one", (char) => {
+    expect(() => new EntitlerServer({ key: `ent_test_a${char}b` })).toThrow(new TypeError(key));
+  });
+
+  it.each(inside)("refuses a publishable key, a customer token and an identity token holding %j", (char) => {
+    expect(() => new EntitlerClient({ key: `ent_pk_test_a${char}b` })).toThrow(new TypeError(key));
+    expect(() => new EntitlerClient({ token: `${minted()}${char}x` })).toThrow(
+      new TypeError("Provide a customer token minted by your server."),
+    );
+    expect(() => new EntitlerClient({ key: "ent_pk_test_ok", identityToken: `a${char}b` })).toThrow(
+      new TypeError("Provide the identity token your sign-in provider issued."),
+    );
+  });
+
+  it.each(inside)("answers a provider's token holding %j as unreadable, sending nothing", async (char) => {
+    const { fetch, sent } = fakeFetch(json(checkAnswer()));
+    const client = new EntitlerClient({ token: async () => `${minted()}${char}x`, fetch });
+    const error = await client.me.check("f").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(TokenError);
+    expect((error as TokenError).message).toBe("The token provider answered a token that is not a readable JWT.");
+    expect(sent).toHaveLength(0);
+  });
+});
