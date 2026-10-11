@@ -290,7 +290,7 @@ export const answers = {
   },
   /** A page of the customer list. */
   customerPage(fields: Body = {}): Body {
-    return { items: [], next: null, used: 0, limit: null, ...fields };
+    return { items: [], next: null, used: 0, limit: 1000, ...fields };
   },
   /** A customer's details, with the first page of their usage log. */
   details(fields: Body = {}): Body {

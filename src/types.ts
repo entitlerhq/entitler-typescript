@@ -588,8 +588,8 @@ export interface Paged<T, P extends Page<T> = Page<T>> extends AsyncIterable<T> 
 export interface CustomerPage extends Page<CustomerSummary> {
   /** How many customers the project holds. */
   readonly used: number;
-  /** The most customers the project may hold: a number, `"unlimited"`, or `null`. */
-  readonly limit: Limit | null;
+  /** The most customers the project may hold: a number, or `"unlimited"`. */
+  readonly limit: Limit;
 }
 
 /**
@@ -1138,7 +1138,7 @@ export interface CustomerBilling {
   /** A difference between billed and held, or `null`. */
   readonly drift: BillingDrift | null;
   /** Each product's billing. */
-  readonly products?: readonly ProductBilling[];
+  readonly products: readonly ProductBilling[];
 }
 
 /** A page on the payment provider: a checkout or the billing portal. */

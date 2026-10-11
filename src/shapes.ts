@@ -346,7 +346,7 @@ export const decodeCustomerPage: Decoder = shape({
   items: list(decodeCustomerSummary),
   next: nullable(str),
   used: int,
-  limit: nullable(limit),
+  limit,
 });
 
 /** A grant's value as a feature value: empty is on, `unlimited` is unlimited, digits are an amount. @internal */
@@ -516,8 +516,8 @@ export const decodeCustomerBilling: Decoder = shape({
   sku: nullable(offeredSku),
   items: int,
   drift,
-  products: optional(
-    list(shape({ product: nullable(str), status: nullable(str), sku: nullable(offeredSku), items: int, drift })),
+  products: list(
+    shape({ product: nullable(str), status: nullable(str), sku: nullable(offeredSku), items: int, drift }),
   ),
 });
 
