@@ -3,7 +3,8 @@
   "compilerOptions": {
     "noEmit": true,
     "noUnusedLocals": false,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {}
   },
   "include": ["globals.d.ts", "frameworks.d.ts", "out"],
   "exclude": []
