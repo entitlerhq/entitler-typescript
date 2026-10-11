@@ -127,7 +127,11 @@ const PAYMENT_STATUSES = new Set(["declined", "requires_action", "processing", "
 /** Parses an answer body as plain JSON; each call's decoder turns its instants into `Date`s. @internal */
 export function parseAnswer(text: string): unknown {
   if (text === "") return undefined;
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new TypeError("The answer is not valid JSON.");
+  }
 }
 
 function runtime(): string | undefined {
@@ -174,7 +178,7 @@ function httpDate(value: string): number | undefined {
 function retryAfterOf(headers: Headers): number | undefined {
   const value = headers.get("retry-after")?.trim();
   if (!value) return undefined;
-  if (/^\d+$/.test(value)) return Number(value) * 1000;
+  if (/^\d+$/.test(value)) return Math.min(Number(value) * 1000, Number.MAX_SAFE_INTEGER);
   const date = httpDate(value);
   return date === undefined ? undefined : Math.max(0, date - Date.now());
 }
@@ -334,8 +338,14 @@ export class Transport {
     }
   }
 
+  /** Refuses a per-call timeout that is not a number of milliseconds above 0. @internal */
+  checkTimeout(options: CallOptions | undefined): void {
+    if (options?.timeout !== undefined) positive(options.timeout, "timeout");
+  }
+
   async send<T>(given: Call): Promise<Answer<T>> {
     this.ensureOpen();
+    this.checkTimeout(given.options);
     given.options?.signal?.throwIfAborted();
     this.#closing ??= new AbortController();
     const signal = given.options?.signal
@@ -349,7 +359,7 @@ export class Transport {
       ? { headers: {}, kind: "key", credential: "" }
       : await this.#credentials.authorise(signal);
     if (!call.cached || !this.#cache) {
-      const received = await this.#exchange(call, url, headers, auth);
+      const received = await this.#exchange(call, url, headers, { auth });
       if (received.status === 304) throw apiError(received, call.idempotencyKey);
       return {
         data: call.empty && received.text === "" ? (undefined as T) : this.#decode<T>(received.text, received, call),
@@ -384,17 +394,18 @@ export class Transport {
     if (probe) this.#probing = true;
     let received: Received;
     let data: T;
+    const used = { auth };
     try {
-      received = await this.#exchange(call, url, headers, auth);
+      received = await this.#exchange(call, url, headers, used);
       if (received.status === 304 && !kept) throw apiError(received, undefined);
       data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received, call);
       this.#downUntil = 0;
     } catch (error) {
       if (unreachable(error)) {
         const retryAfter = error instanceof ApiError ? (error.retryAfter ?? 0) : 0;
-        this.#downUntil = Date.now() + Math.max(30_000, retryAfter);
+        this.#downUntil = Date.now() + Math.min(Math.max(30_000, retryAfter), this.#staleFor);
       }
-      if (usable && unreachable(error)) {
+      if (usable && unreachable(error) && used.auth.credential === auth.credential) {
         this.report(error);
         return { data: this.#decode<T>(kept.body, undefined, call), stale: true, replayed: false };
       }
@@ -524,12 +535,17 @@ export class Transport {
     return headers;
   }
 
-  async #exchange(call: Call, url: string, headers: Record<string, string>, auth: Authorised): Promise<Received> {
+  async #exchange(
+    call: Call,
+    url: string,
+    headers: Record<string, string>,
+    used: { auth: Authorised },
+  ): Promise<Received> {
     const signal = call.options?.signal;
     const timeout = positive(call.options?.timeout ?? this.timeout, "timeout");
     const body = call.body === undefined ? undefined : JSON.stringify(call.body);
     let refreshed = false;
-    let current = auth;
+    let current = used.auth;
     for (let retry = 0; ; ) {
       let failure: EntitlerError;
       try {
@@ -550,6 +566,7 @@ export class Transport {
           const next = await this.#credentials.refresh(current, signal);
           if (next) {
             current = next;
+            used.auth = next;
             continue;
           }
         }
