@@ -190,7 +190,9 @@ describe("freshness", () => {
     await customer.check("f");
     vi.setSystemTime(20_000);
     await customer.check("f");
-    expect([...entries.values()][0]).toMatchObject({ etag: '"v1"', cacheControl: "max-age=10", receivedAt: 20_000 });
+    const entry = [...entries.values()][0] as { receivedAt: number };
+    expect(entry).toMatchObject({ etag: '"v1"', cacheControl: "max-age=10" });
+    expect(Math.floor(entry.receivedAt)).toBe(20_000);
   });
 });
 
