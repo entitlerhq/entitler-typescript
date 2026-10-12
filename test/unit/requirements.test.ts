@@ -145,12 +145,12 @@ describe("write tracking", () => {
     expect(sent.length).toBe(before + 1);
   });
 
-  it("revalidates an answer whose customer was forgotten while its read was in flight", async () => {
-    vi.useFakeTimers({ toFake: ["Date"], now: 1000 });
+  it("revalidates an answer whose customer was written and forgotten while its read was in flight", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 3000 });
     let release: (() => void) | undefined;
     const { fetch, sent } = fakeFetch(async (request) => {
       if (request.method === "POST") return json(usageAnswer());
-      if (sent.filter((each) => each.method === "GET").length === 2) {
+      if (sent.filter((each) => each.method === "GET").length === 1) {
         await new Promise<void>((resolve) => {
           release = resolve;
         });
@@ -161,22 +161,23 @@ describe("write tracking", () => {
     const cache: CacheStore = { get: (key) => entries.get(key), set: (key, entry) => void entries.set(key, entry) };
     const server = new EntitlerServer({ key: "k", fetch, cache });
     const customer = server.customer("u");
-    await customer.check("f");
-    vi.setSystemTime(2000);
-    await customer.recordUsage(credits, 1, { idempotencyKey: "w0" });
-    vi.setSystemTime(3000);
     const reading = customer.check("f");
-    await vi.waitFor(() => expect(release).toBeDefined());
+    while (release === undefined) await new Promise((resolve) => setImmediate(resolve));
+    await customer.recordUsage(credits, 1, { idempotencyKey: "w0" });
     for (let index = 0; index < 1000; index += 1) {
       await server.customer(`other_${index}`).recordUsage(credits, 1, { idempotencyKey: `o${index}` });
     }
-    release?.();
+    release();
     await reading;
-    const [stored] = [...entries.values()];
-    expect(stored?.revalidate).toBe(true);
-    expect(stored?.receivedAt).toBeGreaterThanOrEqual(3000);
-    expect(stored?.receivedAt).toBeLessThan(Date.now() + 1);
-    vi.setSystemTime(4000);
+    expect([...entries.values()]).toEqual([
+      {
+        v: 1,
+        body: expect.any(String),
+        etag: fresh.etag,
+        cacheControl: fresh["cache-control"],
+        receivedAt: 3000,
+      },
+    ]);
     const before = sent.length;
     await customer.check("f");
     expect(sent.length).toBe(before + 1);
