@@ -416,8 +416,9 @@ export class Transport {
     } finally {
       if (probe) this.#probing = false;
     }
-    const receivedAt = this.#generationOf(call.customer) === generation ? this.#stamp() : started;
-    const entry: CacheEntry =
+    const settled = this.#generationOf(call.customer) === generation;
+    const receivedAt = settled ? this.#stamp() : started;
+    const answered: CacheEntry =
       received.status === 304 && kept
         ? {
             v: 1,
@@ -438,6 +439,9 @@ export class Transport {
             ...optional("age", ageOf(received.headers)),
             receivedAt,
           };
+    const entry = settled
+      ? answered
+      : { ...answered, receivedAt: receivedAt - (maxAgeOf(answered.cacheControl) ?? 0) * 1000 };
     if (
       !directive(entry.cacheControl, "no-store") &&
       (entry.etag !== undefined || maxAgeOf(entry.cacheControl) !== undefined)
