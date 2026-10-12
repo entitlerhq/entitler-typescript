@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defineFeature, EntitlerClient, EntitlerServer, TokenError } from "../../src/index.js";
+import {
+  type CacheEntry,
+  type CacheStore,
+  defineFeature,
+  EntitlerClient,
+  EntitlerServer,
+  TokenError,
+} from "../../src/index.js";
 import {
   decodeCheck,
   decodeCustomerSummary,
@@ -150,7 +157,9 @@ describe("write tracking", () => {
       }
       return json(checkAnswer(), 200, fresh);
     });
-    const server = new EntitlerServer({ key: "k", fetch });
+    const entries = new Map<string, CacheEntry>();
+    const cache: CacheStore = { get: (key) => entries.get(key), set: (key, entry) => void entries.set(key, entry) };
+    const server = new EntitlerServer({ key: "k", fetch, cache });
     const customer = server.customer("u");
     await customer.check("f");
     vi.setSystemTime(2000);
@@ -163,7 +172,73 @@ describe("write tracking", () => {
     }
     release?.();
     await reading;
+    const [stored] = [...entries.values()];
+    expect(stored?.revalidate).toBe(true);
+    expect(stored?.receivedAt).toBeGreaterThanOrEqual(3000);
+    expect(stored?.receivedAt).toBeLessThan(Date.now() + 1);
     vi.setSystemTime(4000);
+    const before = sent.length;
+    await customer.check("f");
+    expect(sent.length).toBe(before + 1);
+  });
+
+  it.each([
+    ["before", "succeeds"],
+    ["before", "fails"],
+    ["before", "fails after retries"],
+    ["before", "is cancelled"],
+    ["after", "succeeds"],
+    ["after", "fails"],
+    ["after", "fails after retries"],
+    ["after", "is cancelled"],
+  ] as const)("revalidates a read answered %s a write in flight settles, when the write %s", async (when, outcome) => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1000 });
+    const writing = new AbortController();
+    let settle: (() => void) | undefined;
+    let answer: (() => void) | undefined;
+    const { fetch, sent } = fakeFetch(async (request, init) => {
+      if (request.method === "POST") {
+        if (outcome === "is cancelled") {
+          return new Promise<Response>((_resolve, reject) => {
+            settle = () => writing.abort();
+            init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+          });
+        }
+        await new Promise<void>((resolve) => {
+          settle = resolve;
+        });
+        if (outcome === "fails") return apiError(422, "invalid_body");
+        if (outcome === "fails after retries") return apiError(503, "unavailable");
+        return json(usageAnswer());
+      }
+      if (when === "after" && answer === undefined) {
+        await new Promise<void>((resolve) => {
+          answer = resolve;
+        });
+      }
+      return json(checkAnswer(), 200, fresh);
+    });
+    const server = new EntitlerServer({ key: "k", fetch, maxRetries: 1, maxRetryDelay: 0 });
+    const customer = server.customer("u");
+    const write = customer.recordUsage(credits, 1, { idempotencyKey: "w", signal: writing.signal }).then(
+      () => undefined,
+      () => undefined,
+    );
+    await vi.waitFor(() => expect(settle).toBeDefined());
+    const reading = customer.check("f");
+    if (when === "after") await vi.waitFor(() => expect(answer).toBeDefined());
+    else await reading;
+    if (outcome === "fails after retries") {
+      const first = settle;
+      settle = undefined;
+      first?.();
+      await vi.waitFor(() => expect(settle).toBeDefined());
+    }
+    settle?.();
+    await write;
+    expect(sent.filter((each) => each.method === "POST")).toHaveLength(outcome === "fails after retries" ? 2 : 1);
+    answer?.();
+    await reading;
     const before = sent.length;
     await customer.check("f");
     expect(sent.length).toBe(before + 1);
