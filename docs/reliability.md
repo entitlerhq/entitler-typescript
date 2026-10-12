@@ -99,8 +99,7 @@ const shared = new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "", cache: 
 console.log(shared);
 ```
 
-Entries are plain JSON-ready data (`v`, the body text, `etag`, `cacheControl`, `age`, `receivedAt`, and
-`revalidate` on an answer whose customer changed while it was read),
+Entries are plain JSON-ready data (`v`, the body text, `etag`, `cacheControl`, `age`, `receivedAt`),
 so Workers KV or Redis fit. `set` receives a lifetime in milliseconds (`staleFor` plus the entry's
 `max-age`); stores that cannot expire entries should drop them after that time. A `get` that fails
 counts as a miss and a `set` that fails is skipped; both go to `onError`, and neither fails the call.

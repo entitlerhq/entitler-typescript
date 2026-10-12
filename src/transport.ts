@@ -425,9 +425,9 @@ export class Transport {
     } finally {
       if (probe) this.#probing = false;
     }
-    const settled = this.#generationOf(call.customer) === generation;
+    const settled = this.#unchangedSince(call.customer, generation, started);
     const receivedAt = settled ? this.#stamp() : started;
-    const answered: CacheEntry =
+    const entry: CacheEntry =
       received.status === 304 && kept
         ? {
             v: 1,
@@ -448,7 +448,6 @@ export class Transport {
             ...optional("age", ageOf(received.headers)),
             receivedAt,
           };
-    const entry: CacheEntry = settled ? answered : { ...answered, revalidate: true };
     if (
       !directive(entry.cacheControl, "no-store") &&
       (entry.etag !== undefined || maxAgeOf(entry.cacheControl) !== undefined)
@@ -482,6 +481,13 @@ export class Transport {
     return customer === undefined ? 0 : (this.#generations.get(customer)?.generation ?? 0);
   }
 
+  #unchangedSince(customer: string | undefined, generation: number, started: number): boolean {
+    if (customer === undefined) return true;
+    const tracked = this.#generations.get(customer);
+    if (tracked) return tracked.generation === generation;
+    return generation === 0 && this.#forgottenUntil < started;
+  }
+
   #bump(customer: string): void {
     this.#writes += 1;
     const generation = this.#writes;
@@ -495,7 +501,7 @@ export class Transport {
 
   #fresh(entry: CacheEntry, customer: string | undefined): boolean {
     const maxAge = maxAgeOf(entry.cacheControl);
-    if (maxAge === undefined || entry.revalidate || directive(entry.cacheControl, "no-cache")) return false;
+    if (maxAge === undefined || directive(entry.cacheControl, "no-cache")) return false;
     if (Math.max(0, Date.now() - Math.floor(entry.receivedAt)) / 1000 + (entry.age ?? 0) >= maxAge) return false;
     if (entry.receivedAt <= this.#forgottenUntil) return false;
     const bumped = customer === undefined ? undefined : this.#generations.get(customer)?.at;
