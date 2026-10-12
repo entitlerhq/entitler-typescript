@@ -7,3 +7,7 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+docs/api/
+*.tgz
+.pack/
+test/docs/out/
