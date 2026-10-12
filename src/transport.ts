@@ -121,6 +121,7 @@ export interface TransportOptions extends ClientOptions {
 }
 
 const TRACKED_CUSTOMERS = 1000;
+const STAMP_STEP = 0.001;
 const RETRIED = new Set([408, 429, 500, 502, 503, 504]);
 const PAYMENT_STATUSES = new Set(["declined", "requires_action", "processing", "pending"]);
 
@@ -289,6 +290,7 @@ export class Transport {
   readonly #headers: () => Record<string, string>;
   readonly #generations = new Map<string, { generation: number; at: number }>();
   #forgottenUntil = Number.NEGATIVE_INFINITY;
+  #lastStamp = Number.NEGATIVE_INFINITY;
   #writes = 0;
   #downUntil = 0;
   #probing = false;
@@ -380,7 +382,7 @@ export class Transport {
   ): Promise<Answer<T>> {
     const key = await this.#key(call, url, headers, auth);
     keyObserver?.(key);
-    const started = Date.now();
+    const started = this.#stamp();
     const generation = this.#generationOf(call.customer);
     const kept = await this.#get(cache, key);
     const usable = kept !== undefined && Date.now() - kept.receivedAt < this.#staleFor;
@@ -414,7 +416,7 @@ export class Transport {
     } finally {
       if (probe) this.#probing = false;
     }
-    const receivedAt = this.#generationOf(call.customer) === generation ? Date.now() : started;
+    const receivedAt = this.#generationOf(call.customer) === generation ? this.#stamp() : started;
     const entry: CacheEntry =
       received.status === 304 && kept
         ? {
@@ -459,6 +461,12 @@ export class Transport {
     );
   }
 
+  #stamp(): number {
+    const now = Date.now();
+    this.#lastStamp = now > this.#lastStamp ? now : this.#lastStamp + STAMP_STEP;
+    return this.#lastStamp;
+  }
+
   #generationOf(customer: string | undefined): number {
     return customer === undefined ? 0 : (this.#generations.get(customer)?.generation ?? 0);
   }
@@ -467,7 +475,7 @@ export class Transport {
     this.#writes += 1;
     const generation = this.#writes;
     this.#generations.delete(customer);
-    this.#generations.set(customer, { generation, at: Date.now() });
+    this.#generations.set(customer, { generation, at: this.#stamp() });
     if (this.#generations.size <= TRACKED_CUSTOMERS) return;
     const [oldest, { at }] = this.#generations.entries().next().value as [string, { at: number }];
     this.#generations.delete(oldest);
@@ -477,7 +485,7 @@ export class Transport {
   #fresh(entry: CacheEntry, customer: string | undefined): boolean {
     const maxAge = maxAgeOf(entry.cacheControl);
     if (maxAge === undefined || directive(entry.cacheControl, "no-cache")) return false;
-    if ((Date.now() - entry.receivedAt) / 1000 + (entry.age ?? 0) >= maxAge) return false;
+    if (Math.max(0, Date.now() - Math.floor(entry.receivedAt)) / 1000 + (entry.age ?? 0) >= maxAge) return false;
     if (entry.receivedAt <= this.#forgottenUntil) return false;
     const bumped = customer === undefined ? undefined : this.#generations.get(customer)?.at;
     return bumped === undefined || bumped < entry.receivedAt;

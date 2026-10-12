@@ -308,3 +308,32 @@ describe("backoff", () => {
     expect(waited).toBeLessThanOrEqual(500 + 1000 + 2000 + 4000 + 60 * 8000);
   });
 });
+
+describe("stamps on a clock that never moves", () => {
+  const fresh = { etag: '"v1"', "cache-control": "private, max-age=60" };
+
+  it("keeps a read answered after a write fresh", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1_000 });
+    const { fetch, sent } = fakeFetch((request) =>
+      request.method === "POST" ? json(usageAnswer()) : json(checkAnswer(), 200, fresh),
+    );
+    const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
+    await customer.check("f");
+    await customer.recordUsage(credits, 1, { idempotencyKey: "w" });
+    await customer.check("f");
+    await customer.check("f");
+    expect(sent.map((request) => request.method)).toEqual(["GET", "POST", "GET"]);
+  });
+
+  it("never counts an answer exactly max-age old as fresh", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1_000 });
+    const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
+    const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
+    await customer.check("f");
+    await customer.check("f");
+    expect(sent).toHaveLength(1);
+    vi.setSystemTime(61_000);
+    await customer.check("f");
+    expect(sent).toHaveLength(2);
+  });
+});
