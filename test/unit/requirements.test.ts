@@ -138,6 +138,37 @@ describe("write tracking", () => {
     expect(sent.length).toBe(before + 1);
   });
 
+  it("revalidates an answer whose customer was forgotten while its read was in flight", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1000 });
+    let release: (() => void) | undefined;
+    const { fetch, sent } = fakeFetch(async (request) => {
+      if (request.method === "POST") return json(usageAnswer());
+      if (sent.filter((each) => each.method === "GET").length === 2) {
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+      return json(checkAnswer(), 200, fresh);
+    });
+    const server = new EntitlerServer({ key: "k", fetch });
+    const customer = server.customer("u");
+    await customer.check("f");
+    vi.setSystemTime(2000);
+    await customer.recordUsage(credits, 1, { idempotencyKey: "w0" });
+    vi.setSystemTime(3000);
+    const reading = customer.check("f");
+    await vi.waitFor(() => expect(release).toBeDefined());
+    for (let index = 0; index < 1000; index += 1) {
+      await server.customer(`other_${index}`).recordUsage(credits, 1, { idempotencyKey: `o${index}` });
+    }
+    release?.();
+    await reading;
+    vi.setSystemTime(4000);
+    const before = sent.length;
+    await customer.check("f");
+    expect(sent.length).toBe(before + 1);
+  });
+
   it("stays fast across many thousands of writes", async () => {
     const { fetch } = fakeFetch(json(usageAnswer()));
     const server = new EntitlerServer({ key: "k", fetch });
