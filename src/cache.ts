@@ -15,6 +15,8 @@ export interface CacheEntry {
   readonly age?: number;
   /** When the answer was received, in milliseconds since the epoch. */
   readonly receivedAt: number;
+  /** `true` when the answer is served again only after revalidating it, because its customer changed while it was read. */
+  readonly revalidate?: true;
 }
 
 /**

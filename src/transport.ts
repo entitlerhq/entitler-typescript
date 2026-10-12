@@ -355,7 +355,16 @@ export class Transport {
       ? AbortSignal.any([given.options.signal, this.#closing.signal])
       : this.#closing.signal;
     const call: Call = { ...given, options: { ...given.options, signal } };
-    if (this.#cache) for (const customer of call.changes ?? []) this.#bump(customer);
+    const changes = this.#cache ? (call.changes ?? []) : [];
+    for (const customer of changes) this.#bump(customer);
+    try {
+      return await this.#answer<T>(call, signal);
+    } finally {
+      for (const customer of changes) this.#bump(customer);
+    }
+  }
+
+  async #answer<T>(call: Call, signal: AbortSignal): Promise<Answer<T>> {
     const url = this.#url(call);
     const headers = this.#requestHeaders(call);
     const auth: Authorised = call.open
@@ -439,9 +448,7 @@ export class Transport {
             ...optional("age", ageOf(received.headers)),
             receivedAt,
           };
-    const entry = settled
-      ? answered
-      : { ...answered, receivedAt: receivedAt - (maxAgeOf(answered.cacheControl) ?? 0) * 1000 };
+    const entry: CacheEntry = settled ? answered : { ...answered, revalidate: true };
     if (
       !directive(entry.cacheControl, "no-store") &&
       (entry.etag !== undefined || maxAgeOf(entry.cacheControl) !== undefined)
@@ -488,7 +495,7 @@ export class Transport {
 
   #fresh(entry: CacheEntry, customer: string | undefined): boolean {
     const maxAge = maxAgeOf(entry.cacheControl);
-    if (maxAge === undefined || directive(entry.cacheControl, "no-cache")) return false;
+    if (maxAge === undefined || entry.revalidate || directive(entry.cacheControl, "no-cache")) return false;
     if (Math.max(0, Date.now() - Math.floor(entry.receivedAt)) / 1000 + (entry.age ?? 0) >= maxAge) return false;
     if (entry.receivedAt <= this.#forgottenUntil) return false;
     const bumped = customer === undefined ? undefined : this.#generations.get(customer)?.at;

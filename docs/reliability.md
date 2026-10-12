@@ -45,9 +45,10 @@ answers in its place.
   passes `revalidate: true`, which revalidates it with its `ETag` so a page that knows the customer
   just changed (back from paying, after a server-side upgrade) shows the change at once.
 - Every write to a customer (except `token`, `snapshot` and `billingPortal`, which
-  change no answer) bumps that customer's write generation first, whether or not it succeeds.
-  Answers kept before the bump are revalidated, and a read that was under way during a write is
-  never kept as fresh.
+  change no answer) bumps that customer's write generation when it is sent and again when it
+  settles, after any retries, whether it succeeds, fails, times out or is cancelled. Answers kept
+  before either bump are revalidated, and a read that was under way during a write is never kept
+  as fresh.
 - Otherwise the SDK sends `If-None-Match`; a `304` answers the kept copy and renews it, keeping any
   header the `304` leaves out.
 - `no-store` answers are never kept, and answers from the cache are copies.
@@ -98,7 +99,8 @@ const shared = new EntitlerServer({ key: process.env.ENTITLER_KEY ?? "", cache: 
 console.log(shared);
 ```
 
-Entries are plain JSON-ready data (`v`, the body text, `etag`, `cacheControl`, `age`, `receivedAt`),
+Entries are plain JSON-ready data (`v`, the body text, `etag`, `cacheControl`, `age`, `receivedAt`, and
+`revalidate` on an answer whose customer changed while it was read),
 so Workers KV or Redis fit. `set` receives a lifetime in milliseconds (`staleFor` plus the entry's
 `max-age`); stores that cannot expire entries should drop them after that time. A `get` that fails
 counts as a miss and a `set` that fails is skipped; both go to `onError`, and neither fails the call.
