@@ -385,7 +385,7 @@ export class Transport {
     const started = this.#stamp();
     const generation = this.#generationOf(call.customer);
     const kept = await this.#get(cache, key);
-    const usable = kept !== undefined && Date.now() - kept.receivedAt < this.#staleFor;
+    const usable = kept !== undefined && Math.max(0, Date.now() - Math.floor(kept.receivedAt)) < this.#staleFor;
     if (kept && !call.revalidate && this.#fresh(kept, call.customer)) {
       return { data: this.#decode<T>(kept.body, undefined, call), stale: false, replayed: false };
     }

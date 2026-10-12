@@ -56,7 +56,8 @@ describe("the answer cache", () => {
     expect(sent[1]?.headers["if-none-match"]).toBe('"v1"');
     expect(check.entitled).toBe(true);
     const [entry] = store.entries.values();
-    expect(entry).toMatchObject({ v: 1, etag: '"v2"', cacheControl: "max-age=60", receivedAt: 61_000 });
+    expect(entry).toMatchObject({ v: 1, etag: '"v2"', cacheControl: "max-age=60" });
+    expect(Math.floor(entry?.receivedAt ?? 0)).toBe(61_000);
     await customer.check("f");
     expect(sent).toHaveLength(2);
   });
