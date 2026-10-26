@@ -1,0 +1,412 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  defineFeature,
+  EntitlerServer,
+  type HoldContext,
+  UsageRefusedError,
+  UsageReplayedError,
+  type UsageResult,
+  UsageSettlementError,
+} from "../../src/index.js";
+import { apiError, checkAnswer, fakeFetch, json, type Reply, type Sent, usageAnswer } from "./fake.js";
+
+const aiCredits = defineFeature("ai_credits", "metered");
+const key = { idempotencyKey: "job-7" };
+const HOLDS = "/v1/customers/user_1/usage/holds";
+
+function setup(...replies: Reply[]) {
+  const fake = fakeFetch(...replies);
+  return { ...fake, customer: new EntitlerServer({ key: "k", fetch: fake.fetch, cache: false }).customer("user_1") };
+}
+
+function holdFlow(settle: unknown = usageAnswer({ outcome: "settled" }), hold: Record<string, unknown> = {}) {
+  return setup((request) => {
+    if (request.path === HOLDS) {
+      return json(
+        usageAnswer({ outcome: "held", holdId: "hold_1", amount: 500, expiresAtMs: 32_503_680_000_000, ...hold }),
+      );
+    }
+    if (request.path.endsWith(":settle")) return settle instanceof Response ? settle : json(settle);
+    if (request.method === "DELETE") return json(usageAnswer({ outcome: "released" }));
+    return json(usageAnswer({ mode: "observe" }));
+  });
+}
+
+const paths = (sent: Sent[]) => sent.map((request) => request.method + request.path);
+
+describe("recordUsage", () => {
+  it("records usage and decodes the answer with the feature's entitlement", async () => {
+    const { customer, sent } = setup(
+      json(usageAnswer({ usageId: "us_1", amount: 3, occurredAtMs: 1_791_507_500_000 })),
+    );
+    const result = await customer.recordUsage(aiCredits, 3, {
+      ...key,
+      mode: "observe",
+      occurredAt: new Date(1_791_507_500_000),
+      register: true,
+    });
+    expect(sent[0]).toMatchObject({
+      method: "POST",
+      path: "/v1/customers/user_1/usage",
+      body: {
+        featureKey: "ai_credits",
+        amount: 3,
+        idempotencyKey: "job-7",
+        mode: "USAGE_MODE_OBSERVE",
+        occurredAtMs: 1_791_507_500_000,
+        register: true,
+      },
+    });
+    expect(result).toMatchObject({
+      customer: "user_1",
+      nextChangeAt: null,
+      key: "ai_credits",
+      type: "metered",
+      meter: { used: 10, remaining: 990 },
+      outcome: "recorded",
+      refusal: null,
+      id: "us_1",
+      holdId: null,
+      mode: "gate",
+      amount: 3,
+      meterChange: 1,
+      overBy: 0,
+      late: false,
+      occurredAt: new Date(1_791_507_500_000),
+      expiresAt: null,
+      replayed: false,
+    });
+  });
+
+  it("answers a gated refusal instead of throwing", async () => {
+    const { customer } = setup(json(usageAnswer({ outcome: "refused", refusal: "over_allowance", meterChange: 0 })));
+    expect(await customer.recordUsage(aiCredits, 2000, key)).toMatchObject({
+      outcome: "refused",
+      refusal: "over_allowance",
+    });
+  });
+
+  it("retries a keyed report", async () => {
+    const { customer, sent } = setup(apiError(503, "Unavailable"), json(usageAnswer()));
+    await customer.recordUsage(aiCredits, 1, key);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.body).toEqual(sent[0]?.body);
+  });
+
+  it("refuses a bad amount or date before any request", async () => {
+    const { customer, mock } = setup(json(usageAnswer()));
+    await expect(customer.recordUsage(aiCredits, 0, key)).rejects.toThrow(RangeError);
+    await expect(customer.recordUsage(aiCredits, 1, { ...key, occurredAt: new Date(Number.NaN) })).rejects.toThrow(
+      "Pass occurredAt as a valid date.",
+    );
+    await expect(customer.holdUsage(aiCredits, 1, { ...key, ttlSeconds: 3601 })).rejects.toThrow(RangeError);
+    await expect(customer.settleUsage("h", -1)).rejects.toThrow(
+      "Pass amount as a whole number from 0 to the held amount.",
+    );
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
+describe("holds", () => {
+  it("answers a handle for a hold, and finishes with the amount reported", async () => {
+    const { customer, sent } = holdFlow();
+    const hold = await customer.startHold(aiCredits, 500, { ...key, ttlSeconds: 120 });
+    expect(hold).toMatchObject({ id: "hold_1", amount: 500, duplicate: false });
+    expect(hold.expiresAt).toEqual(new Date(32_503_680_000_000));
+    expect(hold.result.outcome).toBe("held");
+    hold.use(200);
+    hold.use(120);
+    expect((await hold.finish()).outcome).toBe("settled");
+    expect(sent.map((request) => [request.method, request.path, request.body])).toEqual([
+      ["POST", HOLDS, { featureKey: "ai_credits", amount: 500, idempotencyKey: "job-7", ttlSeconds: 120 }],
+      ["POST", `${HOLDS}/hold_1:settle`, { amount: 120 }],
+    ]);
+  });
+
+  it("finishes with the held amount when none is reported, and 0 after use(0)", async () => {
+    const { customer, sent } = holdFlow();
+    await (await customer.startHold(aiCredits, 500, key)).finish();
+    const streamed = await customer.startHold(aiCredits, 500, key);
+    streamed.use(0);
+    await streamed.finish();
+    expect(sent.filter((request) => request.path.endsWith(":settle")).map((request) => request.body)).toEqual([
+      { amount: 500 },
+      { amount: 0 },
+    ]);
+  });
+
+  it("judges a duplicate open by the answer's asOf, not the local clock", async () => {
+    vi.useFakeTimers({ now: new Date("2999-01-01T00:00:00Z"), toFake: ["Date"] });
+    try {
+      const open = holdFlow(undefined, { outcome: "duplicate", expiresAtMs: 1_791_507_900_000 });
+      expect((await open.customer.startHold(aiCredits, 500, key)).duplicate).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+    const expired = holdFlow(undefined, { outcome: "duplicate", expiresAtMs: 1_791_507_600_000 });
+    await expect(expired.customer.startHold(aiCredits, 500, key)).rejects.toBeInstanceOf(UsageReplayedError);
+  });
+
+  it("acts only on the first of finish, release and disposal", async () => {
+    const { customer, sent } = holdFlow();
+    const hold = await customer.startHold(aiCredits, 500, key);
+    const released = await hold.release();
+    expect(released.outcome).toBe("released");
+    expect(await hold.finish()).toBe(released);
+    await hold[Symbol.asyncDispose]();
+    expect(paths(sent)).toEqual([`POST${HOLDS}`, `DELETE${HOLDS}/hold_1`]);
+  });
+
+  it("disposes by settling the amount reported, else by releasing", async () => {
+    const { customer, sent } = holdFlow();
+    {
+      await using hold = await customer.startHold(aiCredits, 500, key);
+      hold.use(40);
+    }
+    {
+      await using _hold = await customer.startHold(aiCredits, 500, key);
+    }
+    expect(paths(sent).slice(1)).toEqual([`POST${HOLDS}/hold_1:settle`, `POST${HOLDS}`, `DELETE${HOLDS}/hold_1`]);
+    expect(sent[1]?.body).toEqual({ amount: 40 });
+  });
+
+  it("passes a failed disposal to onError as a UsageSettlementError, and never throws", async () => {
+    const onError = vi.fn();
+    const { fetch } = fakeFetch((request) =>
+      request.path.endsWith(":settle")
+        ? apiError(400, "InvalidArgument", "SETTLE_AMOUNT_INVALID")
+        : json(usageAnswer({ outcome: "held", holdId: "hold_1", amount: 5, expiresAtMs: 32_503_680_000_000 })),
+    );
+    const customer = new EntitlerServer({ key: "k", fetch, onError }).customer("u");
+    const hold = await customer.startHold(aiCredits, 5, key);
+    hold.use(3);
+    await expect(hold[Symbol.asyncDispose]()).resolves.toBeUndefined();
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(UsageSettlementError);
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ holdId: "hold_1", amount: 3, result: undefined });
+  });
+
+  it("fails finish with UsageSettlementError", async () => {
+    const { customer } = holdFlow(apiError(400, "InvalidArgument", "SETTLE_AMOUNT_INVALID"));
+    const hold = await customer.startHold(aiCredits, 500, key);
+    hold.use(520);
+    const error = (await hold.finish().catch((e: unknown) => e)) as UsageSettlementError;
+    expect(error).toMatchObject({ name: "UsageSettlementError", holdId: "hold_1", amount: 500, excess: 20 });
+    expect(error.message).toBe("Entitler could not settle hold hold_1. Settle it again with settleUsage().");
+  });
+
+  it("refuses a hold with UsageRefusedError, carrying the answer", async () => {
+    const { customer, sent } = setup(json(usageAnswer({ amount: 500, outcome: "refused", refusal: "over_allowance" })));
+    const error = await customer.startHold(aiCredits, 500, key).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UsageRefusedError);
+    expect(error).toMatchObject({
+      message: "The customer has too little ai_credits left for 500.",
+      result: { refusal: "over_allowance" },
+    });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("explains a refusal for a feature the customer lacks", () => {
+    const result = { key: "ai_credits", amount: 5, refusal: "not_entitled" } as UsageResult;
+    expect(new UsageRefusedError(result).message).toBe("The customer is not entitled to ai_credits.");
+  });
+
+  it.each([
+    ["settled", { outcome: "settled" }],
+    ["released", { outcome: "released" }],
+  ])("refuses a key that repeats a %s hold with UsageReplayedError", async (_name, answer) => {
+    const { customer } = setup(json(usageAnswer({ amount: 500, holdId: "hold_1", ...answer })));
+    await expect(customer.startHold(aiCredits, 500, key)).rejects.toBeInstanceOf(UsageReplayedError);
+  });
+
+  it("refuses a hold, a report or a handle without a key before any request", async () => {
+    const { customer, mock } = holdFlow();
+    const loose = customer as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+    const message = "Pass idempotencyKey: a key from your own unit of work, such as a message or job id.";
+    for (const call of [
+      () => loose.recordUsage?.(aiCredits, 1, {}),
+      () => loose.holdUsage?.(aiCredits, 1, {}),
+      () => loose.startHold?.(aiCredits, 1, {}),
+      () => loose.withHold?.(aiCredits, 1, () => 1, {}),
+    ]) {
+      await expect(call()).rejects.toThrow(new TypeError(message));
+    }
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a key with no room for :excess", async () => {
+    const { customer, mock } = holdFlow();
+    await expect(customer.startHold(aiCredits, 5, { idempotencyKey: "k".repeat(194) })).rejects.toThrow(
+      new TypeError("Pass idempotencyKey as 1 to 193 printable ASCII characters."),
+    );
+    expect(mock).not.toHaveBeenCalled();
+  });
+
+  it("records the excess, and the whole amount once the hold expired, under :excess", async () => {
+    const { customer, sent } = holdFlow();
+    await customer.withHold(aiCredits, 500, ({ hold }) => hold.use(650), { idempotencyKey: "job-8" });
+    expect(sent[1]?.body).toEqual({ amount: 500 });
+    expect(sent[2]).toMatchObject({
+      path: "/v1/customers/user_1/usage",
+      body: { amount: 150, mode: "USAGE_MODE_OBSERVE", idempotencyKey: "job-8:excess" },
+    });
+    const expired = holdFlow(apiError(400, "FailedPrecondition", "HOLD_EXPIRED"));
+    const hold = await expired.customer.startHold(aiCredits, 500, { idempotencyKey: "job-9" });
+    hold.use(320);
+    expect((await hold.finish()).outcome).toBe("recorded");
+    expect(expired.sent[2]).toMatchObject({
+      body: { featureKey: "ai_credits", amount: 320, mode: "USAGE_MODE_OBSERVE", idempotencyKey: "job-9:excess" },
+    });
+  });
+
+  it("refuses a reported amount that is not a whole number", async () => {
+    const { customer } = holdFlow();
+    const hold = await customer.startHold(aiCredits, 500, key);
+    expect(() => hold.use(-1)).toThrow(new RangeError("Pass the amount used as a whole number of 0 or more."));
+  });
+});
+
+describe("withHold", () => {
+  it("runs the work with the hold and its signal, finishes, and answers the work's result", async () => {
+    const { customer, sent } = holdFlow();
+    const work = vi.fn(async ({ hold }: HoldContext) => {
+      hold.use(120);
+      return { text: "done" };
+    });
+    expect(await customer.withHold(aiCredits, 500, work, key)).toEqual({ text: "done" });
+    expect(work.mock.calls[0]?.[0].hold).toMatchObject({ id: "hold_1", amount: 500, duplicate: false });
+    expect(work.mock.calls[0]?.[0].signal).toBeInstanceOf(AbortSignal);
+    expect(sent[1]?.body).toEqual({ amount: 120 });
+  });
+
+  it("releases when the work fails before reporting, and settles what it reported after", async () => {
+    const before = holdFlow();
+    const failure = new Error("model crashed");
+    await expect(before.customer.withHold(aiCredits, 500, () => Promise.reject(failure), key)).rejects.toBe(failure);
+    expect(before.sent.at(-1)?.method).toBe("DELETE");
+    const after = holdFlow();
+    await expect(
+      after.customer.withHold(
+        aiCredits,
+        500,
+        ({ hold }) => {
+          hold.use(300);
+          throw failure;
+        },
+        key,
+      ),
+    ).rejects.toBe(failure);
+    expect(after.sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 300 } });
+  });
+
+  it("disposes of the hold outside the caller's cancellation, then propagates it", async () => {
+    const { customer, sent } = holdFlow();
+    const controller = new AbortController();
+    const call = customer.withHold(
+      aiCredits,
+      500,
+      ({ hold }) => {
+        hold.use(30);
+        controller.abort();
+        return new Promise(() => {});
+      },
+      { ...key, signal: controller.signal },
+    );
+    expect(await call.catch((e: unknown) => e)).toBe(controller.signal.reason);
+    expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 30 } });
+  });
+
+  it("fails a settlement with UsageSettlementError carrying the work's result", async () => {
+    const { customer } = holdFlow(apiError(400, "InvalidArgument", "SETTLE_AMOUNT_INVALID"));
+    const error = (await customer
+      .withHold(
+        aiCredits,
+        500,
+        ({ hold }) => {
+          hold.use(520);
+          return "summary";
+        },
+        key,
+      )
+      .catch((e: unknown) => e)) as UsageSettlementError;
+    expect(error).toMatchObject({ holdId: "hold_1", amount: 500, excess: 20, result: "summary" });
+    expect((error.cause as { reason: string }).reason).toBe("SETTLE_AMOUNT_INVALID");
+  });
+
+  it("refuses work that is not a function", async () => {
+    const { customer, mock } = holdFlow();
+    await expect(customer.withHold(aiCredits, 5, "work" as never, key)).rejects.toThrow("Pass work as a function.");
+    expect(mock).not.toHaveBeenCalled();
+  });
+});
+
+describe("write tracking", () => {
+  const fresh = { etag: '"v1"', "cache-control": "private, max-age=60" };
+
+  it("revalidates a customer's kept answers after a usage write, even a failed one", async () => {
+    const { fetch, sent } = fakeFetch((request) =>
+      request.method === "POST"
+        ? apiError(400, "InvalidArgument", "USAGE_FEATURE_NOT_METERED")
+        : request.headers["if-none-match"]
+          ? new Response(null, { status: 304 })
+          : json(checkAnswer(), 200, fresh),
+    );
+    const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
+    await customer.check("f");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await customer.recordUsage(aiCredits, 1, key).catch(() => undefined);
+    await customer.check("f");
+    expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');
+  });
+
+  it("keeps other customers' answers fresh", async () => {
+    const { fetch, sent } = fakeFetch((request) =>
+      request.method === "POST" ? json(usageAnswer()) : json(checkAnswer(), 200, fresh),
+    );
+    const server = new EntitlerServer({ key: "k", fetch });
+    await server.customer("a").check("f");
+    await server.customer("b").recordUsage(aiCredits, 1, key);
+    await server.customer("a").check("f");
+    expect(sent).toHaveLength(2);
+  });
+
+  it("never keeps as fresh a read that started before a write and answered after it", async () => {
+    let release: (response: Response) => void = () => {};
+    let reads = 0;
+    const { fetch, sent } = fakeFetch((request) => {
+      if (request.method === "POST") return json(usageAnswer());
+      reads += 1;
+      if (reads === 1) return new Promise<Response>((resolve) => (release = resolve));
+      return new Response(null, { status: 304 });
+    });
+    const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
+    const read = customer.check("f");
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    await customer.recordUsage(aiCredits, 1, key);
+    release(json(checkAnswer(), 200, fresh));
+    await read;
+    await customer.check("f");
+    expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');
+  });
+
+  it("revalidates every answer kept before its customer was forgotten", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1000 });
+    try {
+      const { fetch, sent } = fakeFetch((request) =>
+        request.method === "POST" ? json(usageAnswer()) : json(checkAnswer(), 200, fresh),
+      );
+      const server = new EntitlerServer({ key: "k", fetch });
+      const customer = server.customer("u");
+      await customer.check("f");
+      vi.setSystemTime(2000);
+      await customer.recordUsage(aiCredits, 1, key);
+      for (let index = 0; index < 1000; index += 1) {
+        await server.customer(`other_${index}`).recordUsage(aiCredits, 1, key);
+      }
+      const before = sent.length;
+      await customer.check("f");
+      expect(sent.length).toBe(before + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

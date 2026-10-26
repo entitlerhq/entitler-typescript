@@ -12,3 +12,5 @@ All notable changes to this package are listed here. The format follows
 - Retries for idempotent requests, an answer cache that honours `max-age` and `ETag`, and kept answers
   standing in while Entitler is unreachable.
 - `ApiError` with the API's gRPC `code`, `reason` and `parameters`.
+- `recordUsage()`, and holds with `startHold()`, `withHold()`, `holdUsage()`, `settleUsage()` and
+  `releaseUsage()`. A usage write makes the customer's kept answers revalidate.

@@ -60,6 +60,17 @@ export function wholeNumber(
   return value;
 }
 
+/** Checks a caller's required idempotency key. @internal */
+export function requiredKey(key: unknown, max = 200): string {
+  if (key === undefined || key === null) {
+    throw new TypeError("Pass idempotencyKey: a key from your own unit of work, such as a message or job id.");
+  }
+  if (typeof key !== "string" || key.length > max || !/^[\x21-\x7e]([\x20-\x7e]*[\x21-\x7e])?$/.test(key)) {
+    throw new TypeError(`Pass idempotencyKey as 1 to ${max} printable ASCII characters.`);
+  }
+  return key;
+}
+
 /** @internal */
 export async function sha256Hex(text: string): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
