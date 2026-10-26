@@ -228,7 +228,7 @@ export interface TokenOptions extends CallOptions {
    * when the app records usage itself, and `billing:self` only for people who may buy for the customer.
    */
   scopes?: readonly CustomerTokenScope[];
-  /** How long the token lasts, in seconds. Defaults to 3,600. */
+  /** How long the token lasts, 60 to 3,600 seconds. Defaults to 3,600. */
   ttlSeconds?: number;
 }
 
@@ -565,12 +565,12 @@ export class CustomerApi implements ServerCustomer {
     return this.#send("Customers.EraseCustomer", {}, decodeNothing, options, true);
   }
 
-  token(options?: TokenOptions): Promise<IssuedCustomerToken> {
+  async token(options?: TokenOptions): Promise<IssuedCustomerToken> {
     const body = {
       ...(options?.scopes === undefined ? {} : { scopes: options.scopes.map(scopeEnum) }),
       ...(options?.ttlSeconds === undefined
         ? {}
-        : { lifetimeSeconds: wholeNumber(options.ttlSeconds, "ttlSeconds", 1) }),
+        : { lifetimeSeconds: wholeNumber(options.ttlSeconds, "ttlSeconds", 60, 3600) }),
     };
     return this.#send("CustomerTokens.CreateToken", body, decodeToken, options);
   }

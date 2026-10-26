@@ -321,7 +321,7 @@ export const decodeToken: Decoder = (value) => {
   return {
     token: at("token", () => text(given.token)),
     id: at("tokenId", () => text(given.tokenId)),
-    customerId: at("customerId", () => text(given.customerId)),
+    customerId: at("customerId", () => optionalText(given.customerId)),
     scopes: at("scopes", () => list(given.scopes ?? [], scopeName)),
     expiresAt: at("expiresAt", () => seconds(given.expiresAt)),
   } satisfies IssuedCustomerToken;

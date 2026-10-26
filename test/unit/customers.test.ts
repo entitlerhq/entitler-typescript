@@ -105,12 +105,17 @@ describe("customer tokens", () => {
     });
   });
 
-  it("asks for the default scope by sending none", async () => {
-    const { customer, sent } = setup(
-      json({ token: "ct_1", tokenId: "tk_1", customerId: "cu_1", scopes: [], expiresAt: 1 }),
-    );
-    await customer.token();
+  it("asks for the default scope by sending none, for a customer not registered yet", async () => {
+    const { customer, sent } = setup(json({ token: "ct_1", tokenId: "tk_1", scopes: [], expiresAt: 1 }));
+    expect((await customer.token()).customerId).toBeNull();
     expect(sent[0]?.body).toEqual({});
+  });
+
+  it("refuses a lifetime the API refuses, before any request", async () => {
+    const { customer, mock } = setup(json({}));
+    await expect(customer.token({ ttlSeconds: 30 })).rejects.toThrow(RangeError);
+    await expect(customer.token({ ttlSeconds: 3601 })).rejects.toThrow(RangeError);
+    expect(mock).not.toHaveBeenCalled();
   });
 });
 
