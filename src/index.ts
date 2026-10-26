@@ -2,11 +2,16 @@ export { type CacheEntry, type CacheStore, type MaybePromise, MemoryCache, type 
 export type {
   CheckOptions,
   Customer,
+  CustomerDetailsInput,
   Hold,
   HoldContext,
   HoldOptions,
   IsEntitledOptions,
   RecordUsageOptions,
+  RegisterOptions,
+  ServerCustomer,
+  TokenOptions,
+  UpdateOptions,
   UsageWriteOptions,
 } from "./customer.js";
 export type { ClientDescription } from "./describe.js";

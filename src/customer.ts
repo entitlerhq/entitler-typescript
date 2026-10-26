@@ -1,9 +1,29 @@
 import { Entitlements, type EntitlementsInit } from "./entitlements.js";
 import { ApiError, UsageRefusedError, UsageReplayedError, UsageSettlementError } from "./errors.js";
 import { type Operation, route } from "./routes.js";
-import { type Decoder, decodeCheck, decodeEntitlements, decodeUsage } from "./shapes.js";
+import {
+  type Decoder,
+  decodeCheck,
+  decodeCustomer,
+  decodeEntitlements,
+  decodeNothing,
+  decodeRegistered,
+  decodeToken,
+  decodeUsage,
+  scopeEnum,
+} from "./shapes.js";
 import { type Answer, type CallOptions, isClosed, type ReadOptions, type Transport } from "./transport.js";
-import type { Check, Feature, FeatureType, UsageMode, UsageResult } from "./types.js";
+import type {
+  Check,
+  CustomerRecord,
+  CustomerTokenScope,
+  Feature,
+  FeatureType,
+  IssuedCustomerToken,
+  RegisteredCustomer,
+  UsageMode,
+  UsageResult,
+} from "./types.js";
 import { featureKey, requiredKey, requireId, untilAborted, wholeNumber } from "./util.js";
 
 /** Options for a customer's reads. */
@@ -182,6 +202,75 @@ export interface Customer {
   releaseUsage(holdId: string, options?: CallOptions): Promise<UsageResult>;
 }
 
+/** The details `register()` and `update()` set. */
+export interface CustomerDetailsInput {
+  /** The customer's name. */
+  name?: string;
+  /** The customer's email. */
+  email?: string;
+  /** Attributes to set, merged into those kept; a `null` value removes that attribute. */
+  attributes?: Record<string, string | null>;
+}
+
+/** Options for {@link ServerCustomer.register}. */
+export interface RegisterOptions extends CustomerDetailsInput, CallOptions {
+  /** The visitor id the customer had while signed out, so they keep their experiment arm. */
+  visitor?: string;
+}
+
+/** Options for {@link ServerCustomer.update}. */
+export interface UpdateOptions extends CustomerDetailsInput, CallOptions {}
+
+/** Options for {@link ServerCustomer.token}. */
+export interface TokenOptions extends CallOptions {
+  /**
+   * What the token lets the app do; `entitlements:read` alone by default. Ask for `usage:write` only
+   * when the app records usage itself, and `billing:self` only for people who may buy for the customer.
+   */
+  scopes?: readonly CustomerTokenScope[];
+  /** How long the token lasts, in seconds. Defaults to 3,600. */
+  ttlSeconds?: number;
+}
+
+/** A customer from the server client: everything an app's customer does, plus their record and tokens. */
+export interface ServerCustomer extends Customer {
+  /**
+   * Registers the customer, or keeps their details current: call it at sign-up, and at sign-in with
+   * the latest details. Registering twice is safe.
+   */
+  register(options?: RegisterOptions): Promise<RegisteredCustomer>;
+  /** Reads the customer's record. */
+  details(options?: CallOptions): Promise<CustomerRecord>;
+  /** Changes the customer's details. */
+  update(options: UpdateOptions): Promise<CustomerRecord>;
+  /**
+   * Erases the customer, as account deletion in app stores requires: their details, usage and
+   * events. Cancel store subscriptions through Apple or Google first. Erasing twice is safe.
+   */
+  erase(options?: CallOptions): Promise<void>;
+  /**
+   * Mints a customer token for an in-app client, `entitlements:read` alone unless `scopes` asks for
+   * more. Hand it to your own signed-in app only.
+   *
+   * @example
+   * ```ts
+   * const { token } = await entitler.customer(user.id).token({ scopes: ["entitlements:read", "usage:write"] });
+   * ```
+   */
+  token(options?: TokenOptions): Promise<IssuedCustomerToken>;
+}
+
+function details(options: CustomerDetailsInput | undefined): Record<string, unknown> {
+  const attributes = Object.entries(options?.attributes ?? {}).map(([key, value]) =>
+    value === null ? { key } : { key, value },
+  );
+  return {
+    ...(options?.name === undefined ? {} : { name: options.name }),
+    ...(options?.email === undefined ? {} : { email: options.email }),
+    ...(attributes.length === 0 ? {} : { attributes }),
+  };
+}
+
 const USAGE_AMOUNT = `Pass amount as a whole number from 1 to ${Number.MAX_SAFE_INTEGER}.`;
 const SETTLED_AMOUNT = "Pass amount as a whole number from 0 to the held amount.";
 const AMOUNT_USED = "Pass the amount used as a whole number of 0 or more.";
@@ -196,7 +285,7 @@ function asOf(options: CheckOptions | undefined): Record<string, string | undefi
 }
 
 /** A customer's methods over the transport. @internal */
-export class CustomerApi implements Customer {
+export class CustomerApi implements ServerCustomer {
   readonly id: string;
   readonly #transport: Transport;
 
@@ -440,5 +529,49 @@ export class CustomerApi implements Customer {
       });
     }
     return result;
+  }
+
+  async #send<T>(
+    operation: Operation,
+    body: Record<string, unknown> | undefined,
+    decode: Decoder,
+    options: CallOptions | undefined,
+    retryable?: boolean,
+  ): Promise<T> {
+    const answer = await this.#transport.send<T>({
+      ...route(operation, { "customer.external_id": this.id, external_id: this.id }),
+      body,
+      ...(retryable === undefined ? {} : { retryable }),
+      decode,
+      options,
+    });
+    return answer.data;
+  }
+
+  register(options?: RegisterOptions): Promise<RegisteredCustomer> {
+    const body = { ...details(options), ...(options?.visitor === undefined ? {} : { visitorId: options.visitor }) };
+    return this.#send("Customers.RegisterCustomer", body, decodeRegistered, options);
+  }
+
+  details(options?: CallOptions): Promise<CustomerRecord> {
+    return this.#send("Customers.GetCustomer", undefined, decodeCustomer, options);
+  }
+
+  update(options: UpdateOptions): Promise<CustomerRecord> {
+    return this.#send("Customers.UpdateCustomer", details(options), decodeCustomer, options);
+  }
+
+  erase(options?: CallOptions): Promise<void> {
+    return this.#send("Customers.EraseCustomer", {}, decodeNothing, options, true);
+  }
+
+  token(options?: TokenOptions): Promise<IssuedCustomerToken> {
+    const body = {
+      ...(options?.scopes === undefined ? {} : { scopes: options.scopes.map(scopeEnum) }),
+      ...(options?.ttlSeconds === undefined
+        ? {}
+        : { lifetimeSeconds: wholeNumber(options.ttlSeconds, "ttlSeconds", 1) }),
+    };
+    return this.#send("CustomerTokens.CreateToken", body, decodeToken, options);
   }
 }
