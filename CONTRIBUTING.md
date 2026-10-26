@@ -13,3 +13,7 @@ bun install
 | Command | What it does |
 | --- | --- |
 | `bun run lint` | Biome lint and format check (`bun run format` fixes) |
+| `bun run typecheck` | type-checks the source, the tests and the scripts |
+| `bun run build` | builds `dist` with `tsc` |
+| `bun run test` | the unit suite (`bun run test:coverage` adds coverage, failing below 90% of lines) |
+| `bun run generate` | regenerates `src/wire.gen.ts` from `openapi.json`, the API document |
