@@ -2520,6 +2520,15 @@
           "kind": {
             "$ref": "#/components/schemas/entitler.api.v1.FeatureKind"
           },
+          "lateDays": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "measure": {
+            "$ref": "#/components/schemas/entitler.common.v1.Measure"
+          },
           "members": {
             "$ref": "#/components/schemas/entitler.common.v1.GroupValue"
           },
@@ -2531,6 +2540,9 @@
           },
           "reset": {
             "$ref": "#/components/schemas/entitler.api.v1.MeterReset"
+          },
+          "rounding": {
+            "$ref": "#/components/schemas/entitler.api.v1.Rounding"
           },
           "teamId": {
             "type": "string"
@@ -4130,7 +4142,10 @@
           "DIFFERENCE_FIELD_TERMS",
           "DIFFERENCE_FIELD_FEE",
           "DIFFERENCE_FIELD_FEE_SCHEDULE",
-          "DIFFERENCE_FIELD_KIND"
+          "DIFFERENCE_FIELD_KIND",
+          "DIFFERENCE_FIELD_MEASURE",
+          "DIFFERENCE_FIELD_ROUNDING",
+          "DIFFERENCE_FIELD_LATE_DAYS"
         ],
         "type": "string"
       },
@@ -4744,6 +4759,15 @@
           "description": {
             "type": "string"
           },
+          "lateDays": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "measure": {
+            "$ref": "#/components/schemas/entitler.common.v1.Measure"
+          },
           "members": {
             "$ref": "#/components/schemas/entitler.common.v1.GroupValue"
           },
@@ -4757,6 +4781,9 @@
           },
           "reset": {
             "$ref": "#/components/schemas/entitler.api.v1.MeterReset"
+          },
+          "rounding": {
+            "$ref": "#/components/schemas/entitler.api.v1.Rounding"
           },
           "unit": {
             "type": "string"
@@ -11647,6 +11674,15 @@
         },
         "type": "object"
       },
+      "entitler.api.v1.Rounding": {
+        "enum": [
+          "ROUNDING_UNSPECIFIED",
+          "ROUNDING_NEAREST",
+          "ROUNDING_UP",
+          "ROUNDING_DOWN"
+        ],
+        "type": "string"
+      },
       "entitler.api.v1.RouteEmailRequest": {
         "additionalProperties": false,
         "properties": {
@@ -13547,6 +13583,15 @@
           "kind": {
             "$ref": "#/components/schemas/entitler.api.v1.FeatureKind"
           },
+          "lateDays": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "measure": {
+            "$ref": "#/components/schemas/entitler.common.v1.Measure"
+          },
           "members": {
             "$ref": "#/components/schemas/entitler.common.v1.GroupValue"
           },
@@ -13563,6 +13608,9 @@
             "maximum": 18446744073709551615,
             "minimum": 0,
             "type": "integer"
+          },
+          "rounding": {
+            "$ref": "#/components/schemas/entitler.api.v1.Rounding"
           },
           "teamId": {
             "type": "string"
@@ -14676,6 +14724,21 @@
         },
         "type": "object"
       },
+      "entitler.common.v1.Measure": {
+        "additionalProperties": false,
+        "properties": {
+          "decimals": {
+            "format": "int64",
+            "maximum": 4294967295,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "money": {
+            "$ref": "#/components/schemas/entitler.common.v1.Money"
+          }
+        },
+        "type": "object"
+      },
       "entitler.common.v1.Metadata": {
         "additionalProperties": false,
         "properties": {
@@ -14704,6 +14767,11 @@
             "$ref": "#/components/schemas/entitler.common.v1.Actor"
           }
         },
+        "type": "object"
+      },
+      "entitler.common.v1.Money": {
+        "additionalProperties": false,
+        "properties": {},
         "type": "object"
       },
       "entitler.common.v1.PlanSelector": {
@@ -16439,6 +16507,7 @@
         "operationId": "Customers.RegisterCustomer",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16489,6 +16558,7 @@
         "operationId": "Subscriptions.SetAddOn",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16547,6 +16617,7 @@
         "operationId": "Subscriptions.CancelPendingAddOnChange",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16605,6 +16676,7 @@
         "operationId": "Subscriptions.RemoveAddOn",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16663,6 +16735,7 @@
         "operationId": "Billing.GetBilling",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16724,6 +16797,7 @@
         "operationId": "Billing.CreatePortalSession",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16774,6 +16848,7 @@
         "operationId": "Billing.SyncBilling",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16824,6 +16899,7 @@
         "operationId": "Subscriptions.ListCharges",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16916,6 +16992,7 @@
         "operationId": "Entitlements.ListEntitlements",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -16986,6 +17063,7 @@
         "operationId": "Entitlements.CheckFeature",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17064,6 +17142,7 @@
         "operationId": "Grants.CreateGrant",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17114,6 +17193,7 @@
         "operationId": "Grants.RevokeGrant",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17172,6 +17252,7 @@
         "operationId": "Usage.AdjustMeter",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17230,6 +17311,7 @@
         "operationId": "Subscriptions.ListMoves",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17308,6 +17390,7 @@
         "operationId": "Subscriptions.ListAvailableOffers",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17376,6 +17459,7 @@
         "operationId": "Subscriptions.SetPlan",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17426,6 +17510,7 @@
         "operationId": "Subscriptions.ListAvailablePlans",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17496,6 +17581,7 @@
         "operationId": "Pricing.GetCustomerPricing",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17557,6 +17643,7 @@
         "operationId": "CustomerPayments.ListProviderState",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17618,6 +17705,7 @@
         "operationId": "CustomerPayments.SyncProviderState",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17668,6 +17756,7 @@
         "operationId": "Snapshots.CreateSnapshot",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17718,6 +17807,7 @@
         "operationId": "Subscriptions.ChooseSubscription",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17768,6 +17858,7 @@
         "operationId": "Subscriptions.AcceptChange",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17818,6 +17909,7 @@
         "operationId": "Subscriptions.CancelSubscription",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17868,6 +17960,7 @@
         "operationId": "Subscriptions.CancelPendingChange",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17918,6 +18011,7 @@
         "operationId": "Subscriptions.GiveOffer",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -17968,6 +18062,7 @@
         "operationId": "Subscriptions.RecordPayment",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18018,6 +18113,7 @@
         "operationId": "Subscriptions.ReversePayment",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18068,6 +18164,7 @@
         "operationId": "Subscriptions.SetCollection",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18118,6 +18215,7 @@
         "operationId": "Subscriptions.TakeOffer",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18168,6 +18266,7 @@
         "operationId": "Subscriptions.WithdrawDiscount",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18218,6 +18317,7 @@
         "operationId": "Usage.ListCustomerUsage",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18301,6 +18401,7 @@
         "operationId": "Usage.ReportUsage",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18351,6 +18452,7 @@
         "operationId": "Usage.CreateHold",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18401,6 +18503,7 @@
         "operationId": "Usage.ReleaseHold",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18468,6 +18571,7 @@
         "operationId": "Usage.GetHold",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18537,6 +18641,7 @@
         "operationId": "Usage.SettleHold",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,
@@ -18595,6 +18700,7 @@
         "operationId": "Usage.CancelReport",
         "parameters": [
           {
+            "description": "The customer's external ID, or `me` for the customer a customer token or identity token names.",
             "in": "path",
             "name": "customer.external_id",
             "required": true,

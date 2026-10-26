@@ -85,3 +85,31 @@ export function wireEntitlement(overrides: Record<string, unknown> = {}) {
 export function checkAnswer(overrides: Record<string, unknown> = {}) {
   return { ...answerContext, entitlement: wireEntitlement(overrides) };
 }
+
+export function usageAnswer(usage: Record<string, unknown> = {}, tracked: Record<string, unknown> = {}) {
+  const { outcome = "recorded", mode = "gate", refusal, ...rest } = usage;
+  return {
+    tracked: {
+      ...answerContext,
+      entitlement: wireEntitlement({
+        featureKey: "ai_credits",
+        kind: "ENTITLED_FEATURE_KIND_METERED",
+        value: { metered: { count: 1000 } },
+        meter: { used: 10, remaining: { count: 990 } },
+        sources: [],
+      }),
+      usage: {
+        outcome: `USAGE_OUTCOME_${String(outcome).toUpperCase()}`,
+        mode: `USAGE_MODE_${String(mode).toUpperCase()}`,
+        ...(refusal === undefined ? {} : { refusal: `USAGE_REFUSAL_${String(refusal).toUpperCase()}` }),
+        amount: 1,
+        meterChange: 1,
+        overBy: 0,
+        late: false,
+        replayed: false,
+        ...rest,
+      },
+      ...tracked,
+    },
+  };
+}

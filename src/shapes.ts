@@ -8,6 +8,7 @@ import type {
   Meter,
   Served,
   Upgrade,
+  UsageResult,
   Value,
 } from "./types.js";
 import type * as Wire from "./wire.gen.js";
@@ -64,6 +65,14 @@ function seconds(value: unknown): Date {
 
 function optionalSeconds(value: unknown): Date | null {
   return value === undefined ? null : seconds(value);
+}
+
+function optionalMilliseconds(value: unknown): Date | null {
+  return value === undefined ? null : new Date(whole(value));
+}
+
+function integer(value: unknown): number {
+  return Number.isSafeInteger(value) ? (value as number) : fail();
 }
 
 function optionalText(value: unknown): string | null {
@@ -215,13 +224,13 @@ function served(value: unknown): Served {
   };
 }
 
-function context(given: Wire.CheckFeatureResponse | Wire.ListEntitlementsResponse): AnswerContext {
+function context(given: Wire.CheckFeatureResponse | Wire.ListEntitlementsResponse | Wire.TrackedUsage): AnswerContext {
   const customer = at("customer", () => object<Wire.EntitledCustomer>(given.customer));
   return {
     customer: at("customer", () => at("externalId", () => text(customer.externalId))),
     customerId: at("customer", () => at("customerId", () => optionalText(customer.customerId))),
     asOf: at("asOf", () => seconds(given.asOf)),
-    nextChangeAt: at("nextChangeAt", () => optionalSeconds(given.nextChangeAt)),
+    nextChangeAt: "nextChangeAt" in given ? at("nextChangeAt", () => optionalSeconds(given.nextChangeAt)) : null,
     served: at("served", () => served(given.served ?? {})),
   };
 }
@@ -239,4 +248,30 @@ export const decodeCheck: Decoder = (value) => {
 export const decodeEntitlements: Decoder = (value) => {
   const given = object<Wire.ListEntitlementsResponse>(value);
   return { ...context(given), entitlements: at("entitlements", () => list(given.entitlements ?? [], entitlement)) };
+};
+
+/** Decodes the answer every usage write shares, `{ tracked }`. @internal */
+export const decodeUsage: Decoder = (value) => {
+  const tracked = at("tracked", () => object<Wire.TrackedUsage>(object<Wire.ReportUsageResponse>(value).tracked));
+  return at("tracked", () => {
+    const usage = at("usage", () => object<Wire.UsageResult>(tracked.usage));
+    return {
+      ...context(tracked),
+      ...at("entitlement", () => entitlement(tracked.entitlement)),
+      ...at("usage", () => ({
+        outcome: at("outcome", () => enumName(usage.outcome, "USAGE_OUTCOME_")),
+        refusal: at("refusal", () => (usage.refusal === undefined ? null : enumName(usage.refusal, "USAGE_REFUSAL_"))),
+        id: at("usageId", () => optionalText(usage.usageId)),
+        holdId: at("holdId", () => optionalText(usage.holdId)),
+        mode: at("mode", () => enumName(usage.mode, "USAGE_MODE_")),
+        amount: at("amount", () => whole(usage.amount ?? 0)),
+        meterChange: at("meterChange", () => integer(usage.meterChange ?? 0)),
+        overBy: at("overBy", () => whole(usage.overBy ?? 0)),
+        late: at("late", () => bool(usage.late ?? false)),
+        occurredAt: at("occurredAtMs", () => optionalMilliseconds(usage.occurredAtMs)),
+        expiresAt: at("expiresAtMs", () => optionalMilliseconds(usage.expiresAtMs)),
+        replayed: at("replayed", () => bool(usage.replayed ?? false)),
+      })),
+    } satisfies UsageResult;
+  });
 };

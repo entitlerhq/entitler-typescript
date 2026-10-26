@@ -27,7 +27,14 @@ export interface Document {
 }
 
 /** The operations the SDK calls. Only these and the types they reach are generated. */
-export const OPERATIONS = ["Entitlements.CheckFeature", "Entitlements.ListEntitlements"];
+export const OPERATIONS = [
+  "Entitlements.CheckFeature",
+  "Entitlements.ListEntitlements",
+  "Usage.ReportUsage",
+  "Usage.CreateHold",
+  "Usage.SettleHold",
+  "Usage.ReleaseHold",
+];
 
 const REF = "#/components/schemas/";
 

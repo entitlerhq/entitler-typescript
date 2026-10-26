@@ -260,3 +260,42 @@ export interface Feature<T extends FeatureType = FeatureType> {
 export function defineFeature<const T extends FeatureType>(key: string, type: T): Feature<T> {
   return Object.freeze({ key, type });
 }
+
+/** How a usage report counts against the allowance: `gate` refuses what doesn't fit, `observe` records it all. */
+export type UsageMode = Open<"gate" | "observe">;
+
+/** What a usage write did. */
+export type UsageOutcome = Open<
+  "recorded" | "refused" | "duplicate" | "cancelled" | "held" | "settled" | "released" | "adjusted"
+>;
+
+/** Why a gated report or a hold was refused. */
+export type UsageRefusal = Open<"not_entitled" | "over_allowance">;
+
+/** The answer to a usage write: the feature's entitlement after it, and what the write did. */
+export interface UsageResult extends AnswerContext, Entitlement {
+  /** What happened. */
+  readonly outcome: UsageOutcome;
+  /** Why a gated report or a hold was refused, else `null`. */
+  readonly refusal: UsageRefusal | null;
+  /** The usage report this created, repeated or settled, or `null`. */
+  readonly id: string | null;
+  /** The hold this created, settled, released or repeated, or `null`. */
+  readonly holdId: string | null;
+  /** The report's mode. */
+  readonly mode: UsageMode;
+  /** The amount asked for, or the first request's on a replay. */
+  readonly amount: number;
+  /** How much this request moved the meter. */
+  readonly meterChange: number;
+  /** How far use is past the allowance after the write; `0` within it. */
+  readonly overBy: number;
+  /** True when the report's period had closed when it arrived, so it moved no meter. */
+  readonly late: boolean;
+  /** When the usage happened, or `null`. */
+  readonly occurredAt: Date | null;
+  /** When the hold expires, or `null` for a report. */
+  readonly expiresAt: Date | null;
+  /** True when the idempotency key repeated an earlier request, which answered this. */
+  readonly replayed: boolean;
+}
