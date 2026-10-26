@@ -8,5 +8,5 @@ reviews:
     auto_incremental_review: true
     auto_pause_after_reviewed_commits: 0
     description_keyword: ""
-    labels: ["ai-review"]
+    labels: ["needs-review"]
     base_branches: [".*"]
