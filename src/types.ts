@@ -299,3 +299,50 @@ export interface UsageResult extends AnswerContext, Entitlement {
   /** True when the idempotency key repeated an earlier request, which answered this. */
   readonly replayed: boolean;
 }
+
+/** A customer as Entitler keeps them. */
+export interface CustomerRecord {
+  /** The customer's external id: the id your app uses for them. */
+  readonly customer: string;
+  /** Entitler's id for the customer. */
+  readonly customerId: string;
+  /** The customer's name, or `null`. */
+  readonly name: string | null;
+  /** The customer's email, or `null`. */
+  readonly email: string | null;
+  /** Your own attributes for the customer, such as their region or account manager. */
+  readonly attributes: Readonly<Record<string, string>>;
+  /** The id of the track the customer is on, or `null` for the default track. */
+  readonly trackId: string | null;
+  /** `real` for a customer who pays real money, `test` for one in test mode. */
+  readonly money: Open<"real" | "test">;
+  /** The record's revision, which every change raises. */
+  readonly revision: number;
+  /** When the customer was registered. */
+  readonly createdAt: Date;
+  /** When the record last changed. */
+  readonly updatedAt: Date;
+}
+
+/** The answer to `register()`: the customer, and whether this call registered them. */
+export interface RegisteredCustomer extends CustomerRecord {
+  /** True when this call registered the customer, false when they were registered already. */
+  readonly created: boolean;
+}
+
+/** What a customer token lets an in-app client do. */
+export type CustomerTokenScope = Open<"entitlements:read" | "usage:read" | "usage:write" | "billing:self">;
+
+/** A customer token minted by the server, for an in-app client. */
+export interface IssuedCustomerToken {
+  /** The token. Treat it as a secret of that customer's session. */
+  readonly token: string;
+  /** The token's id. */
+  readonly id: string;
+  /** Entitler's id for the customer. */
+  readonly customerId: string;
+  /** What the token lets the client do. */
+  readonly scopes: readonly CustomerTokenScope[];
+  /** When the token expires. */
+  readonly expiresAt: Date;
+}

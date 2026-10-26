@@ -14,3 +14,5 @@ All notable changes to this package are listed here. The format follows
 - `ApiError` with the API's gRPC `code`, `reason` and `parameters`.
 - `recordUsage()`, and holds with `startHold()`, `withHold()`, `holdUsage()`, `settleUsage()` and
   `releaseUsage()`.
+- The server's customer: `register()`, `details()`, `update()`, `erase()`, and `token()` to mint a
+  customer token for an in-app client.

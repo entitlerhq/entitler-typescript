@@ -34,6 +34,66 @@
         ],
         "type": "object"
       },
+      "JsonWebKeySet": {
+        "properties": {
+          "keys": {
+            "items": {
+              "properties": {
+                "alg": {
+                  "enum": [
+                    "ES256",
+                    "EdDSA"
+                  ],
+                  "type": "string"
+                },
+                "crv": {
+                  "enum": [
+                    "P-256",
+                    "Ed25519"
+                  ],
+                  "type": "string"
+                },
+                "kid": {
+                  "type": "string"
+                },
+                "kty": {
+                  "enum": [
+                    "EC",
+                    "OKP"
+                  ],
+                  "type": "string"
+                },
+                "use": {
+                  "enum": [
+                    "sig"
+                  ],
+                  "type": "string"
+                },
+                "x": {
+                  "type": "string"
+                },
+                "y": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kty",
+                "crv",
+                "alg",
+                "use",
+                "kid",
+                "x"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "type": "object"
+      },
       "entitler.api.v1.AcceptChangeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -14837,6 +14897,27 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/access-token-keys": {
+      "get": {
+        "operationId": "AccessTokenKeys",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonWebKeySet"
+                }
+              }
+            },
+            "description": "The EdDSA keys that verify access tokens, as a JSON Web Key Set."
+          },
+          "default": {
+            "description": "A refusal with no body: 429 with Retry-After once the address's limit is spent, 503 while the keys are unreachable, 500 for keys that can't be published, 405 for another method."
+          }
+        },
+        "security": []
+      }
+    },
     "/v1/account": {
       "get": {
         "operationId": "Account.GetAccount",
@@ -21823,6 +21904,27 @@
         "tags": [
           "SignIn"
         ]
+      }
+    },
+    "/v1/snapshot-keys": {
+      "get": {
+        "operationId": "SnapshotKeys",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonWebKeySet"
+                }
+              }
+            },
+            "description": "The ES256 keys that verify snapshots, as a JSON Web Key Set."
+          },
+          "default": {
+            "description": "A refusal with no body: 429 with Retry-After once the address's limit is spent, 503 while the keys are unreachable, 500 for keys that can't be published, 405 for another method."
+          }
+        },
+        "security": []
       }
     },
     "/v1/sso-sign-ins:begin": {

@@ -1,11 +1,14 @@
 import type {
   AnswerContext,
   Check,
+  CustomerRecord,
   Entitlement,
   EntitlementSource,
   FeatureType,
+  IssuedCustomerToken,
   Limit,
   Meter,
+  RegisteredCustomer,
   Served,
   Upgrade,
   UsageResult,
@@ -275,3 +278,68 @@ export const decodeUsage: Decoder = (value) => {
     } satisfies UsageResult;
   });
 };
+
+function customerRecord(value: unknown): CustomerRecord {
+  const given = object<Wire.Customer>(value);
+  return {
+    customer: at("externalId", () => text(given.externalId)),
+    customerId: at("id", () => text(given.id)),
+    name: at("name", () => optionalText(given.name)),
+    email: at("email", () => optionalText(given.email)),
+    attributes: at("attributes", () =>
+      Object.fromEntries(
+        list(given.attributes ?? [], (item) => {
+          const attribute = object<Wire.CustomerAttribute>(item);
+          return [at("key", () => text(attribute.key)), at("value", () => text(attribute.value))];
+        }),
+      ),
+    ),
+    trackId: at("trackId", () => optionalText(given.trackId)),
+    money: at("money", () => enumName(given.money ?? "CUSTOMER_MONEY_UNSPECIFIED", "CUSTOMER_MONEY_")),
+    revision: at("revision", () => whole(given.revision ?? 0)),
+    createdAt: at("createdAt", () => seconds(given.createdAt)),
+    updatedAt: at("updatedAt", () => seconds(given.updatedAt)),
+  };
+}
+
+/** Decodes `Customers.GetCustomer`'s and `Customers.UpdateCustomer`'s answer. @internal */
+export const decodeCustomer: Decoder = (value) =>
+  at("customer", () => customerRecord(object<Wire.GetCustomerResponse>(value).customer));
+
+/** Decodes `Customers.RegisterCustomer`'s answer. @internal */
+export const decodeRegistered: Decoder = (value) => {
+  const given = object<Wire.RegisterCustomerResponse>(value);
+  return {
+    ...at("customer", () => customerRecord(given.customer)),
+    created: at("created", () => bool(given.created ?? false)),
+  } satisfies RegisteredCustomer;
+};
+
+/** Decodes `CustomerTokens.CreateToken`'s answer. @internal */
+export const decodeToken: Decoder = (value) => {
+  const given = object<Wire.CreateTokenResponse>(value);
+  return {
+    token: at("token", () => text(given.token)),
+    id: at("tokenId", () => text(given.tokenId)),
+    customerId: at("customerId", () => text(given.customerId)),
+    scopes: at("scopes", () => list(given.scopes ?? [], scopeName)),
+    expiresAt: at("expiresAt", () => seconds(given.expiresAt)),
+  } satisfies IssuedCustomerToken;
+};
+
+/** Decodes an answer the SDK has no use for. @internal */
+export const decodeNothing: Decoder = (value) => {
+  object(value);
+  return undefined;
+};
+
+/** A customer token scope as the API names it, such as `CUSTOMER_TOKEN_SCOPE_USAGE_WRITE`. @internal */
+export function scopeEnum(scope: string): string {
+  return `CUSTOMER_TOKEN_SCOPE_${scope.toUpperCase().replace(":", "_")}`;
+}
+
+function scopeName(value: unknown): string {
+  const name = enumName(value, "CUSTOMER_TOKEN_SCOPE_");
+  const split = name.lastIndexOf("_");
+  return split < 0 ? name : `${name.slice(0, split)}:${name.slice(split + 1)}`;
+}

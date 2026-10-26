@@ -34,6 +34,11 @@ export const OPERATIONS = [
   "Usage.CreateHold",
   "Usage.SettleHold",
   "Usage.ReleaseHold",
+  "Customers.RegisterCustomer",
+  "Customers.GetCustomer",
+  "Customers.UpdateCustomer",
+  "Customers.EraseCustomer",
+  "CustomerTokens.CreateToken",
 ];
 
 const REF = "#/components/schemas/";

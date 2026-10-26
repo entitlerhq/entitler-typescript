@@ -1,5 +1,5 @@
 import type { CacheStore } from "./cache.js";
-import { type Customer, CustomerApi } from "./customer.js";
+import { CustomerApi, type ServerCustomer } from "./customer.js";
 import { type ClientDescription, describe } from "./describe.js";
 import { type ClientOptions, Transport } from "./transport.js";
 import { requireCredential, requireId } from "./util.js";
@@ -39,8 +39,10 @@ export class EntitlerServer {
   }
 
   /** The customer with the id your app uses for them. Makes no request. */
-  customer(id: string): Customer {
-    return new CustomerApi(this.#transport, requireId(id, "Provide the id your app uses for the customer."));
+  customer(id: string): ServerCustomer {
+    const given = requireId(id, "Provide the id your app uses for the customer.");
+    if (given === "me") throw new TypeError("me names the signed-in customer, which only an app's client has.");
+    return new CustomerApi(this.#transport, given);
   }
 
   /**
