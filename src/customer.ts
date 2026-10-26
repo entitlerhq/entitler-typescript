@@ -2,9 +2,9 @@ import { Entitlements, type EntitlementsInit } from "./entitlements.js";
 import { ApiError, UsageRefusedError, UsageReplayedError, UsageSettlementError } from "./errors.js";
 import { type Operation, route } from "./routes.js";
 import { type Decoder, decodeCheck, decodeEntitlements, decodeUsage } from "./shapes.js";
-import { type CallOptions, isClosed, type ReadOptions, type Transport } from "./transport.js";
+import { type Answer, type CallOptions, isClosed, type ReadOptions, type Transport } from "./transport.js";
 import type { Check, Feature, FeatureType, UsageMode, UsageResult } from "./types.js";
-import { deadlineAfter, featureKey, requiredKey, requireId, wholeNumber } from "./util.js";
+import { featureKey, requiredKey, requireId, wholeNumber } from "./util.js";
 
 /** Options for a customer's reads. */
 export interface CheckOptions extends ReadOptions {
@@ -223,7 +223,6 @@ export class CustomerApi implements Customer {
   ): Promise<T & { stale: boolean }> {
     const answer = await this.#transport.send<T>({
       ...route(operation, { "customer.external_id": this.id, ...variables }, asOf(options)),
-      customer: this.id,
       cached: true,
       revalidate: options?.revalidate,
       decode,
@@ -267,23 +266,21 @@ export class CustomerApi implements Customer {
     );
   }
 
-  async #usage(
+  #usage(
     operation: Operation,
     variables: Record<string, string>,
     body: Record<string, unknown> | undefined,
     options: CallOptions | undefined,
     idempotencyKey?: string,
-  ): Promise<UsageResult> {
-    const answer = await this.#transport.send<UsageResult>({
+  ): Promise<Answer<UsageResult>> {
+    return this.#transport.send<UsageResult>({
       ...route(operation, { "customer.external_id": this.id, ...variables }),
       body,
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
       retryable: true,
-      changes: [this.id],
       decode: decodeUsage,
       options,
     });
-    return answer.data;
   }
 
   async recordUsage(feature: Feature<"metered">, amount: number, options: RecordUsageOptions): Promise<UsageResult> {
@@ -292,61 +289,48 @@ export class CustomerApi implements Customer {
     if (occurredAt !== undefined && (!(occurredAt instanceof Date) || Number.isNaN(occurredAt.getTime()))) {
       throw new TypeError("Pass occurredAt as a valid date.");
     }
-    return this.#usage(
-      "Usage.ReportUsage",
-      {},
-      {
-        featureKey: featureKey(feature),
-        amount: wholeNumber(amount, "amount", 1, Number.MAX_SAFE_INTEGER, USAGE_AMOUNT),
-        idempotencyKey,
-        ...(options.mode === undefined ? {} : { mode: `USAGE_MODE_${options.mode.toUpperCase()}` }),
-        ...(occurredAt === undefined ? {} : { occurredAtMs: occurredAt.getTime() }),
-        ...(options.register === undefined ? {} : { register: options.register }),
-      },
-      options,
+    const body = {
+      featureKey: featureKey(feature),
+      amount: wholeNumber(amount, "amount", 1, Number.MAX_SAFE_INTEGER, USAGE_AMOUNT),
       idempotencyKey,
-    );
+      ...(options.mode === undefined ? {} : { mode: `USAGE_MODE_${options.mode.toUpperCase()}` }),
+      ...(occurredAt === undefined ? {} : { occurredAtMs: occurredAt.getTime() }),
+      ...(options.register === undefined ? {} : { register: options.register }),
+    };
+    return (await this.#usage("Usage.ReportUsage", {}, body, options, idempotencyKey)).data;
   }
 
   async holdUsage(feature: Feature<"metered">, amount: number, options: HoldOptions): Promise<UsageResult> {
+    return (await this.#createHold(feature, amount, options)).data;
+  }
+
+  #createHold(feature: Feature<"metered">, amount: number, options: HoldOptions): Promise<Answer<UsageResult>> {
     const idempotencyKey = requiredKey(options?.idempotencyKey);
-    return this.#usage(
-      "Usage.CreateHold",
-      {},
-      {
-        featureKey: featureKey(feature),
-        amount: wholeNumber(amount, "amount", 1, Number.MAX_SAFE_INTEGER, USAGE_AMOUNT),
-        idempotencyKey,
-        ...(options.ttlSeconds === undefined
-          ? {}
-          : { ttlSeconds: wholeNumber(options.ttlSeconds, "ttlSeconds", 1, 3600) }),
-      },
-      options,
+    const body = {
+      featureKey: featureKey(feature),
+      amount: wholeNumber(amount, "amount", 1, Number.MAX_SAFE_INTEGER, USAGE_AMOUNT),
       idempotencyKey,
-    );
+      ...(options.ttlSeconds === undefined
+        ? {}
+        : { ttlSeconds: wholeNumber(options.ttlSeconds, "ttlSeconds", 1, 3600) }),
+    };
+    return this.#usage("Usage.CreateHold", {}, body, options, idempotencyKey);
   }
 
   async settleUsage(holdId: string, amount: number, options?: CallOptions): Promise<UsageResult> {
-    return this.#usage(
-      "Usage.SettleHold",
-      { hold_id: requireId(holdId, "Provide the id of the hold.") },
-      { amount: wholeNumber(amount, "amount", 0, Number.MAX_SAFE_INTEGER, SETTLED_AMOUNT) },
-      options,
-    );
+    const hold = { hold_id: requireId(holdId, "Provide the id of the hold.") };
+    const body = { amount: wholeNumber(amount, "amount", 0, Number.MAX_SAFE_INTEGER, SETTLED_AMOUNT) };
+    return (await this.#usage("Usage.SettleHold", hold, body, options)).data;
   }
 
   async releaseUsage(holdId: string, options?: CallOptions): Promise<UsageResult> {
-    return this.#usage(
-      "Usage.ReleaseHold",
-      { hold_id: requireId(holdId, "Provide the id of the hold.") },
-      undefined,
-      options,
-    );
+    const hold = { hold_id: requireId(holdId, "Provide the id of the hold.") };
+    return (await this.#usage("Usage.ReleaseHold", hold, undefined, options)).data;
   }
 
   async startHold(feature: Feature<"metered">, amount: number, options: HoldOptions): Promise<Hold> {
     const key = requiredKey(options?.idempotencyKey, 200 - EXCESS.length);
-    const answer = await this.holdUsage(feature, amount, options);
+    const { data: answer, retried } = await this.#createHold(feature, amount, options);
     if (answer.outcome === "refused") throw new UsageRefusedError(answer);
     const open =
       answer.holdId !== null &&
@@ -354,17 +338,20 @@ export class CustomerApi implements Customer {
       (answer.outcome === "held" ||
         (answer.outcome === "duplicate" && answer.expiresAt.getTime() > answer.asOf.getTime()));
     if (!open) throw new UsageReplayedError(answer);
-    return this.#hold(feature, key, answer, options.timeout);
+    return this.#hold(feature, key, answer, answer.outcome === "duplicate" && !retried, options.timeout);
   }
 
-  #hold(feature: Feature<"metered">, key: string, answer: UsageResult, timeout: number | undefined): Hold {
+  #hold(
+    feature: Feature<"metered">,
+    key: string,
+    answer: UsageResult,
+    duplicate: boolean,
+    timeout: number | undefined,
+  ): Hold {
     const holdId = answer.holdId as string;
     let used: number | undefined;
     let first: Promise<UsageResult> | undefined;
-    const call = (): CallOptions => ({
-      signal: deadlineAfter(timeout ?? this.#transport.timeout),
-      ...(timeout === undefined ? {} : { timeout }),
-    });
+    const call = (): CallOptions => (timeout === undefined ? {} : { timeout });
     const settle = async (): Promise<UsageResult> => {
       const total = used ?? answer.amount;
       const settled = Math.min(total, answer.amount);
@@ -377,7 +364,8 @@ export class CustomerApi implements Customer {
         try {
           result = await this.settleUsage(holdId, settled, call());
         } catch (error) {
-          if (!(error instanceof ApiError && error.reason === "HOLD_EXPIRED") || total === 0) throw error;
+          if (!(error instanceof ApiError && error.reason === "HOLD_EXPIRED")) throw error;
+          if (total === 0) return await release();
           unrecorded = total;
           return await observe(total);
         }
@@ -405,7 +393,7 @@ export class CustomerApi implements Customer {
       amount: answer.amount,
       expiresAt: answer.expiresAt as Date,
       result: answer,
-      duplicate: answer.outcome === "duplicate",
+      duplicate,
       use(value: number) {
         used = wholeNumber(value, "the amount used", 0, Number.MAX_SAFE_INTEGER, AMOUNT_USED);
       },

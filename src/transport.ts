@@ -81,17 +81,16 @@ export interface Call {
   readonly cached?: boolean;
   readonly revalidate?: boolean | undefined;
   readonly decode: Decoder;
-  readonly customer?: string;
-  readonly changes?: readonly string[];
   readonly open?: boolean;
   readonly empty?: boolean;
   readonly options?: CallOptions | undefined;
 }
 
-/** An answer, and whether it came from a kept copy. @internal */
+/** An answer, whether it came from a kept copy, and whether it answered a retry. @internal */
 export interface Answer<T> {
   readonly data: T;
   readonly stale: boolean;
+  readonly retried?: boolean;
 }
 
 const CLOSED = "This Entitler client is closed. Create a new one.";
@@ -111,6 +110,7 @@ interface Received {
   readonly headers: Headers;
   readonly text: string;
   readonly redirect?: boolean;
+  readonly retried?: boolean;
 }
 
 /** The options each client adds to {@link ClientOptions}, resolved. @internal */
@@ -119,8 +119,6 @@ export interface TransportOptions extends ClientOptions {
 }
 
 const RETRIED = new Set([408, 429, 500, 502, 503, 504]);
-const TRACKED_CUSTOMERS = 1000;
-const STAMP_STEP = 0.001;
 
 /** Parses an answer body as plain JSON; each call's decoder turns its instants into `Date`s. @internal */
 export function parseAnswer(text: string): unknown {
@@ -252,10 +250,6 @@ export class Transport {
   readonly #fetch: (input: string, init: RequestInit) => Promise<Response>;
   readonly #credentials: Credentials;
   readonly #headers: () => Record<string, string>;
-  readonly #generations = new Map<string, { generation: number; at: number }>();
-  #forgottenUntil = Number.NEGATIVE_INFINITY;
-  #lastStamp = Number.NEGATIVE_INFINITY;
-  #writes = 0;
   #downUntil = 0;
   #probing = false;
 
@@ -319,13 +313,7 @@ export class Transport {
       ? AbortSignal.any([given.options.signal, this.#closing.signal])
       : this.#closing.signal;
     const call: Call = { ...given, options: { ...given.options, signal } };
-    const changes = this.#cache ? (call.changes ?? []) : [];
-    for (const customer of changes) this.#bump(customer);
-    try {
-      return await this.#answer<T>(call, signal);
-    } finally {
-      for (const customer of changes) this.#bump(customer);
-    }
+    return this.#answer<T>(call, signal);
   }
 
   async #answer<T>(call: Call, signal: AbortSignal): Promise<Answer<T>> {
@@ -340,6 +328,7 @@ export class Transport {
       return {
         data: call.empty && received.text === "" ? (undefined as T) : this.#decode<T>(received.text, received, call),
         stale: false,
+        retried: received.retried === true,
       };
     }
     return this.#cached<T>(call, url, headers, auth, this.#cache);
@@ -354,13 +343,11 @@ export class Transport {
   ): Promise<Answer<T>> {
     const key = await this.#key(call, url, auth);
     keyObserver?.(key);
-    const started = this.#stamp();
-    const generation = this.#generationOf(call.customer);
     const found = await this.#get(cache, key, call.options?.signal);
     const keptData = found && this.#readKept<T>(found.body, call);
     const kept = keptData && found;
     const usable = kept !== undefined && Math.max(0, Date.now() - Math.floor(kept.receivedAt)) < this.#staleFor;
-    if (kept && keptData && !call.revalidate && this.#fresh(kept, call.customer)) {
+    if (kept && keptData && !call.revalidate && this.#fresh(kept)) {
       return { data: keptData.data, stale: false };
     }
     if (usable && keptData && (Date.now() < this.#downUntil || (this.#downUntil > 0 && this.#probing))) {
@@ -389,7 +376,7 @@ export class Transport {
     } finally {
       if (probe) this.#probing = false;
     }
-    const receivedAt = this.#unchangedSince(call.customer, generation, started) ? this.#stamp() : started;
+    const receivedAt = Date.now();
     const entry: CacheEntry =
       received.status === 304 && kept
         ? {
@@ -426,41 +413,10 @@ export class Transport {
     );
   }
 
-  #stamp(): number {
-    const now = Date.now();
-    this.#lastStamp = now > this.#lastStamp ? now : this.#lastStamp + STAMP_STEP;
-    return this.#lastStamp;
-  }
-
-  #generationOf(customer: string | undefined): number {
-    return customer === undefined ? 0 : (this.#generations.get(customer)?.generation ?? 0);
-  }
-
-  #unchangedSince(customer: string | undefined, generation: number, started: number): boolean {
-    if (customer === undefined) return true;
-    const tracked = this.#generations.get(customer);
-    if (tracked) return tracked.generation === generation;
-    return generation === 0 && this.#forgottenUntil < started;
-  }
-
-  #bump(customer: string): void {
-    this.#writes += 1;
-    const generation = this.#writes;
-    this.#generations.delete(customer);
-    this.#generations.set(customer, { generation, at: this.#stamp() });
-    if (this.#generations.size <= TRACKED_CUSTOMERS) return;
-    const [oldest, { at }] = this.#generations.entries().next().value as [string, { at: number }];
-    this.#generations.delete(oldest);
-    this.#forgottenUntil = Math.max(this.#forgottenUntil, at);
-  }
-
-  #fresh(entry: CacheEntry, customer: string | undefined): boolean {
+  #fresh(entry: CacheEntry): boolean {
     const maxAge = maxAgeOf(entry.cacheControl);
     if (maxAge === undefined || directive(entry.cacheControl, "no-cache")) return false;
-    if (Math.max(0, Date.now() - Math.floor(entry.receivedAt)) / 1000 + (entry.age ?? 0) >= maxAge) return false;
-    if (entry.receivedAt <= this.#forgottenUntil) return false;
-    const bumped = customer === undefined ? undefined : this.#generations.get(customer)?.at;
-    return bumped === undefined || bumped < entry.receivedAt;
+    return Math.max(0, Date.now() - Math.floor(entry.receivedAt)) / 1000 + (entry.age ?? 0) < maxAge;
   }
 
   async #get(cache: CacheStore, key: string, signal: AbortSignal | undefined): Promise<CacheEntry | undefined> {
@@ -546,11 +502,12 @@ export class Transport {
         );
         if (!received.redirect && (received.status < 300 || received.status === 304)) {
           this.#downUntil = 0;
-          return received;
+          return retry === 0 ? received : { ...received, retried: true };
         }
-        failure = apiError(received, call.idempotencyKey);
+        const refused = apiError(received, call.idempotencyKey);
+        failure = refused;
         if (received.redirect) throw failure;
-        if (!RETRIED.has(received.status) || !retryable(call)) throw failure;
+        if (!(RETRIED.has(received.status) || refused.code === "Aborted") || !retryable(call)) throw failure;
       } catch (error) {
         if (!(error instanceof ConnectionError || error instanceof TimeoutError) || !retryable(call)) throw error;
         failure = error;

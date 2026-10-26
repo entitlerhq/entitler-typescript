@@ -8,7 +8,7 @@ import {
   type UsageResult,
   UsageSettlementError,
 } from "../../src/index.js";
-import { apiError, checkAnswer, fakeFetch, json, type Reply, type Sent, usageAnswer } from "./fake.js";
+import { apiError, fakeFetch, json, type Reply, type Sent, usageAnswer } from "./fake.js";
 
 const aiCredits = defineFeature("ai_credits", "metered");
 const key = { idempotencyKey: "job-7" };
@@ -258,6 +258,46 @@ describe("holds", () => {
     });
   });
 
+  it("frees a hold that expired with nothing used", async () => {
+    const { customer, sent } = holdFlow(apiError(400, "FailedPrecondition", "HOLD_EXPIRED"));
+    const hold = await customer.startHold(aiCredits, 500, key);
+    hold.use(0);
+    expect((await hold.finish()).outcome).toBe("released");
+    expect(paths(sent).at(-1)).toBe(`DELETE${HOLDS}/hold_1`);
+  });
+
+  it("retries a settlement that timed out or raced another change", async () => {
+    let settles = 0;
+    const { fetch, sent } = fakeFetch((request, init) => {
+      if (request.path === HOLDS) {
+        return json(usageAnswer({ outcome: "held", holdId: "hold_1", amount: 5, expiresAtMs: 32_503_680_000_000 }));
+      }
+      settles += 1;
+      if (settles === 1) {
+        return new Promise<Response>((_resolve, reject) =>
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+        );
+      }
+      if (settles === 2) return apiError(409, "Aborted", "HOLD_CHANGED");
+      return json(usageAnswer({ outcome: "settled" }));
+    });
+    const customer = new EntitlerServer({ key: "k", fetch, maxRetries: 2 }).customer("user_1");
+    const hold = await customer.startHold(aiCredits, 5, { ...key, timeout: 20 });
+    expect((await hold.finish()).outcome).toBe("settled");
+    expect(sent.filter((request) => request.path.endsWith(":settle"))).toHaveLength(3);
+  });
+
+  it("doesn't call a hold another caller's when it answers the SDK's own retry", async () => {
+    const duplicate = usageAnswer({
+      outcome: "duplicate",
+      holdId: "hold_1",
+      amount: 5,
+      expiresAtMs: 32_503_680_000_000,
+    });
+    const { customer } = setup(apiError(503, "Unavailable"), json(duplicate));
+    expect((await customer.startHold(aiCredits, 5, key)).duplicate).toBe(false);
+  });
+
   it("refuses a reported amount that is not a whole number", async () => {
     const { customer } = holdFlow();
     const hold = await customer.startHold(aiCredits, 500, key);
@@ -336,77 +376,5 @@ describe("withHold", () => {
     const { customer, mock } = holdFlow();
     await expect(customer.withHold(aiCredits, 5, "work" as never, key)).rejects.toThrow("Pass work as a function.");
     expect(mock).not.toHaveBeenCalled();
-  });
-});
-
-describe("write tracking", () => {
-  const fresh = { etag: '"v1"', "cache-control": "private, max-age=60" };
-
-  it("revalidates a customer's kept answers after a usage write, even a failed one", async () => {
-    const { fetch, sent } = fakeFetch((request) =>
-      request.method === "POST"
-        ? apiError(400, "InvalidArgument", "USAGE_FEATURE_NOT_METERED")
-        : request.headers["if-none-match"]
-          ? new Response(null, { status: 304 })
-          : json(checkAnswer(), 200, fresh),
-    );
-    const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
-    await customer.check("f");
-    await new Promise((resolve) => setTimeout(resolve, 2));
-    await customer.recordUsage(aiCredits, 1, key).catch(() => undefined);
-    await customer.check("f");
-    expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');
-  });
-
-  it("keeps other customers' answers fresh", async () => {
-    const { fetch, sent } = fakeFetch((request) =>
-      request.method === "POST" ? json(usageAnswer()) : json(checkAnswer(), 200, fresh),
-    );
-    const server = new EntitlerServer({ key: "k", fetch });
-    await server.customer("a").check("f");
-    await server.customer("b").recordUsage(aiCredits, 1, key);
-    await server.customer("a").check("f");
-    expect(sent).toHaveLength(2);
-  });
-
-  it("never keeps as fresh a read that started before a write and answered after it", async () => {
-    let release: (response: Response) => void = () => {};
-    let reads = 0;
-    const { fetch, sent } = fakeFetch((request) => {
-      if (request.method === "POST") return json(usageAnswer());
-      reads += 1;
-      if (reads === 1) return new Promise<Response>((resolve) => (release = resolve));
-      return new Response(null, { status: 304 });
-    });
-    const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
-    const read = customer.check("f");
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    await customer.recordUsage(aiCredits, 1, key);
-    release(json(checkAnswer(), 200, fresh));
-    await read;
-    await customer.check("f");
-    expect(sent.at(-1)?.headers["if-none-match"]).toBe('"v1"');
-  });
-
-  it("revalidates every answer kept before its customer was forgotten", async () => {
-    vi.useFakeTimers({ toFake: ["Date"], now: 1000 });
-    try {
-      const { fetch, sent } = fakeFetch((request) =>
-        request.method === "POST" ? json(usageAnswer()) : json(checkAnswer(), 200, fresh),
-      );
-      const server = new EntitlerServer({ key: "k", fetch });
-      const customer = server.customer("u");
-      await customer.check("f");
-      vi.setSystemTime(2000);
-      await customer.recordUsage(aiCredits, 1, key);
-      for (let index = 0; index < 1000; index += 1) {
-        await server.customer(`other_${index}`).recordUsage(aiCredits, 1, key);
-      }
-      const before = sent.length;
-      await customer.check("f");
-      expect(sent.length).toBe(before + 1);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
