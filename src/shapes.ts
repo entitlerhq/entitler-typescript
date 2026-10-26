@@ -259,11 +259,11 @@ export const decodeUsage: Decoder = (value) => {
       ...context(tracked),
       ...at("entitlement", () => entitlement(tracked.entitlement)),
       ...at("usage", () => ({
-        outcome: at("outcome", () => enumName(usage.outcome, "USAGE_OUTCOME_")),
+        outcome: at("outcome", () => enumName(usage.outcome ?? "USAGE_OUTCOME_UNSPECIFIED", "USAGE_OUTCOME_")),
         refusal: at("refusal", () => (usage.refusal === undefined ? null : enumName(usage.refusal, "USAGE_REFUSAL_"))),
         id: at("usageId", () => optionalText(usage.usageId)),
         holdId: at("holdId", () => optionalText(usage.holdId)),
-        mode: at("mode", () => enumName(usage.mode, "USAGE_MODE_")),
+        mode: at("mode", () => enumName(usage.mode ?? "USAGE_MODE_UNSPECIFIED", "USAGE_MODE_")),
         amount: at("amount", () => whole(usage.amount ?? 0)),
         meterChange: at("meterChange", () => integer(usage.meterChange ?? 0)),
         overBy: at("overBy", () => whole(usage.overBy ?? 0)),

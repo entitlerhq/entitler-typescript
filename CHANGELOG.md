@@ -13,4 +13,4 @@ All notable changes to this package are listed here. The format follows
   standing in while Entitler is unreachable.
 - `ApiError` with the API's gRPC `code`, `reason` and `parameters`.
 - `recordUsage()`, and holds with `startHold()`, `withHold()`, `holdUsage()`, `settleUsage()` and
-  `releaseUsage()`. A usage write makes the customer's kept answers revalidate.
+  `releaseUsage()`.
