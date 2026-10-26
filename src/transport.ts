@@ -332,13 +332,15 @@ export class Transport {
   ): Promise<Answer<T>> {
     const key = await this.#key(call, url, auth);
     keyObserver?.(key);
-    const kept = await this.#get(cache, key);
+    const found = await this.#get(cache, key);
+    const keptData = found && this.#readKept<T>(found.body, call);
+    const kept = keptData && found;
     const usable = kept !== undefined && Math.max(0, Date.now() - Math.floor(kept.receivedAt)) < this.#staleFor;
-    if (kept && !call.revalidate && this.#fresh(kept)) {
-      return { data: this.#decode<T>(kept.body, undefined, call), stale: false, replayed: false };
+    if (kept && keptData && !call.revalidate && this.#fresh(kept)) {
+      return { data: keptData.data, stale: false, replayed: false };
     }
-    if (usable && (Date.now() < this.#downUntil || (this.#downUntil > 0 && this.#probing))) {
-      return { data: this.#decode<T>(kept.body, undefined, call), stale: true, replayed: false };
+    if (usable && keptData && (Date.now() < this.#downUntil || (this.#downUntil > 0 && this.#probing))) {
+      return { data: keptData.data, stale: true, replayed: false };
     }
     if (kept?.etag) headers["If-None-Match"] = kept.etag;
     const probe = this.#downUntil > 0;
@@ -348,16 +350,16 @@ export class Transport {
     try {
       received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304 && !kept) throw apiError(received, undefined);
-      data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received, call);
+      data = keptData && received.status === 304 ? keptData.data : this.#decode<T>(received.text, received, call);
       this.#downUntil = 0;
     } catch (error) {
       if (isUnreachable(error) && !(error instanceof ApiError && error.reason === "RESPONSE_INVALID")) {
         const retryAfter = error instanceof ApiError ? (error.retryAfter ?? 0) : 0;
         this.#downUntil = Date.now() + Math.min(Math.max(30_000, retryAfter), this.#staleFor);
       }
-      if (usable && isUnreachable(error)) {
+      if (usable && keptData && isUnreachable(error)) {
         this.report(error);
-        return { data: this.#decode<T>(kept.body, undefined, call), stale: true, replayed: false };
+        return { data: keptData.data, stale: true, replayed: false };
       }
       throw error;
     } finally {
@@ -424,6 +426,15 @@ export class Transport {
       await cache.set(key, entry, Math.min(ttl, Number.MAX_SAFE_INTEGER));
     } catch (error) {
       this.report(error);
+    }
+  }
+
+  #readKept<T>(body: string, call: Call): { data: T } | undefined {
+    try {
+      return { data: this.#decode<T>(body, undefined, call) };
+    } catch (error) {
+      this.report(error);
+      return undefined;
     }
   }
 
