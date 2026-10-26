@@ -134,38 +134,12 @@ function runtime(): string | undefined {
 
 const RUNTIME = runtime();
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const IMF_FIXDATE = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), (\d{2}) ([A-Z][a-z]{2}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
-const RFC_850 =
-  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), (\d{2})-([A-Z][a-z]{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) GMT$/;
-const ASCTIME = /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) ([A-Z][a-z]{2}) ([ \d]\d) (\d{2}):(\d{2}):(\d{2}) (\d{4})$/;
-
-function httpDate(value: string): number | undefined {
-  const fixed = IMF_FIXDATE.exec(value) ?? RFC_850.exec(value);
-  const asctime = ASCTIME.exec(value);
-  const parts = fixed
-    ? fixed.slice(1)
-    : asctime
-      ? [asctime[2], asctime[1], asctime[6], asctime[3], asctime[4], asctime[5]]
-      : [];
-  const [day, month, year, hours, minutes, seconds] = parts as string[];
-  const monthIndex = MONTHS.indexOf(month ?? "");
-  if (monthIndex < 0 || !day || !year) return undefined;
-  let fullYear = Number(year);
-  if (year.length === 2) {
-    const thisYear = new Date(Date.now()).getUTCFullYear();
-    fullYear += Math.floor(thisYear / 100) * 100;
-    if (fullYear > thisYear + 50) fullYear -= 100;
-  }
-  return Date.UTC(fullYear, monthIndex, Number(day), Number(hours), Number(minutes), Number(seconds));
-}
-
 function retryAfterOf(headers: Headers): number | undefined {
   const value = headers.get("retry-after")?.trim();
   if (!value) return undefined;
   if (/^\d+$/.test(value)) return Math.min(saturated(value) * 1000, Number.MAX_SAFE_INTEGER);
-  const date = httpDate(value);
-  return date === undefined ? undefined : Math.max(0, date - Date.now());
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
 function directive(control: string | undefined, name: string): boolean {
@@ -377,7 +351,7 @@ export class Transport {
       data = this.#decode<T>(kept && received.status === 304 ? kept.body : received.text, received, call);
       this.#downUntil = 0;
     } catch (error) {
-      if (isUnreachable(error)) {
+      if (isUnreachable(error) && !(error instanceof ApiError && error.reason === "RESPONSE_INVALID")) {
         const retryAfter = error instanceof ApiError ? (error.retryAfter ?? 0) : 0;
         this.#downUntil = Date.now() + Math.min(Math.max(30_000, retryAfter), this.#staleFor);
       }

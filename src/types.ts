@@ -13,7 +13,7 @@ export type Value = true | number | "unlimited";
 /** An amount, or `"unlimited"`. */
 export type Limit = number | "unlimited";
 
-/** The catalogue a release answered from. */
+/** A release answered. */
 export interface ServedRelease {
   /** `release`. */
   readonly type: "release";
@@ -23,10 +23,8 @@ export interface ServedRelease {
   readonly number: number;
 }
 
-/** The track whose catalogue answered. */
+/** The track the customer is on. */
 export interface ServedTrack {
-  /** `track`. */
-  readonly type: "track";
   /** The track's id. */
   readonly id: string;
   /** The track's name. */
@@ -47,15 +45,20 @@ export interface ServedNothing {
   readonly type: "nothing";
 }
 
-/** The catalogue an answer comes from. */
-export type Served = ServedRelease | ServedTrack | ServedChange | ServedNothing;
+/** The catalogue an answer comes from: the customer's track, and the release or change it serves. */
+export interface Served {
+  /** The track the customer is on, or `null` when the answer names none. */
+  readonly track: ServedTrack | null;
+  /** The release or unreleased change that answered, or nothing yet. */
+  readonly source: ServedRelease | ServedChange | ServedNothing;
+}
 
 /** Where an answer comes from, and for whom. */
 export interface AnswerContext {
   /** The customer's external id: the id your app uses for them. */
   readonly customer: string;
-  /** Entitler's id for the customer. */
-  readonly customerId: string;
+  /** Entitler's id for the customer, or `null` before they are registered. */
+  readonly customerId: string | null;
   /** The instant the answer was computed for. */
   readonly asOf: Date;
   /** When the answer next changes on its own, such as a grant ending, or `null`. */
@@ -74,8 +77,8 @@ export interface PlanSource {
   readonly plan: string;
   /** The plan's name. */
   readonly name: string;
-  /** The product's id. */
-  readonly product: string;
+  /** The product's id, or `null` when the answer names none. */
+  readonly product: string | null;
   /** The plan version held. */
   readonly version: number;
   /** True when held because it is the product's default plan. */

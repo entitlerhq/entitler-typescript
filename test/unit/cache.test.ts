@@ -157,6 +157,19 @@ describe("stale answers", () => {
     expect((await customer.check("f")).stale).toBe(true);
   });
 
+  it("keeps asking Entitler after an answer it cannot read", async () => {
+    const { fetch, sent } = fakeFetch(
+      json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "no-cache" }),
+      json({ entitlement: {} }),
+      json(checkAnswer(), 200, { etag: '"v2"', "cache-control": "no-cache" }),
+    );
+    const customer = new EntitlerServer({ key: "k", fetch }).customer("u");
+    await customer.check("f");
+    expect((await customer.check("f")).stale).toBe(true);
+    expect((await customer.check("f")).stale).toBe(false);
+    expect(sent).toHaveLength(3);
+  });
+
   it("throws other failures", async () => {
     const { fetch } = fakeFetch(
       json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "no-cache" }),

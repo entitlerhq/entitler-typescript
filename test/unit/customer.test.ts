@@ -16,7 +16,7 @@ describe("check", () => {
       customerId: "cu_1",
       asOf: new Date(1_791_507_600_000),
       nextChangeAt: null,
-      served: { type: "release", id: "rl_1", number: 2 },
+      served: { track: null, source: { type: "release", id: "rl_1", number: 2 } },
       key: "export_pdf",
       type: "switch",
       entitled: true,
@@ -139,12 +139,47 @@ describe("check", () => {
   });
 
   it.each([
-    [{ track: { id: "tk_1", name: "Beta" } }, { type: "track", id: "tk_1", name: "Beta" }],
-    [{ changeId: "ch_1" }, { type: "change", id: "ch_1" }],
-    [{ nothing: {} }, { type: "nothing" }],
-  ])("decodes the catalogue served from %j", async (served, expected) => {
+    [
+      { track: { id: "tk_1", name: "Beta" }, changeId: "ch_1" },
+      { track: { id: "tk_1", name: "Beta" }, source: { type: "change", id: "ch_1" } },
+    ],
+    [
+      { track: { id: "tk_1", name: "Beta" }, nothing: {} },
+      { track: { id: "tk_1", name: "Beta" }, source: { type: "nothing" } },
+    ],
+  ])("decodes the served catalogue %j", async (served, expected) => {
     const { customer: ada } = customer(json({ ...checkAnswer(), served }));
     expect((await ada.check("f")).served).toEqual(expected);
+  });
+
+  it("reads a customer not registered yet, a plan without a product and a missing decision", async () => {
+    const { customer: ada } = customer(
+      json({
+        ...checkAnswer({
+          entitled: undefined,
+          sources: [{ defaultPlan: { planId: "pl_0", planKey: "free", planName: "Free", versionNumber: 1 } }],
+        }),
+        customer: { externalId: "user_1" },
+      }),
+    );
+    const check = await ada.check("f");
+    expect(check.customerId).toBeNull();
+    expect(check.entitled).toBe(false);
+    expect(check.sources[0]).toMatchObject({ type: "plan", product: null, byDefault: true });
+  });
+
+  it("skips a source kind this SDK doesn't know", async () => {
+    const { customer: ada } = customer(
+      json(checkAnswer({ sources: [{ brandNew: {} }, { group: { featureKeys: [] } }] })),
+    );
+    expect((await ada.check("f")).sources).toEqual([{ type: "group", features: [] }]);
+  });
+
+  it("refuses an answer of another type than the feature constant declares", async () => {
+    const { customer: ada } = customer(json(checkAnswer()));
+    await expect(ada.check(defineFeature("export_pdf", "metered"))).rejects.toThrow(
+      "export_pdf is declared metered, but Entitler answers it as switch.",
+    );
   });
 
   it("names the field an unreadable answer lacks", async () => {
@@ -165,6 +200,21 @@ describe("isEntitled", () => {
   it("answers the default when Entitler cannot be asked", async () => {
     const { customer: ada } = customer(apiError(404, "NotFound", "CUSTOMER_NOT_FOUND"));
     expect(await ada.isEntitled("export_pdf", { default: true })).toBe(true);
+  });
+
+  it("rejects with the caller's abort instead of answering the default", async () => {
+    const { customer: ada } = customer(json(checkAnswer()));
+    const signal = AbortSignal.abort(new Error("stop"));
+    await expect(ada.isEntitled("f", { default: true, signal })).rejects.toBe(signal.reason);
+  });
+
+  it("rejects once the client is closed", async () => {
+    const { fetch } = fakeFetch(json(checkAnswer()));
+    const entitler = new EntitlerServer({ key: "k", fetch });
+    entitler.close();
+    await expect(entitler.customer("u").isEntitled("f", { default: true })).rejects.toMatchObject({
+      name: "InvalidStateError",
+    });
   });
 
   it("refuses a missing default and a bad asOf before any request", async () => {
