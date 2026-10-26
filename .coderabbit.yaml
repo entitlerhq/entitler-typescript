@@ -1,0 +1,12 @@
+inheritance: true
+reviews:
+  request_changes_workflow: true
+  review_progress: false
+  commit_status: true
+  auto_review:
+    enabled: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+    description_keyword: ""
+    labels: ["ai-review"]
+    base_branches: [".*"]
