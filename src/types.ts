@@ -326,7 +326,10 @@ export interface CustomerRecord {
 
 /** The answer to `register()`: the customer, and whether this call registered them. */
 export interface RegisteredCustomer extends CustomerRecord {
-  /** True when this call registered the customer, false when they were registered already. */
+  /**
+   * True when this call registered the customer, false when they were registered already. Also false
+   * when a lost answer was retried, so a sign-up count read from it can be one short.
+   */
   readonly created: boolean;
 }
 
@@ -339,8 +342,8 @@ export interface IssuedCustomerToken {
   readonly token: string;
   /** The token's id. */
   readonly id: string;
-  /** Entitler's id for the customer. */
-  readonly customerId: string;
+  /** Entitler's id for the customer, or `null` while they are not registered. */
+  readonly customerId: string | null;
   /** What the token lets the client do. */
   readonly scopes: readonly CustomerTokenScope[];
   /** When the token expires. */
