@@ -46,6 +46,10 @@ function text(value: unknown): string {
   return typeof value === "string" ? value : fail();
 }
 
+function bool(value: unknown): boolean {
+  return typeof value === "boolean" ? value : fail();
+}
+
 function whole(value: unknown): number {
   return Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : fail();
 }
@@ -60,6 +64,10 @@ function seconds(value: unknown): Date {
 
 function optionalSeconds(value: unknown): Date | null {
   return value === undefined ? null : seconds(value);
+}
+
+function optionalText(value: unknown): string | null {
+  return value === undefined ? null : text(value);
 }
 
 const NAMES: Record<string, string> = {
@@ -93,7 +101,7 @@ function sourceValue(value: unknown): Value | null {
   return value === undefined ? null : featureValue(value, true);
 }
 
-function source(value: unknown): EntitlementSource {
+function source(value: unknown): EntitlementSource | null {
   const given = object<Wire.EntitlementSource>(value);
   const through = (key: unknown) => (key === undefined || key === "" ? null : text(key));
   if (given.plan || given.defaultPlan) {
@@ -103,7 +111,7 @@ function source(value: unknown): EntitlementSource {
       planId: at("planId", () => text(plan.planId)),
       plan: at("planKey", () => text(plan.planKey)),
       name: at("planName", () => text(plan.planName)),
-      product: at("productId", () => text(plan.productId)),
+      product: at("productId", () => optionalText(plan.productId)),
       version: at("versionNumber", () => whole(plan.versionNumber)),
       byDefault: given.plan === undefined,
       value: at("value", () => sourceValue(plan.value)),
@@ -140,7 +148,7 @@ function source(value: unknown): EntitlementSource {
       features: at("featureKeys", () => list(group.featureKeys ?? [], text)),
     }));
   }
-  return fail();
+  return null;
 }
 
 function upgrade(value: unknown): Upgrade {
@@ -150,7 +158,7 @@ function upgrade(value: unknown): Upgrade {
     planId: at("planId", () => text(given.planId)),
     plan: at("planKey", () => text(given.planKey)),
     name: at("planName", () => text(given.planName)),
-    product: at("productId", () => (given.productId === undefined ? null : text(given.productId))),
+    product: at("productId", () => optionalText(given.productId)),
     move: at("move", () => enumName(given.move, "UPGRADE_MOVE_")),
     action: at("action", () => enumName(given.action, "UPGRADE_ACTION_")),
   };
@@ -169,14 +177,16 @@ function meter(value: unknown): Meter {
 
 function entitlement(value: unknown): Entitlement {
   const given = object<Wire.Entitlement>(value);
-  const entitled = at("entitled", () => (typeof given.entitled === "boolean" ? given.entitled : fail()));
+  const entitled = at("entitled", () => (given.entitled === undefined ? false : bool(given.entitled)));
   const type: FeatureType = at("kind", () => enumName(given.kind, "ENTITLED_FEATURE_KIND_"));
   return {
     key: at("featureKey", () => text(given.featureKey)),
     type,
     entitled,
     value: at("value", () => featureValue(given.value, entitled)),
-    sources: at("sources", () => list(given.sources ?? [], source)),
+    sources: at("sources", () =>
+      list(given.sources ?? [], source).filter((known): known is EntitlementSource => known !== null),
+    ),
     upgrades: at("upgrades", () => list(given.upgrades ?? [], upgrade)),
     meter: at("meter", () => (given.meter === undefined ? null : meter(given.meter))),
   };
@@ -184,31 +194,30 @@ function entitlement(value: unknown): Entitlement {
 
 function served(value: unknown): Served {
   const given = object<Wire.ServedCatalogue>(value);
-  if (given.release) {
-    const release = object<Wire.ServedRelease>(given.release);
-    return at("release", () => ({
-      type: "release" as const,
-      id: at("id", () => text(release.id)),
-      number: at("number", () => whole(release.number)),
-    }));
-  }
-  if (given.track) {
-    const track = object<Wire.ServedTrack>(given.track);
-    return at("track", () => ({
-      type: "track" as const,
-      id: at("id", () => text(track.id)),
-      name: at("name", () => text(track.name)),
-    }));
-  }
-  if (given.changeId !== undefined) return { type: "change", id: at("changeId", () => text(given.changeId)) };
-  return { type: "nothing" };
+  const track = given.track === undefined ? null : object<Wire.ServedTrack>(given.track);
+  return {
+    track:
+      track && at("track", () => ({ id: at("id", () => text(track.id)), name: at("name", () => text(track.name)) })),
+    source: given.release
+      ? at("release", () => {
+          const release = object<Wire.ServedRelease>(given.release);
+          return {
+            type: "release" as const,
+            id: at("id", () => text(release.id)),
+            number: at("number", () => whole(release.number)),
+          };
+        })
+      : given.changeId !== undefined
+        ? { type: "change", id: at("changeId", () => text(given.changeId)) }
+        : { type: "nothing" },
+  };
 }
 
 function context(given: Wire.CheckFeatureResponse | Wire.ListEntitlementsResponse): AnswerContext {
   const customer = at("customer", () => object<Wire.EntitledCustomer>(given.customer));
   return {
     customer: at("customer", () => at("externalId", () => text(customer.externalId))),
-    customerId: at("customer", () => at("customerId", () => text(customer.customerId))),
+    customerId: at("customer", () => at("customerId", () => optionalText(customer.customerId))),
     asOf: at("asOf", () => seconds(given.asOf)),
     nextChangeAt: at("nextChangeAt", () => optionalSeconds(given.nextChangeAt)),
     served: at("served", () => served(given.served ?? {})),

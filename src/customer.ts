@@ -85,7 +85,16 @@ export class CustomerApi implements Customer {
   check<T extends FeatureType>(feature: Feature<T>, options?: CheckOptions): Promise<Check<T>>;
   check(feature: string, options?: CheckOptions): Promise<Check>;
   async check(feature: Feature | string, options?: CheckOptions): Promise<Check> {
-    return this.#cached<Check>("Entitlements.CheckFeature", { feature_key: featureKey(feature) }, options, decodeCheck);
+    const check = await this.#cached<Check>(
+      "Entitlements.CheckFeature",
+      { feature_key: featureKey(feature) },
+      options,
+      decodeCheck,
+    );
+    if (typeof feature === "object" && feature.type !== check.type) {
+      throw new TypeError(`${check.key} is declared ${feature.type}, but Entitler answers it as ${check.type}.`);
+    }
+    return check;
   }
 
   async isEntitled(feature: Feature | string, options: IsEntitledOptions): Promise<boolean> {

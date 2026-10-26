@@ -21,8 +21,8 @@ export interface EntitlementsInit extends AnswerContext {
 export class Entitlements implements Iterable<Entitlement>, AnswerContext {
   /** The customer's external id. */
   readonly customer: string;
-  /** Entitler's id for the customer. */
-  readonly customerId: string;
+  /** Entitler's id for the customer, or `null` before they are registered. */
+  readonly customerId: string | null;
   /** The instant the answer was computed for. */
   readonly asOf: Date;
   /** When the answer next changes on its own, or `null`. */
