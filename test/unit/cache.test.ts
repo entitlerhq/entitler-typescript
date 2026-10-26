@@ -170,6 +170,19 @@ describe("stale answers", () => {
     expect(sent).toHaveLength(3);
   });
 
+  it("asks Entitler, without If-None-Match, when a kept entry can't be read", async () => {
+    const onError = vi.fn();
+    const store = spyStore();
+    const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
+    const customer = new EntitlerServer({ key: "k", fetch, cache: store, onError }).customer("u");
+    await customer.check("f");
+    for (const [key, entry] of store.entries) store.entries.set(key, { ...entry, body: "{" });
+    expect((await customer.check("f")).entitled).toBe(true);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]?.headers["if-none-match"]).toBeUndefined();
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ reason: "RESPONSE_INVALID" });
+  });
+
   it("throws other failures", async () => {
     const { fetch } = fakeFetch(
       json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "no-cache" }),
