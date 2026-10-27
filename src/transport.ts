@@ -254,6 +254,7 @@ export class Transport {
   readonly #headers: () => Record<string, string>;
   #downUntil = 0;
   #probing = false;
+  #authorised: Authorised | undefined;
 
   constructor(options: TransportOptions, credentials: Credentials, headers: () => Record<string, string> = () => ({})) {
     this.baseUrl = (options.baseUrl ?? "https://api.entitler.app").replace(/\/+$/, "");
@@ -321,9 +322,21 @@ export class Transport {
   async #answer<T>(call: Call, signal: AbortSignal): Promise<Answer<T>> {
     const url = this.#url(call);
     const headers = this.#requestHeaders(call);
-    const auth: Authorised = call.open
-      ? { headers: {}, kind: "key", credential: "" }
-      : redacted(await this.#credentials.authorise(signal));
+    let auth: Authorised;
+    try {
+      auth = call.open
+        ? { headers: {}, kind: "key", credential: "" }
+        : redacted(await this.#credentials.authorise(signal));
+    } catch (error) {
+      const kept =
+        call.cached && this.#cache && this.#authorised && isUnreachable(error)
+          ? await this.#kept<T>(call, url, this.#authorised, this.#cache)
+          : undefined;
+      if (!kept?.usable || !kept.keptData) throw error;
+      this.report(error);
+      return { data: kept.keptData.data, stale: true };
+    }
+    if (!call.open) this.#authorised = auth;
     if (!call.cached || !this.#cache) {
       const received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304) throw apiError(received, call.idempotencyKey);
@@ -336,6 +349,16 @@ export class Transport {
     return this.#cached<T>(call, url, headers, auth, this.#cache);
   }
 
+  async #kept<T>(call: Call, url: string, auth: Authorised, cache: CacheStore) {
+    const key = await this.#key(call, url, auth);
+    keyObserver?.(key);
+    const found = await this.#get(cache, key, call.options?.signal);
+    const keptData = found && this.#readKept<T>(found.body, call);
+    const kept = keptData && found;
+    const usable = kept !== undefined && Math.max(0, Date.now() - Math.floor(kept.receivedAt)) < this.#staleFor;
+    return { key, kept, keptData, usable };
+  }
+
   async #cached<T>(
     call: Call,
     url: string,
@@ -343,12 +366,7 @@ export class Transport {
     auth: Authorised,
     cache: CacheStore,
   ): Promise<Answer<T>> {
-    const key = await this.#key(call, url, auth);
-    keyObserver?.(key);
-    const found = await this.#get(cache, key, call.options?.signal);
-    const keptData = found && this.#readKept<T>(found.body, call);
-    const kept = keptData && found;
-    const usable = kept !== undefined && Math.max(0, Date.now() - Math.floor(kept.receivedAt)) < this.#staleFor;
+    const { key, kept, keptData, usable } = await this.#kept<T>(call, url, auth, cache);
     if (kept && keptData && !call.revalidate && this.#fresh(kept)) {
       return { data: keptData.data, stale: false };
     }
@@ -526,9 +544,7 @@ export class Transport {
           this.#credentials.refuse(current);
           if (refreshed) throw failure;
           refreshed = true;
-          const next = redacted(await this.#credentials.authorise(signal));
-          if (next.credential === current.credential) throw failure;
-          current = next;
+          current = redacted(await this.#credentials.authorise(signal));
           continue;
         }
         if (!(RETRIED.has(received.status) || refused.code === "Aborted") || !retryable(call)) throw failure;
