@@ -514,7 +514,8 @@ export class CustomerApi implements ServerCustomer {
   ): Promise<R> {
     if (typeof work !== "function") throw new TypeError("Pass work as a function.");
     const hold = await this.startHold(feature, amount, options);
-    const heldAt = Date.now();
+    const heldAt = performance.now();
+    const lifetime = hold.expiresAt.getTime() - hold.result.asOf.getTime();
     const signal = options.signal;
     const dispose = (hold as Hold & { [DISPOSE]: () => Promise<void> })[DISPOSE];
     let running: Promise<R> | undefined;
@@ -525,8 +526,7 @@ export class CustomerApi implements ServerCustomer {
       result = await untilAborted(running, signal);
     } catch (error) {
       if (running && signal?.aborted && Object.is(error, signal.reason)) {
-        const lifetime = hold.expiresAt.getTime() - hold.result.asOf.getTime();
-        disposeOnceStopped(running, lifetime - (Date.now() - heldAt), dispose);
+        disposeOnceStopped(running, lifetime - (performance.now() - heldAt), dispose);
       } else {
         await dispose();
       }

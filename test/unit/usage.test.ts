@@ -365,24 +365,32 @@ describe("withHold", () => {
   });
 
   it("closes a cancelled hold when it expires by the server's clock, if its work never stops", async () => {
-    const { customer, sent } = holdFlow(undefined, { expiresAtMs: 1_791_507_600_060 });
-    const controller = new AbortController();
-    let started = false;
-    const call = customer.withHold(
-      aiCredits,
-      500,
-      ({ hold }) => {
-        hold.use(30);
-        started = true;
-        return new Promise(() => {});
-      },
-      { ...key, signal: controller.signal },
-    );
-    await vi.waitFor(() => expect(started).toBe(true));
-    controller.abort(Number.NaN);
-    await expect(call).rejects.toBeNaN();
-    expect(paths(sent)).toEqual([`POST${HOLDS}`]);
-    await vi.waitFor(() => expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 30 } }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const { customer, sent } = holdFlow(undefined, { expiresAtMs: 1_791_507_600_060 });
+      const controller = new AbortController();
+      let started = false;
+      const call = customer.withHold(
+        aiCredits,
+        500,
+        ({ hold }) => {
+          hold.use(30);
+          started = true;
+          return new Promise(() => {});
+        },
+        { ...key, signal: controller.signal },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(started).toBe(true);
+      controller.abort(Number.NaN);
+      await expect(call).rejects.toBeNaN();
+      await vi.advanceTimersByTimeAsync(59);
+      expect(paths(sent)).toEqual([`POST${HOLDS}`]);
+      await vi.advanceTimersByTimeAsync(2);
+      expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 30 } });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("passes a cancellation on at once, and keeps the hold until the work stops", async () => {
