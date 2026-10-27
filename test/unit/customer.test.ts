@@ -62,6 +62,19 @@ describe("check", () => {
     expect(check.meter).toEqual({ used: 3, held: 1, banked: 2, remaining: "unlimited", resetsAt: null });
   });
 
+  it("reads a metered feature's missing meter as empty", async () => {
+    const { customer: ada } = customer(
+      json(checkAnswer({ kind: "ENTITLED_FEATURE_KIND_METERED", value: { metered: {} }, sources: [] })),
+    );
+    expect((await ada.check(defineFeature("f", "metered"))).meter).toEqual({
+      used: 0,
+      held: 0,
+      banked: 0,
+      remaining: 0,
+      resetsAt: null,
+    });
+  });
+
   it("decodes a setting, and reads a missing count as 0", async () => {
     const { customer: ada } = customer(
       json(checkAnswer({ kind: "ENTITLED_FEATURE_KIND_CONFIGURATION", value: { configuration: {} }, sources: [] })),

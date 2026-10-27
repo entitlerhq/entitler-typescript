@@ -188,7 +188,9 @@ function entitlement(value: unknown): Entitlement {
       list(given.sources ?? [], source).filter((known): known is EntitlementSource => known !== null),
     ),
     upgrades: at("upgrades", () => list(given.upgrades ?? [], upgrade)),
-    meter: at("meter", () => (given.meter === undefined ? null : meter(given.meter))),
+    meter: at("meter", () =>
+      given.meter === undefined ? (type === "metered" ? meter({}) : null) : meter(given.meter),
+    ),
   };
 }
 
