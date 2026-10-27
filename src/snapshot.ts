@@ -45,7 +45,7 @@ function refuse(message: string, reason: SnapshotFailure = "SNAPSHOT_INVALID", c
 }
 
 function base64url(part: string): Uint8Array<ArrayBuffer> {
-  if (!/^[A-Za-z0-9_-]*$/.test(part)) refuse("The snapshot is not a compact JWS.");
+  if (part.length % 4 === 1 || !/^[A-Za-z0-9_-]*$/.test(part)) refuse("The snapshot is not a compact JWS.");
   const binary = atob(part.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - (part.length % 4)) % 4));
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
