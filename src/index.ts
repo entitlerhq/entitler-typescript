@@ -1,4 +1,11 @@
 export { type CacheEntry, type CacheStore, type MaybePromise, MemoryCache, type MemoryCacheOptions } from "./cache.js";
+export {
+  type ClientKind,
+  EntitlerClient,
+  type IdentityClientOptions,
+  type InAppOptions,
+  type TokenClientOptions,
+} from "./client.js";
 export type {
   CheckOptions,
   Customer,
@@ -23,12 +30,14 @@ export {
   EntitlerError,
   isUnreachable,
   TimeoutError,
+  TokenError,
   UsageRefusedError,
   UsageReplayedError,
   UsageSettlementError,
   type UsageSettlementErrorInit,
 } from "./errors.js";
 export { EntitlerServer, type ServerOptions } from "./server.js";
+export type { TokenProvider } from "./tokens.js";
 export type { CallOptions, ClientOptions, ReadOptions } from "./transport.js";
 export * from "./types.js";
 export { VERSION } from "./version.js";

@@ -126,6 +126,12 @@ export class TimeoutError extends EntitlerError {
   }
 }
 
+/** The in-app client's token provider failed, timed out or answered a blank token. The cause is in `cause`. */
+export class TokenError extends EntitlerError {
+  /** `TokenError`. */
+  override name = "TokenError";
+}
+
 /**
  * Raised only by `startHold` and `withHold` when Entitler refuses the hold, before any work runs:
  * the customer has no allowance for it. Everywhere else a refusal is an answer, not an error.
@@ -228,8 +234,8 @@ export class UsageSettlementError extends EntitlerError {
 
 /**
  * True when `error` means Entitler could not be reached: a {@link ConnectionError}, a
- * {@link TimeoutError}, or an {@link ApiError} with status 408, 429, a 5xx status or reason
- * `RESPONSE_INVALID`.
+ * {@link TimeoutError}, a {@link TokenError} (a token provider failing, offline typically), or an
+ * {@link ApiError} with status 408, 429, a 5xx status or reason `RESPONSE_INVALID`.
  *
  * @example
  * ```ts
@@ -245,6 +251,7 @@ export function isUnreachable(error: unknown): boolean {
   return (
     error instanceof ConnectionError ||
     error instanceof TimeoutError ||
+    error instanceof TokenError ||
     (error instanceof ApiError &&
       (error.status === 408 || error.status === 429 || error.status >= 500 || error.reason === "RESPONSE_INVALID"))
   );
