@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { defineFeature, EntitlerClient, MemoryCache, TokenError } from "../../src/index.js";
+import { defineFeature, EntitlerClient, isUnreachable, MemoryCache, TokenError } from "../../src/index.js";
 import { apiError, checkAnswer, fakeFetch, json, usageAnswer } from "./fake.js";
 
 const registered = {
@@ -157,17 +157,22 @@ describe("EntitlerClient", () => {
     expect(sent).toHaveLength(1);
   });
 
-  it("fails with TokenError when the provider fails, times out or answers a blank token", async () => {
+  it("fails with TokenError, counted unreachable only when the provider fails or times out", async () => {
     const { fetch, mock } = fakeFetch(json(checkAnswer()));
     const failing = new EntitlerClient({ token: () => Promise.reject(new Error("offline")), fetch });
     const error = await failing.me.check("f").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(TokenError);
     expect(error).toMatchObject({ message: "The token provider failed.", cause: new Error("offline") });
+    expect(isUnreachable(error)).toBe(true);
     expect(await failing.me.isEntitled("f", { default: true })).toBe(true);
     const slow = new EntitlerClient({ token: () => new Promise<string>(() => {}), fetch, timeout: 10 });
-    await expect(slow.me.check("f")).rejects.toThrow("The token provider did not answer within 10 ms.");
+    const late = await slow.me.check("f").catch((e: unknown) => e);
+    expect(late).toMatchObject({ message: "The token provider did not answer within 10 ms." });
+    expect(isUnreachable(late)).toBe(true);
     const blank = new EntitlerClient({ token: () => " ", fetch });
-    await expect(blank.me.check("f")).rejects.toBeInstanceOf(TokenError);
+    const refused = await blank.me.check("f").catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(TokenError);
+    expect(isUnreachable(refused)).toBe(false);
     expect(mock).not.toHaveBeenCalled();
   });
 
