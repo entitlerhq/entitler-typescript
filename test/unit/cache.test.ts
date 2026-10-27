@@ -312,6 +312,17 @@ describe("invalidation", () => {
     ]);
   });
 
+  it("keeps a customer's generation a day past staleFor, longer than the answers keyed by it", async () => {
+    const ttls: number[] = [];
+    const store: CacheStore = {
+      get: () => undefined,
+      set: (_, entry, ttl) => void (entry.etag ? undefined : ttls.push(ttl)),
+    };
+    const { fetch } = fakeFetch(json(checkAnswer(), 200, fresh));
+    await new EntitlerServer({ key: "k", fetch, cache: store, staleFor: 0 }).customer("u").check("f");
+    expect(ttls).toEqual([86_400_000]);
+  });
+
   it("misses rather than answers an old entry once the customer's generation is gone", async () => {
     const store = spyStore();
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));

@@ -95,6 +95,8 @@ export interface Answer<T> {
   readonly retried?: boolean;
 }
 
+const GENERATION_LIFETIME = 24 * 60 * 60 * 1000;
+
 const CLOSED = "This Entitler client is closed. Create a new one.";
 
 /** The error every call of a closed client fails with. @internal */
@@ -450,7 +452,13 @@ export class Transport {
   async #renew(cache: CacheStore, auth: Authorised, customer: string, signal?: AbortSignal): Promise<string> {
     const generation = crypto.randomUUID();
     const entry: CacheEntry = { v: 1, body: generation, receivedAt: Date.now() };
-    await this.#set(cache, await this.#generationKey(auth, customer), entry, signal);
+    await this.#set(
+      cache,
+      await this.#generationKey(auth, customer),
+      entry,
+      signal,
+      this.#staleFor + GENERATION_LIFETIME,
+    );
     return generation;
   }
 
@@ -496,9 +504,14 @@ export class Transport {
     }
   }
 
-  async #set(cache: CacheStore, key: string, entry: CacheEntry, signal: AbortSignal | undefined): Promise<void> {
+  async #set(
+    cache: CacheStore,
+    key: string,
+    entry: CacheEntry,
+    signal: AbortSignal | undefined,
+    ttl = this.#staleFor + (maxAgeOf(entry.cacheControl) ?? 0) * 1000,
+  ): Promise<void> {
     try {
-      const ttl = this.#staleFor + (maxAgeOf(entry.cacheControl) ?? 0) * 1000;
       await untilAborted(
         Promise.resolve().then(() => cache.set(key, entry, Math.min(ttl, Number.MAX_SAFE_INTEGER))),
         signal,
