@@ -14,6 +14,7 @@ export type BilledPlan = { billingConnectionId?: string; cohortId?: string; peri
 export type BilledProduct = { connectionId: string; drift?: BillingDrift; items: number; productId?: string; renews: boolean; sku?: BilledSku; status: ProviderSubscriptionStatus };
 export type BilledSku = { periodId?: string; price?: ListingPrice; priceId: string };
 export type BillingDrift = { billedPlanId: string; heldPlanId?: string; observedAt: number; productId?: string };
+export type BillingPeriodReset = Record<string, never>;
 export type Cancellation = { chargedBack?: Amount; endsAt: number; exitFee?: Amount };
 export type CancelPendingAddOnChangeRequest = { asOf?: number; expectedRevision?: RevisionInput; reason?: string; target?: ProductTarget };
 export type CancelPendingAddOnChangeResponse = { confirming?: PaymentConfirming; done?: MoveResult; pay?: PaymentStep };
@@ -49,6 +50,9 @@ export type CustomerPrices = { market?: PricingMarket; subscriptions: Subscripti
 export type CustomerTokenScope = "CUSTOMER_TOKEN_SCOPE_UNSPECIFIED" | "CUSTOMER_TOKEN_SCOPE_ENTITLEMENTS_READ" | "CUSTOMER_TOKEN_SCOPE_USAGE_READ" | "CUSTOMER_TOKEN_SCOPE_USAGE_WRITE" | "CUSTOMER_TOKEN_SCOPE_BILLING_SELF";
 export type CustomerTrack = { customerId: string; externalId: string; money: CustomerMoney; previousTrackId?: string; revision: number; source: AssignmentSource; trackId?: string };
 export type DefaultPlanSource = { planId: string; planKey: string; planName: string; productId?: string; throughFeatureKey?: string; versionNumber: number };
+export type DeviceAtLimit = "DEVICE_AT_LIMIT_UNSPECIFIED" | "DEVICE_AT_LIMIT_REFUSE" | "DEVICE_AT_LIMIT_END_OLDEST";
+export type DeviceLimit = { atLimit: DeviceAtLimit; kind: DeviceLimitKind; lockoutMinutes: number[]; lockoutQuietDays?: number };
+export type DeviceLimitKind = "DEVICE_LIMIT_KIND_UNSPECIFIED" | "DEVICE_LIMIT_KIND_SIGNED_IN" | "DEVICE_LIMIT_KIND_IN_USE";
 export type DiscountGivenBy = "DISCOUNT_GIVEN_BY_UNSPECIFIED" | "DISCOUNT_GIVEN_BY_BUSINESS" | "DISCOUNT_GIVEN_BY_CUSTOMER" | "DISCOUNT_GIVEN_BY_CODE";
 export type Effective = "EFFECTIVE_UNSPECIFIED" | "EFFECTIVE_NOW" | "EFFECTIVE_RENEWAL";
 export type EndProduct = { productId?: string };
@@ -59,8 +63,11 @@ export type EntitlementSource = { addOn?: AddOnSource; defaultPlan?: DefaultPlan
 export type EraseCustomerRequest = { target?: ProductTarget };
 export type EraseCustomerResponse = { erased: number };
 export type EveryMonths = { firstAfterMonths: number; months: number };
+export type Feature = { archived: boolean; id: string; key: string; kind: FeatureKind; version?: FeatureVersion };
 export type FeatureImpact = { featureKey: string; from?: FeatureValue; kind: ImpactKind; to?: FeatureValue };
+export type FeatureKind = "FEATURE_KIND_UNSPECIFIED" | "FEATURE_KIND_SWITCH" | "FEATURE_KIND_METERED" | "FEATURE_KIND_CONFIGURATION" | "FEATURE_KIND_GROUP";
 export type FeatureValue = { configuration?: Limit; group?: GroupValue; metered?: Limit; money?: MarketLimits; switch?: boolean };
+export type FeatureVersion = { changeId?: string; description: string; deviceLimit?: DeviceLimit; lateDays?: number; measure?: Measure; members?: GroupValue; name: string; number: number; reset?: MeterReset; rounding?: Rounding; sharesLimit: boolean; unit: string; zones: Zone[] };
 export type FeeDirection = "FEE_DIRECTION_UNSPECIFIED" | "FEE_DIRECTION_DEBIT" | "FEE_DIRECTION_CREDIT";
 export type FeeSchedule = { everyMonths?: EveryMonths; onPurchase?: OnPurchase; yearlyOn?: YearlyOn };
 export type GetBillingResponse = { billing?: CustomerBilling };
@@ -84,6 +91,7 @@ export type LaneHolding = { addOns: HeldAddOn[]; billed?: BilledPlan; cancellati
 export type Limit = { count?: number; unlimited?: Unlimited };
 export type ListAvailablePlansResponse = { asOf: number; customerId?: string; holdings?: Holdings; options: PlanOption[] };
 export type ListEntitlementsResponse = { asOf: number; customer?: EntitledCustomer; entitlements: Entitlement[]; nextChangeAt?: number; served?: ServedCatalogue };
+export type ListFeaturesOnSaleResponse = { features: Feature[]; served?: ServedCatalogue };
 export type ListingIds = { apple?: AppleListingIds; google?: GoogleListingIds; stripe?: StripeListingIds };
 export type ListingPrice = { amount: number; currency: string; interval: ListingPriceInterval; intervalCount: number; tax: ListingTaxBehaviour };
 export type ListingPriceInterval = "LISTING_PRICE_INTERVAL_UNSPECIFIED" | "LISTING_PRICE_INTERVAL_DAY" | "LISTING_PRICE_INTERVAL_WEEK" | "LISTING_PRICE_INTERVAL_MONTH" | "LISTING_PRICE_INTERVAL_YEAR";
@@ -91,7 +99,11 @@ export type ListingTaxBehaviour = "LISTING_TAX_BEHAVIOUR_UNSPECIFIED" | "LISTING
 export type MarketLimit = { limit?: Limit; marketId: string };
 export type MarketLimits = { limits: MarketLimit[] };
 export type MarketTax = "MARKET_TAX_UNSPECIFIED" | "MARKET_TAX_INCLUDED" | "MARKET_TAX_ADDED";
+export type Measure = { decimals?: number; money?: Money };
 export type Meter = { banked: number; held: number; remaining?: Limit; resetsAt?: number; used: number };
+export type MeterReset = { billingPeriod?: BillingPeriodReset; window?: MeterWindow };
+export type MeterWindow = { anchor: WindowAnchor; count: number; unit: WindowUnit };
+export type Money = Record<string, never>;
 export type MoveResult = { change?: PlanChange; customerId: string; holdings?: Holdings; money: CustomerMoney; revision: number };
 export type MoveTiming = "MOVE_TIMING_UNSPECIFIED" | "MOVE_TIMING_NOW_KEEP" | "MOVE_TIMING_NOW_NEW" | "MOVE_TIMING_PERIOD_END";
 export type NextCharge = { amount?: Amount; at: number; direction: FeeDirection; feeKey: string };
@@ -142,6 +154,7 @@ export type ReportUsageResponse = { tracked?: TrackedUsage };
 export type RevisionInput = { value?: number };
 export type RevokeGrantRequest = { expectedRevision?: RevisionInput; reason?: string; target?: ProductTarget };
 export type RevokeGrantResponse = { changed: boolean; grant?: Grant; revision: number };
+export type Rounding = "ROUNDING_UNSPECIFIED" | "ROUNDING_NEAREST" | "ROUNDING_UP" | "ROUNDING_DOWN";
 export type ScheduledChange = { acceptanceRequired: boolean; accepted: boolean; amount?: Amount; effectiveAt: number; planId: string; rolloutId: string; versionNumber: number };
 export type Selling = "SELLING_UNSPECIFIED" | "SELLING_SELF_SERVE" | "SELLING_SALES_LED";
 export type ServedCatalogue = { changeId?: string; nothing?: NothingServed; release?: ServedRelease; track?: ServedTrack };
@@ -176,8 +189,11 @@ export type UsageMode = "USAGE_MODE_UNSPECIFIED" | "USAGE_MODE_GATE" | "USAGE_MO
 export type UsageOutcome = "USAGE_OUTCOME_UNSPECIFIED" | "USAGE_OUTCOME_RECORDED" | "USAGE_OUTCOME_REFUSED" | "USAGE_OUTCOME_DUPLICATE" | "USAGE_OUTCOME_CANCELLED" | "USAGE_OUTCOME_HELD" | "USAGE_OUTCOME_SETTLED" | "USAGE_OUTCOME_RELEASED" | "USAGE_OUTCOME_ADJUSTED";
 export type UsageRefusal = "USAGE_REFUSAL_UNSPECIFIED" | "USAGE_REFUSAL_NOT_ENTITLED" | "USAGE_REFUSAL_OVER_ALLOWANCE";
 export type UsageResult = { amount: number; expiresAtMs?: number; holdId?: string; late: boolean; meterChange: number; mode: UsageMode; occurredAtMs?: number; outcome: UsageOutcome; overBy: number; refusal?: UsageRefusal; replayed: boolean; saturated: boolean; usageId?: string };
+export type WindowAnchor = "WINDOW_ANCHOR_UNSPECIFIED" | "WINDOW_ANCHOR_PERIOD" | "WINDOW_ANCHOR_CALENDAR";
+export type WindowUnit = "WINDOW_UNIT_UNSPECIFIED" | "WINDOW_UNIT_HOURS" | "WINDOW_UNIT_DAYS" | "WINDOW_UNIT_WEEKS" | "WINDOW_UNIT_MONTHS";
 export type YearlyDate = { day: number; month: number };
 export type YearlyOn = { dates: YearlyDate[] };
+export type Zone = { key: string; name: string };
 
 export const ROUTES = {
   "Billing.CreatePortalSession": { method: "POST", path: "/v1/customers/{external_id}/billing/portal-sessions", query: [] },
@@ -195,6 +211,7 @@ export const ROUTES = {
   "Grants.RevokeGrant": { method: "POST", path: "/v1/customers/{external_id}/grants/{grant_id}:revoke", query: [] },
   "Pricing.GetCustomerPricing": { method: "GET", path: "/v1/customers/{external_id}/pricing", query: ["target.team_id","target.project_id","target.environment_id"] },
   "Pricing.GetPricing": { method: "GET", path: "/v1/pricing", query: ["target.team_id","target.project_id","target.environment_id","market","country"] },
+  "Pricing.ListFeaturesOnSale": { method: "GET", path: "/v1/pricing/features", query: ["target.team_id","target.project_id","target.environment_id"] },
   "SnapshotKeys": { method: "GET", path: "/v1/snapshot-keys", query: [] },
   "Snapshots.CreateSnapshot": { method: "POST", path: "/v1/customers/{external_id}/snapshots", query: [] },
   "Subscriptions.CancelPendingAddOnChange": { method: "POST", path: "/v1/customers/{external_id}/add-ons/{plan_key}:cancelPendingChange", query: [] },

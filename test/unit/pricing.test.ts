@@ -256,4 +256,68 @@ describe("pricing", () => {
     expect(String(visitor)).not.toContain("pk_test_secretish");
     expect(visitor.toJSON()).toEqual({ baseUrl: "https://api.entitler.app", kind: "visitor" });
   });
+
+  it("reads the catalogue's features with a publishable key, and keeps them for their max-age", async () => {
+    const { fetch, sent } = fakeFetch(
+      json(
+        {
+          features: [
+            {
+              id: "fe_1",
+              key: "spend",
+              kind: "FEATURE_KIND_METERED",
+              archived: false,
+              version: {
+                number: 3,
+                name: "Spend",
+                description: "Money spent on ads",
+                unit: "",
+                sharesLimit: false,
+                zones: [],
+                measure: { decimals: 2, money: {} },
+              },
+            },
+            { id: "fe_2", key: "legacy", kind: "FEATURE_KIND_SWITCH", archived: true },
+          ],
+          served: { release: { id: "rl_1", number: 2 } },
+        },
+        200,
+        { "cache-control": "max-age=60" },
+      ),
+    );
+    const visitor = new EntitlerVisitor({ key: "pk_test_1", fetch });
+    const list = await visitor.features();
+    await visitor.features();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ method: "GET", path: "/v1/pricing/features" });
+    expect(list).toEqual({
+      features: [
+        {
+          id: "fe_1",
+          key: "spend",
+          type: "metered",
+          archived: false,
+          name: "Spend",
+          description: "Money spent on ads",
+          unit: null,
+          decimals: 2,
+          money: true,
+          version: 3,
+        },
+        {
+          id: "fe_2",
+          key: "legacy",
+          type: "switch",
+          archived: true,
+          name: null,
+          description: null,
+          unit: null,
+          decimals: 0,
+          money: false,
+          version: null,
+        },
+      ],
+      served: { track: null, source: { type: "release", id: "rl_1", number: 2 } },
+    });
+  });
 });

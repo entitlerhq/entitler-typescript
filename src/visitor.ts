@@ -1,9 +1,9 @@
 import { MemoryCache } from "./cache.js";
 import { type ClientDescription, describe } from "./describe.js";
-import { type PricingOptions, pricing } from "./pricing.js";
+import { features, type PricingOptions, pricing } from "./pricing.js";
 import { snapshotKeys } from "./snapshot.js";
-import { type CallOptions, type ClientOptions, Transport } from "./transport.js";
-import type { PricingSheet, SnapshotKeySet } from "./types.js";
+import { type CallOptions, type ClientOptions, type ReadOptions, Transport } from "./transport.js";
+import type { FeatureList, PricingSheet, SnapshotKeySet } from "./types.js";
 import { requireCredential } from "./util.js";
 
 /** Options for {@link EntitlerVisitor}. */
@@ -49,6 +49,11 @@ export class EntitlerVisitor {
    */
   pricing(options?: PricingOptions): Promise<PricingSheet> {
     return pricing(this.#transport, options);
+  }
+
+  /** Reads the catalogue's features served on the default track, archived ones included. */
+  features(options?: ReadOptions): Promise<FeatureList> {
+    return features(this.#transport, options);
   }
 
   /** Fetches the public keys that verify snapshots, sending no credential. */

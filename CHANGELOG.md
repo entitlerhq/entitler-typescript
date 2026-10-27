@@ -27,6 +27,8 @@ All notable changes to this package are listed here. The format follows
   A done move answers the holdings too. `billingPortal()` opens the payment provider's page,
   `syncBilling()` reads the customer's state from the provider, and the server's `billing()` reads
   the provider's view for support tools.
+- `features()` on the server and visitor clients reads the catalogue's features served on the default
+  track: each one's type, name, unit, decimals and whether it counts money.
 - `EntitlerClient`, the in-app client for one signed-in customer, built from a customer token (or a
   provider for one) or from a publishable key and an identity token. It asks the provider again
   when Entitler refuses the token, and answers through `me`. `TokenError` reports a failing provider.

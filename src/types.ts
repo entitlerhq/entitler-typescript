@@ -682,6 +682,38 @@ export type MoveStep =
   | { readonly next: "pay"; readonly url: string; readonly status: PaymentStatus }
   | { readonly next: "confirming" };
 
+/** A feature in the catalogue served on the default track. */
+export interface CatalogueFeature {
+  /** The feature's id. */
+  readonly id: string;
+  /** The feature's key. */
+  readonly key: string;
+  /** The feature's type. */
+  readonly type: FeatureType;
+  /** True when the feature is archived. */
+  readonly archived: boolean;
+  /** Its name, or `null` when the catalogue serves no version of it. */
+  readonly name: string | null;
+  /** Its description, or `null`. */
+  readonly description: string | null;
+  /** The unit a metered feature counts, such as `credits`, or `null`. */
+  readonly unit: string | null;
+  /** How many decimal places its amounts carry; `0` for whole units. */
+  readonly decimals: number;
+  /** True when it counts money, in each customer's currency. */
+  readonly money: boolean;
+  /** The served version's number, or `null`. */
+  readonly version: number | null;
+}
+
+/** The catalogue's features, and what served them. */
+export interface FeatureList {
+  /** The features, archived ones included. */
+  readonly features: readonly CatalogueFeature[];
+  /** The track and release that served them. */
+  readonly served: Served;
+}
+
 /** What a customer token lets an in-app client do. */
 export type CustomerTokenScope = Open<"entitlements:read" | "usage:read" | "usage:write" | "billing:self">;
 
