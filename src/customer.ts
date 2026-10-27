@@ -172,9 +172,10 @@ export interface Customer {
    * Holds an amount, runs `work`, then settles what `work` reported with `hold.use(n)`, or the whole
    * hold when it reported nothing. When `work` throws, settles what it reported or frees the hold.
    * When the call is cancelled, rejects at once and closes the hold once `work` stops, or when the
-   * hold expires if `work` never does. Throws {@link UsageRefusedError} before `work` runs when the
-   * customer has too little left, and {@link UsageSettlementError} holding `work`'s result when
-   * settling fails.
+   * hold expires if `work` never does. When another caller holds the same key (`hold.duplicate`),
+   * runs `work` but leaves the hold to that caller, so `work` can check it and return early. Throws
+   * {@link UsageRefusedError} before `work` runs when the customer has too little left, and
+   * {@link UsageSettlementError} holding `work`'s result when settling fails.
    *
    * @example
    * ```ts
@@ -525,6 +526,7 @@ export class CustomerApi implements ServerCustomer {
       running = Promise.resolve(work({ hold, signal: signal ?? new AbortController().signal }));
       result = await untilAborted(running, signal);
     } catch (error) {
+      if (hold.duplicate) throw error;
       if (running && signal?.aborted && Object.is(error, signal.reason)) {
         disposeOnceStopped(running, lifetime - (performance.now() - heldAt), dispose);
       } else {
@@ -532,6 +534,7 @@ export class CustomerApi implements ServerCustomer {
       }
       throw error;
     }
+    if (hold.duplicate) return result;
     try {
       await hold.finish();
     } catch (error) {
