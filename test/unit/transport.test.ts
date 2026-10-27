@@ -414,6 +414,7 @@ describe("the client", () => {
   it("answers whether an error means Entitler was unreachable", () => {
     expect(isUnreachable(new ConnectionError("down"))).toBe(true);
     expect(isUnreachable(new ApiError({ status: 503, code: "Unavailable", reason: null }))).toBe(true);
+    expect(isUnreachable(new ApiError({ status: 408, code: "Unknown", reason: null }))).toBe(true);
     expect(isUnreachable(new ApiError({ status: 404, code: "NotFound", reason: "CUSTOMER_NOT_FOUND" }))).toBe(false);
     expect(isUnreachable(new Error("other"))).toBe(false);
   });
