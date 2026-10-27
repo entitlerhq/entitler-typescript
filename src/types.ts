@@ -456,7 +456,17 @@ export interface PlanChange {
 }
 
 /** An add-on the customer holds. */
-export interface HeldAddOn extends HeldPlan {
+export interface HeldAddOn {
+  /** The add-on's id. */
+  readonly id: string;
+  /** The add-on's key. */
+  readonly key: string;
+  /** The add-on's name. */
+  readonly name: string;
+  /** The add-on's version the customer holds. */
+  readonly version: number;
+  /** `real` when the customer pays real money for it, `test` in test mode. */
+  readonly money: Open<"real" | "test">;
   /** How many the customer holds. */
   readonly quantity: number;
   /** True when the plan requires it, so the customer can't remove it. */

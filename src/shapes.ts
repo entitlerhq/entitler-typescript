@@ -481,7 +481,11 @@ function optionalWhole(value: unknown): number | null {
 function heldAddOn(value: unknown): HeldAddOn {
   const given = object<Wire.HeldAddOn>(value);
   return {
-    ...heldPlan(value),
+    id: at("planId", () => text(given.planId)),
+    key: at("planKey", () => text(given.planKey)),
+    name: at("planName", () => text(given.planName)),
+    version: at("versionNumber", () => whole(given.versionNumber)),
+    money: at("money", () => enumName(given.money, "CUSTOMER_MONEY_")),
     quantity: at("quantity", () => whole(given.quantity)),
     required: at("required", () => bool(given.required)),
     addedAt: at("addedAt", () => seconds(given.addedAt)),
