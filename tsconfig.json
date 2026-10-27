@@ -17,8 +17,9 @@
     "skipLibCheck": true,
     "noEmit": true,
     "paths": {
-      "@entitlerhq/entitler": ["./src/index.ts"]
+      "@entitlerhq/entitler": ["./src/index.ts"],
+      "@entitlerhq/entitler/testing": ["./src/testing.ts"]
     }
   },
-  "include": ["src", "test", "scripts", "vitest.config.ts"]
+  "include": ["src", "test", "scripts", "examples", "vitest.config.ts"]
 }
