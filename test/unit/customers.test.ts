@@ -26,7 +26,7 @@ describe("the customer's record", () => {
     const registered = await customer.register({
       name: "Ada",
       email: "ada@example.com",
-      attributes: { region: "au", plan_hint: null },
+      attributes: { region: "au", plan_hint: null, skipped: undefined as unknown as string },
       visitor: "vi_1",
     });
     expect(sent[0]).toMatchObject({

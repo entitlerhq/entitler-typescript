@@ -261,9 +261,9 @@ export interface ServerCustomer extends Customer {
 }
 
 function details(options: CustomerDetailsInput | undefined): Record<string, unknown> {
-  const attributes = Object.entries(options?.attributes ?? {}).map(([key, value]) =>
-    value === null ? { key } : { key, value },
-  );
+  const attributes = Object.entries(options?.attributes ?? {})
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => (value === null ? { key } : { key, value }));
   return {
     ...(options?.name === undefined ? {} : { name: options.name }),
     ...(options?.email === undefined ? {} : { email: options.email }),
