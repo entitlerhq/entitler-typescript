@@ -8,10 +8,13 @@ import {
   decodeCustomer,
   decodeCustomerPricing,
   decodeEntitlements,
+  decodeGrant,
   decodeNothing,
   decodeRegistered,
+  decodeRevokedGrant,
   decodeSnapshot,
   decodeToken,
+  decodeTrack,
   decodeUsage,
   scopeEnum,
 } from "./shapes.js";
@@ -23,9 +26,13 @@ import type {
   CustomerTokenScope,
   Feature,
   FeatureType,
+  GrantResult,
   IssuedCustomerToken,
+  Limit,
   RegisteredCustomer,
+  RevokedGrant,
   Snapshot,
+  TrackAssignment,
   UsageMode,
   UsageResult,
 } from "./types.js";
@@ -270,6 +277,46 @@ export interface TokenOptions extends CallOptions {
   ttlSeconds?: number;
 }
 
+/** A change to a customer's record that fails when the record has moved on since it was read. */
+export interface RevisionOptions extends CallOptions {
+  /** Why, kept with the change and shown in the dashboard. */
+  reason?: string;
+  /**
+   * The customer's revision this change was decided on. When the record has changed since, the
+   * write fails with `ApiError` and changes nothing.
+   */
+  expectedRevision?: number;
+}
+
+/** Options for {@link ServerCustomer.grant}. */
+export interface GrantOptions extends RevisionOptions {
+  /**
+   * `true` for a switch; for a metered or configuration feature, the amount in the feature's
+   * smallest unit, or `"unlimited"`.
+   */
+  value: true | Limit;
+  /** How many days the grant lasts, 1 to 3,650. Leave it out for a grant that lasts until revoked. */
+  days?: number;
+  /** The customer's lower-case currency code, for a money feature. Leave it out for any other feature. */
+  currency?: string;
+}
+
+/** Options for {@link ServerCustomer.adjustMeter}: exactly one of `setTo` and `changeBy`. */
+export type AdjustMeterOptions = CallOptions & {
+  /** Why, kept with the adjustment. */
+  reason?: string;
+  /** A key naming the adjustment in your own system, so a retry never adjusts twice. */
+  idempotencyKey?: string;
+  /** The customer's lower-case currency code, for a money feature. Leave it out for any other feature. */
+  currency?: string;
+} & ({ setTo: number; changeBy?: never } | { changeBy: number; setTo?: never });
+
+/** Options for {@link ServerCustomer.cancelUsage}. */
+export interface CancelUsageOptions extends CallOptions {
+  /** Why, kept with the cancellation. */
+  reason?: string;
+}
+
 /** A customer from the server client: everything an app's customer does, plus their record and tokens. */
 export interface ServerCustomer extends Customer {
   /**
@@ -296,6 +343,23 @@ export interface ServerCustomer extends Customer {
    * ```
    */
   token(options?: TokenOptions): Promise<IssuedCustomerToken>;
+  /**
+   * Gives the customer a feature value outside their plans, for `days` or until revoked.
+   *
+   * @example
+   * ```ts
+   * await customer.grant("ai_credits", { value: 5_000, days: 30, reason: "Support ticket 4127" });
+   * ```
+   */
+  grant(feature: Feature | string, options: GrantOptions): Promise<GrantResult>;
+  /** Ends a grant now. Revoking twice is safe: the second answers `changed: false`. */
+  revokeGrant(grantId: string, options?: RevisionOptions): Promise<RevokedGrant>;
+  /** Moves the customer to a track, or back to the default track with `null`. */
+  setTrack(trackId: string | null, options?: CallOptions): Promise<TrackAssignment>;
+  /** Sets a metered feature's meter to an amount, or moves it by one, outside usage reports. */
+  adjustMeter(feature: Feature<"metered"> | string, options: AdjustMeterOptions): Promise<UsageResult>;
+  /** Cancels a usage report, giving back what it used. Cancelling twice is safe. */
+  cancelUsage(usageId: string, options?: CancelUsageOptions): Promise<UsageResult>;
 }
 
 function details(options: CustomerDetailsInput | undefined): Record<string, unknown> {
@@ -309,15 +373,39 @@ function details(options: CustomerDetailsInput | undefined): Record<string, unkn
   };
 }
 
-function currency(options: UsageWriteOptions): { currency?: string } {
+function currency(options: { currency?: string }): { currency?: string } {
   if (options.currency === undefined) return {};
   if (typeof options.currency !== "string") throw new TypeError("Pass currency as a currency code.");
   return { currency: options.currency };
 }
 
+function revision(options: RevisionOptions | undefined): Record<string, unknown> {
+  return {
+    ...(options?.reason === undefined ? {} : { reason: options.reason }),
+    ...(options?.expectedRevision === undefined
+      ? {}
+      : { expectedRevision: { value: wholeNumber(options.expectedRevision, "expectedRevision", 0) } }),
+  };
+}
+
+function grantValue(value: unknown): Record<string, unknown> {
+  if (value === true) return { on: {} };
+  if (value === "unlimited") return { limit: { unlimited: {} } };
+  return { limit: { count: wholeNumber(value, "value", 0, Number.MAX_SAFE_INTEGER, GRANT_VALUE) } };
+}
+
+function adjustment(options: AdjustMeterOptions): Record<string, number> {
+  const { setTo, changeBy } = options ?? {};
+  if ((setTo === undefined) === (changeBy === undefined))
+    throw new TypeError("Pass exactly one of setTo and changeBy.");
+  if (setTo !== undefined) return { setTo: wholeNumber(setTo, "setTo", 0) };
+  return { changeBy: wholeNumber(changeBy, "changeBy", Number.MIN_SAFE_INTEGER) };
+}
+
 const SNAPSHOT_SECONDS = 30 * 24 * 60 * 60;
 
 const USAGE_AMOUNT = `Pass amount as a whole number from 1 to ${Number.MAX_SAFE_INTEGER}.`;
+const GRANT_VALUE = 'Pass value as true, "unlimited" or a whole number of 0 or more.';
 const SETTLED_AMOUNT = "Pass amount as a whole number from 0 to the held amount.";
 const AMOUNT_USED = "Pass the amount used as a whole number of 0 or more.";
 const EXCESS = ":excess";
@@ -408,13 +496,14 @@ export class CustomerApi implements ServerCustomer {
     body: Record<string, unknown> | undefined,
     options: CallOptions | undefined,
     idempotencyKey?: string,
+    retryable = true,
   ): Promise<Answer<UsageResult>> {
     return this.#transport.send<UsageResult>({
       ...route(operation, { external_id: this.id, ...variables }),
       customer: this.id,
       body,
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-      retryable: true,
+      retryable,
       decode: decodeUsage,
       options,
     });
@@ -610,9 +699,10 @@ export class CustomerApi implements ServerCustomer {
     decode: Decoder,
     options: CallOptions | undefined,
     retryable?: boolean,
+    variables: Record<string, string> = {},
   ): Promise<T> {
     const answer = await this.#transport.send<T>({
-      ...route(operation, { external_id: this.id }),
+      ...route(operation, { external_id: this.id, ...variables }),
       customer: this.id,
       body,
       ...(retryable === undefined ? {} : { retryable }),
@@ -667,5 +757,46 @@ export class CustomerApi implements ServerCustomer {
         : { lifetimeSeconds: wholeNumber(options.ttlSeconds, "ttlSeconds", 60, 3600) }),
     };
     return this.#send("CustomerTokens.CreateToken", body, decodeToken, options);
+  }
+
+  async grant(feature: Feature | string, options: GrantOptions): Promise<GrantResult> {
+    const body = {
+      featureKey: featureKey(feature),
+      value: grantValue(options?.value),
+      ...(options.days === undefined ? {} : { days: wholeNumber(options.days, "days", 1, 3650) }),
+      ...revision(options),
+      ...currency(options),
+    };
+    return this.#send("Grants.CreateGrant", body, decodeGrant, options);
+  }
+
+  async revokeGrant(grantId: string, options?: RevisionOptions): Promise<RevokedGrant> {
+    const grant = { grant_id: requireId(grantId, "Provide the id of the grant.") };
+    return this.#send("Grants.RevokeGrant", revision(options), decodeRevokedGrant, options, true, grant);
+  }
+
+  async setTrack(trackId: string | null, options?: CallOptions): Promise<TrackAssignment> {
+    const body =
+      trackId === null ? {} : { trackId: requireId(trackId, "Pass the track's id, or null for the default track.") };
+    return this.#send("CustomerTracks.AssignTrack", body, decodeTrack, options);
+  }
+
+  async adjustMeter(feature: Feature<"metered"> | string, options: AdjustMeterOptions): Promise<UsageResult> {
+    const meter = { feature_key: featureKey(feature) };
+    const idempotencyKey = options?.idempotencyKey === undefined ? undefined : requiredKey(options.idempotencyKey);
+    const body = {
+      ...adjustment(options),
+      ...(options.reason === undefined ? {} : { reason: options.reason }),
+      ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      ...currency(options),
+    };
+    const retryable = idempotencyKey !== undefined;
+    return (await this.#usage("Usage.AdjustMeter", meter, body, options, idempotencyKey, retryable)).data;
+  }
+
+  async cancelUsage(usageId: string, options?: CancelUsageOptions): Promise<UsageResult> {
+    const usage = { usage_id: requireId(usageId, "Provide the id of the usage report.") };
+    const body = options?.reason === undefined ? {} : { reason: options.reason };
+    return (await this.#usage("Usage.CancelReport", usage, body, options)).data;
   }
 }

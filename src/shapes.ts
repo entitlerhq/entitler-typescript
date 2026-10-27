@@ -1,4 +1,5 @@
 import type {
+  Actor,
   Amount,
   AnswerContext,
   Check,
@@ -7,6 +8,8 @@ import type {
   Entitlement,
   EntitlementSource,
   FeatureType,
+  Grant,
+  GrantResult,
   IssuedCustomerToken,
   Limit,
   Markets,
@@ -16,10 +19,12 @@ import type {
   PricingMarket,
   PricingSheet,
   RegisteredCustomer,
+  RevokedGrant,
   Served,
   Snapshot,
   SnapshotKey,
   SnapshotKeySet,
+  TrackAssignment,
   Upgrade,
   UsageResult,
   Value,
@@ -362,6 +367,70 @@ export const decodeToken: Decoder = (value) => {
     scopes: at("scopes", () => list(given.scopes, scopeName)),
     expiresAt: at("expiresAt", () => seconds(given.expiresAt)),
   } satisfies IssuedCustomerToken;
+};
+
+function actor(value: unknown): Actor | null {
+  if (value === undefined) return null;
+  const given = object<Wire.Actor>(value);
+  return { type: at("type", () => enumName(given.type, "ACTOR_TYPE_")), id: at("id", () => text(given.id)) };
+}
+
+function grantValue(value: unknown): true | Limit {
+  const given = object<Wire.GrantValue>(value);
+  if (given.on !== undefined) return true;
+  return at("limit", () => limit(given.limit));
+}
+
+function grant(value: unknown): Grant {
+  const given = object<Wire.Grant>(value);
+  return {
+    id: at("id", () => text(given.id)),
+    feature: at("featureKey", () => text(given.featureKey)),
+    value: at("value", () => grantValue(given.value)),
+    from: at("from", () => seconds(given.from)),
+    until: at("until", () => optionalSeconds(given.until)),
+    reason: at("reason", () => text(given.reason)),
+    revokedAt: at("revokedAt", () => optionalSeconds(given.revokedAt)),
+    revokeReason: at("revokeReason", () => optionalText(given.revokeReason)),
+    grantedBy: at("grantedBy", () => actor(given.grantedBy)),
+    revokedBy: at("revokedBy", () => actor(given.revokedBy)),
+  };
+}
+
+/** Decodes `Grants.CreateGrant`'s answer. @internal */
+export const decodeGrant: Decoder = (value) => {
+  const given = object<Wire.CreateGrantResponse>(value);
+  return {
+    grant: at("grant", () => grant(given.grant)),
+    revision: at("revision", () => whole(given.revision)),
+  } satisfies GrantResult;
+};
+
+/** Decodes `Grants.RevokeGrant`'s answer. @internal */
+export const decodeRevokedGrant: Decoder = (value) => {
+  const given = object<Wire.RevokeGrantResponse>(value);
+  return {
+    grant: at("grant", () => grant(given.grant)),
+    revision: at("revision", () => whole(given.revision)),
+    changed: at("changed", () => bool(given.changed)),
+  } satisfies RevokedGrant;
+};
+
+/** Decodes `CustomerTracks.AssignTrack`'s answer. @internal */
+export const decodeTrack: Decoder = (value) => {
+  const given = object<Wire.AssignTrackResponse>(value);
+  const assignment = at("assignment", () => object<Wire.CustomerTrack>(given.assignment));
+  return {
+    ...at("assignment", () => ({
+      track: at("trackId", () => optionalText(assignment.trackId)),
+      previousTrack: at("previousTrackId", () => optionalText(assignment.previousTrackId)),
+      source: at("source", () => enumName(assignment.source, "ASSIGNMENT_SOURCE_")),
+      money: at("money", () => enumName(assignment.money, "CUSTOMER_MONEY_")),
+      revision: at("revision", () => whole(assignment.revision)),
+    })),
+    changed: at("changed", () => bool(given.changed)),
+    endedTestHoldings: at("endedTestHoldings", () => whole(given.endedTestHoldings)),
+  } satisfies TrackAssignment;
 };
 
 /** Decodes an answer the SDK has no use for. @internal */

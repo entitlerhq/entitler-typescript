@@ -353,6 +353,70 @@ export interface RegisteredCustomer extends CustomerRecord {
   readonly created: boolean;
 }
 
+/** Who made a change: a dashboard user, an API key, or Entitler itself. */
+export interface Actor {
+  /** `user` for a dashboard user, `key` for an API key, `system` for Entitler. */
+  readonly type: Open<"user" | "key" | "system">;
+  /** The user's or key's id. */
+  readonly id: string;
+}
+
+/** A grant: a feature value given to one customer outside their plans, for a while or for good. */
+export interface Grant {
+  /** The grant's id. */
+  readonly id: string;
+  /** The feature's key. */
+  readonly feature: string;
+  /** `true` for a switch, else the amount granted, in the feature's smallest unit, or `"unlimited"`. */
+  readonly value: true | Limit;
+  /** When the grant started. */
+  readonly from: Date;
+  /** When it ends, or `null` when it lasts until revoked. */
+  readonly until: Date | null;
+  /** Why it was given; empty when no reason was given. */
+  readonly reason: string;
+  /** When it was revoked, or `null`. */
+  readonly revokedAt: Date | null;
+  /** Why it was revoked, or `null`. */
+  readonly revokeReason: string | null;
+  /** Who gave it, or `null` when Entitler doesn't know. */
+  readonly grantedBy: Actor | null;
+  /** Who revoked it, or `null`. */
+  readonly revokedBy: Actor | null;
+}
+
+/** The answer to `grant()`: the grant, and the customer's revision after it. */
+export interface GrantResult {
+  /** The grant. */
+  readonly grant: Grant;
+  /** The customer's revision after the grant, to pass as the next write's `expectedRevision`. */
+  readonly revision: number;
+}
+
+/** The answer to `revokeGrant()`. */
+export interface RevokedGrant extends GrantResult {
+  /** False when the grant was revoked already, so this call changed nothing. */
+  readonly changed: boolean;
+}
+
+/** The answer to `setTrack()`: the customer's track now, and what moving them did. */
+export interface TrackAssignment {
+  /** The id of the track the customer is on now, or `null` for the default track. */
+  readonly track: string | null;
+  /** The id of the track they were on before, or `null` for the default track. */
+  readonly previousTrack: string | null;
+  /** Who set the track last: `server` for the API, `dashboard` for the dashboard. */
+  readonly source: Open<"server" | "dashboard">;
+  /** `real` for a customer who pays real money, `test` for one in test mode. */
+  readonly money: Open<"real" | "test">;
+  /** The customer's revision after the change. */
+  readonly revision: number;
+  /** False when the customer was on that track already, so this call changed nothing. */
+  readonly changed: boolean;
+  /** How many test subscriptions and add-ons moving the customer ended. */
+  readonly endedTestHoldings: number;
+}
+
 /** What a customer token lets an in-app client do. */
 export type CustomerTokenScope = Open<"entitlements:read" | "usage:read" | "usage:write" | "billing:self">;
 
