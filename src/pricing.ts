@@ -34,6 +34,7 @@ export async function readPricing<T>(
   query: Record<string, string | undefined>,
   options: CustomerPricingOptions | undefined,
   decode: Decoder,
+  customer?: string,
 ): Promise<T> {
   if (options?.locale !== undefined && !isLocale(options.locale)) {
     throw new TypeError("Pass locale as a BCP 47 language tag.");
@@ -42,6 +43,7 @@ export async function readPricing<T>(
     ...route(operation, variables, query),
     headers: { "Accept-Language": options?.locale },
     cached: true,
+    ...(customer === undefined ? {} : { customer }),
     revalidate: options?.revalidate,
     decode,
     options,

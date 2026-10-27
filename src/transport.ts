@@ -80,6 +80,7 @@ export interface Call {
   readonly idempotencyKey?: string;
   readonly retryable?: boolean;
   readonly cached?: boolean;
+  readonly customer?: string;
   readonly revalidate?: boolean | undefined;
   readonly decode: Decoder;
   readonly open?: boolean;
@@ -340,6 +341,9 @@ export class Transport {
     if (!call.cached || !this.#cache) {
       const received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304) throw apiError(received, call.idempotencyKey);
+      if (this.#cache && call.customer !== undefined && call.method !== "GET") {
+        await this.#renew(this.#cache, received.auth ?? auth, call.customer);
+      }
       return {
         data: call.empty && received.text === "" ? (undefined as T) : this.#decode<T>(received.text, received, call),
         stale: false,
@@ -432,7 +436,29 @@ export class Transport {
     return { data, stale: false };
   }
 
+  async #generationKey(auth: Authorised, customer: string): Promise<string> {
+    return sha256Hex(
+      JSON.stringify(["entitler-generation-v1", auth.kind, await fingerprint(auth.credential), customer]),
+    );
+  }
+
+  async #generation(cache: CacheStore, auth: Authorised, customer: string, signal: AbortSignal | undefined) {
+    const found = await this.#get(cache, await this.#generationKey(auth, customer), signal);
+    return found?.body ?? (await this.#renew(cache, auth, customer, signal));
+  }
+
+  async #renew(cache: CacheStore, auth: Authorised, customer: string, signal?: AbortSignal): Promise<string> {
+    const generation = crypto.randomUUID();
+    const entry: CacheEntry = { v: 1, body: generation, receivedAt: Date.now() };
+    await this.#set(cache, await this.#generationKey(auth, customer), entry, signal);
+    return generation;
+  }
+
   async #key(call: Call, url: string, auth: Authorised): Promise<string> {
+    const generation =
+      call.customer !== undefined && this.#cache
+        ? await this.#generation(this.#cache, auth, call.customer, call.options?.signal)
+        : null;
     return sha256Hex(
       JSON.stringify([
         "entitler-cache-v1",
@@ -440,6 +466,7 @@ export class Transport {
         url,
         auth.kind,
         await fingerprint(auth.credential),
+        generation,
         Object.entries(call.headers ?? {})
           .filter(([, value]) => value !== undefined)
           .sort(([a], [b]) => a.localeCompare(b)),

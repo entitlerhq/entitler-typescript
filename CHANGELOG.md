@@ -28,3 +28,5 @@ All notable changes to this package are listed here. The format follows
 - Pricing: `EntitlerVisitor`, a client built from a publishable key alone, and `EntitlerServer` read
   the plans on sale with `pricing()`, priced in a market or a country's and formatted for a locale;
   `customer.pricing()` adds what the customer pays now and their coming charges.
+- A write for a customer drops the answers kept for them, in every process sharing the cache store,
+  so the next read asks Entitler instead of answering from before the write.
