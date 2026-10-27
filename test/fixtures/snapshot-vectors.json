@@ -1,0 +1,579 @@
+{
+  "keys": {
+    "keys": [
+      {
+        "kty": "EC",
+        "crv": "P-256",
+        "alg": "ES256",
+        "use": "sig",
+        "kid": "vec-1",
+        "x": "cvE3cxNL5gmLXAsQdqa8KjIxWZRiiJfPR9e3iWJqDFo",
+        "y": "8FipNVZgz6675inqVv6bjVtEUHZ0ip4KP7GC4vfdz_4"
+      }
+    ]
+  },
+  "vectors": [
+    {
+      "name": "plan, default plan and grant sources with a meter",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19LHsia2V5IjoiYWlfY3JlZGl0cyIsImtpbmQiOiJtZXRlcmVkIiwidmFsdWUiOjEwMDAsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoiZGVmYXVsdF9wbGFuIiwicGxhbiI6eyJpZCI6InBsXzAiLCJrZXkiOiJmcmVlIiwibmFtZSI6IkZyZWUifSwidmVyc2lvbiI6MywicHJvZHVjdCI6bnVsbCwidGhyb3VnaCI6bnVsbH0seyJ0eXBlIjoiZ3JhbnQiLCJncmFudCI6ImdyXzEiLCJ1bnRpbCI6MTc5MTUxMTIwMCwidmFsdWUiOjUwMCwidGhyb3VnaCI6bnVsbH1dLCJkZWNpbWFscyI6MCwidXNlZCI6MTAsImhlbGQiOjIsImJhbmtlZCI6MCwicmVtYWluaW5nIjo5ODgsInJlc2V0c0F0IjoxNzk0MDk5NjAwfV19.pr38TXRSlE2hRRPCoV-zRJee0heB7uKY2PfFkNJSZ3AdYLP8sAQdo8FUwYoJ_Y18CTz8V8TV7pYHKZJiUId6bA",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "snapshot": {
+          "customer": "user_1",
+          "environment": "en_1",
+          "issuedAt": "2026-10-09T01:00:00.000Z",
+          "expiresAt": "2026-10-10T01:00:00.000Z",
+          "served": {
+            "track": {
+              "id": "tr_1",
+              "name": "Main"
+            },
+            "source": {
+              "type": "release",
+              "id": "rl_1",
+              "number": 2
+            }
+          },
+          "entitlements": [
+            {
+              "key": "export_pdf",
+              "type": "switch",
+              "entitled": true,
+              "value": true,
+              "markets": null,
+              "decimals": 0,
+              "currency": null,
+              "sources": [
+                {
+                  "type": "plan",
+                  "planId": "pl_1",
+                  "plan": "pro",
+                  "name": "Pro",
+                  "version": 1,
+                  "product": "pr_1",
+                  "byDefault": false,
+                  "value": true,
+                  "markets": null,
+                  "through": null
+                }
+              ],
+              "upgrades": [],
+              "meter": null
+            },
+            {
+              "key": "ai_credits",
+              "type": "metered",
+              "entitled": true,
+              "value": 1000,
+              "markets": null,
+              "decimals": 0,
+              "currency": null,
+              "sources": [
+                {
+                  "type": "plan",
+                  "planId": "pl_0",
+                  "plan": "free",
+                  "name": "Free",
+                  "version": 3,
+                  "product": null,
+                  "byDefault": true,
+                  "value": null,
+                  "markets": null,
+                  "through": null
+                },
+                {
+                  "type": "grant",
+                  "grant": "gr_1",
+                  "until": "2026-10-09T02:00:00.000Z",
+                  "value": 500,
+                  "markets": null,
+                  "through": null
+                }
+              ],
+              "upgrades": [],
+              "meter": {
+                "used": 10,
+                "held": 2,
+                "banked": 0,
+                "remaining": 988,
+                "resetsAt": "2026-11-08T01:00:00.000Z"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an add-on source through a group",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6InNlYXRzIiwia2luZCI6ImNvbmZpZ3VyYXRpb24iLCJ2YWx1ZSI6InVubGltaXRlZCIsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoiYWRkX29uIiwicGxhbiI6eyJpZCI6InBsXzIiLCJrZXkiOiJzZWF0c19wYWNrIiwibmFtZSI6IlNlYXRzIHBhY2sifSwidmVyc2lvbiI6MSwicXVhbnRpdHkiOjMsInZhbHVlIjoidW5saW1pdGVkIiwidGhyb3VnaCI6InRlYW1fcGFjayJ9XX1dfQ.TbLwFFjjnzsohHnAL2Me5FuyVkZHFD-GuT6O1ORRh--25ppJ_s1TyK7BDa9E5ms7EaWy-pl96GLa3UQXINd86g",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "snapshot": {
+          "customer": "user_1",
+          "environment": "en_1",
+          "issuedAt": "2026-10-09T01:00:00.000Z",
+          "expiresAt": "2026-10-10T01:00:00.000Z",
+          "served": {
+            "track": {
+              "id": "tr_1",
+              "name": "Main"
+            },
+            "source": {
+              "type": "release",
+              "id": "rl_1",
+              "number": 2
+            }
+          },
+          "entitlements": [
+            {
+              "key": "seats",
+              "type": "configuration",
+              "entitled": true,
+              "value": "unlimited",
+              "markets": null,
+              "decimals": 0,
+              "currency": null,
+              "sources": [
+                {
+                  "type": "addon",
+                  "planId": "pl_2",
+                  "plan": "seats_pack",
+                  "name": "Seats pack",
+                  "version": 1,
+                  "quantity": 3,
+                  "value": "unlimited",
+                  "markets": null,
+                  "through": "team_pack"
+                }
+              ],
+              "upgrades": [],
+              "meter": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a money feature's limits by market",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6InNwZW5kIiwia2luZCI6Im1ldGVyZWQiLCJ2YWx1ZSI6W3sibWFya2V0SWQiOiJta19hdSIsImxpbWl0Ijo1MDAwfSx7Im1hcmtldElkIjoibWtfdXMiLCJsaW1pdCI6InVubGltaXRlZCJ9XSwiZW50aXRsZWQiOnRydWUsInNvdXJjZXMiOlt7InR5cGUiOiJncmFudCIsImdyYW50IjoiZ3JfMiIsInVudGlsIjpudWxsLCJ2YWx1ZSI6W3sibWFya2V0SWQiOiJta19hdSIsImxpbWl0Ijo1MDAwfSx7Im1hcmtldElkIjoibWtfdXMiLCJsaW1pdCI6InVubGltaXRlZCJ9XSwidGhyb3VnaCI6bnVsbH1dLCJkZWNpbWFscyI6MiwiY3VycmVuY3kiOiJhdWQiLCJ1c2VkIjoxNTAsImhlbGQiOjAsImJhbmtlZCI6MCwicmVtYWluaW5nIjo0ODUwLCJyZXNldHNBdCI6bnVsbH1dfQ.1Td7hx_Y-smCwh38JeJN1_FtcOCR2Pyg_nJNTHD1DwIHTp6bZAxLnkp9xnq_X2U9N7C_tbbhyykMmXYsgg4jrQ",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "snapshot": {
+          "customer": "user_1",
+          "environment": "en_1",
+          "issuedAt": "2026-10-09T01:00:00.000Z",
+          "expiresAt": "2026-10-10T01:00:00.000Z",
+          "served": {
+            "track": {
+              "id": "tr_1",
+              "name": "Main"
+            },
+            "source": {
+              "type": "release",
+              "id": "rl_1",
+              "number": 2
+            }
+          },
+          "entitlements": [
+            {
+              "key": "spend",
+              "type": "metered",
+              "entitled": true,
+              "value": 0,
+              "markets": {
+                "mk_au": 5000,
+                "mk_us": "unlimited"
+              },
+              "decimals": 2,
+              "currency": "aud",
+              "sources": [
+                {
+                  "type": "grant",
+                  "grant": "gr_2",
+                  "until": null,
+                  "value": 0,
+                  "markets": {
+                    "mk_au": 5000,
+                    "mk_us": "unlimited"
+                  },
+                  "through": null
+                }
+              ],
+              "upgrades": [],
+              "meter": {
+                "used": 150,
+                "held": 0,
+                "banked": 0,
+                "remaining": 4850,
+                "resetsAt": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a group and its member, skipping an unknown source",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6InRlYW1fcGFjayIsImtpbmQiOiJncm91cCIsInZhbHVlIjp0cnVlLCJlbnRpdGxlZCI6dHJ1ZSwic291cmNlcyI6W3sidHlwZSI6InBsYW4iLCJwbGFuIjp7ImlkIjoicGxfMSIsImtleSI6InBybyIsIm5hbWUiOiJQcm8ifSwidmVyc2lvbiI6MSwicHJvZHVjdCI6InByXzEiLCJ2YWx1ZSI6dHJ1ZSwidGhyb3VnaCI6bnVsbH1dfSx7ImtleSI6InNoYXJlZF9pbmJveCIsImtpbmQiOiJzd2l0Y2giLCJ2YWx1ZSI6dHJ1ZSwiZW50aXRsZWQiOnRydWUsInNvdXJjZXMiOlt7InR5cGUiOiJncm91cCIsImZlYXR1cmVzIjpbInRlYW1fcGFjayJdfSx7InR5cGUiOiJicmFuZF9uZXcifV19XX0.dsQJxgV2W1KeE76NvqMC_GHJw0b12lHFMJRWAIoS2JDsuxVCv7ZWC6R_tpGyJq_QGGOYYKoqPmCim-RCPVvIOQ",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "snapshot": {
+          "customer": "user_1",
+          "environment": "en_1",
+          "issuedAt": "2026-10-09T01:00:00.000Z",
+          "expiresAt": "2026-10-10T01:00:00.000Z",
+          "served": {
+            "track": {
+              "id": "tr_1",
+              "name": "Main"
+            },
+            "source": {
+              "type": "release",
+              "id": "rl_1",
+              "number": 2
+            }
+          },
+          "entitlements": [
+            {
+              "key": "team_pack",
+              "type": "group",
+              "entitled": true,
+              "value": true,
+              "markets": null,
+              "decimals": 0,
+              "currency": null,
+              "sources": [
+                {
+                  "type": "plan",
+                  "planId": "pl_1",
+                  "plan": "pro",
+                  "name": "Pro",
+                  "version": 1,
+                  "product": "pr_1",
+                  "byDefault": false,
+                  "value": true,
+                  "markets": null,
+                  "through": null
+                }
+              ],
+              "upgrades": [],
+              "meter": null
+            },
+            {
+              "key": "shared_inbox",
+              "type": "switch",
+              "entitled": true,
+              "value": true,
+              "markets": null,
+              "decimals": 0,
+              "currency": null,
+              "sources": [
+                {
+                  "type": "group",
+                  "features": ["team_pack"]
+                }
+              ],
+              "upgrades": [],
+              "meter": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a metered feature with no meter",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImFwaV9jYWxscyIsImtpbmQiOiJtZXRlcmVkIiwidmFsdWUiOjAsImVudGl0bGVkIjpmYWxzZSwic291cmNlcyI6W119XX0.JRz__L37GBg6mvfl_lOneqBKu2eEBsaGWjvjy6rd3UE0pDJ9fmnSqsGFidiG0hT7Q5LjjIkL6jCLQOKTJCeHsw",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "snapshot": {
+          "customer": "user_1",
+          "environment": "en_1",
+          "issuedAt": "2026-10-09T01:00:00.000Z",
+          "expiresAt": "2026-10-10T01:00:00.000Z",
+          "served": {
+            "track": {
+              "id": "tr_1",
+              "name": "Main"
+            },
+            "source": {
+              "type": "release",
+              "id": "rl_1",
+              "number": 2
+            }
+          },
+          "entitlements": [
+            {
+              "key": "api_calls",
+              "type": "metered",
+              "entitled": false,
+              "value": 0,
+              "markets": null,
+              "decimals": 0,
+              "currency": null,
+              "sources": [],
+              "upgrades": [],
+              "meter": {
+                "used": 0,
+                "held": 0,
+                "banked": 0,
+                "remaining": 0,
+                "resetsAt": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "signed within the clock skew",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.Xdhio2QzD_xPUdgJHWDHILxdSqzsmotDDyyfqETKB4PqKSRg6A6dKrBWXeDDT9fCe2aGTKmQeIb-ETMJSpAOIg",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T00:59:00.000Z"
+      },
+      "outcome": {
+        "snapshot": {
+          "customer": "user_1",
+          "environment": "en_1",
+          "issuedAt": "2026-10-09T01:00:00.000Z",
+          "expiresAt": "2026-10-10T01:00:00.000Z",
+          "served": {
+            "track": {
+              "id": "tr_1",
+              "name": "Main"
+            },
+            "source": {
+              "type": "release",
+              "id": "rl_1",
+              "number": 2
+            }
+          },
+          "entitlements": [
+            {
+              "key": "export_pdf",
+              "type": "switch",
+              "entitled": true,
+              "value": true,
+              "markets": null,
+              "decimals": 0,
+              "currency": null,
+              "sources": [
+                {
+                  "type": "plan",
+                  "planId": "pl_1",
+                  "plan": "pro",
+                  "name": "Pro",
+                  "version": 1,
+                  "product": "pr_1",
+                  "byDefault": false,
+                  "value": true,
+                  "markets": null,
+                  "through": null
+                }
+              ],
+              "upgrades": [],
+              "meter": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "signed beyond the clock skew",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.TvBk0Zv557ee4vUt451oZqx35kqq0W3NVXkbxwymoN3jbmrNInQhrB5n5JznAwD9ur1ES5h7lSV1pd44ua3ndA",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T00:58:59.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    },
+    {
+      "name": "signed beyond a narrower clock skew",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.GZdds1vHidq54DiAyPQPwNZZTwsQKqSgFw_57thCjPvmldTT5Avd-h1WBsx2Pnx2ICdMIM-MQwx8O-KgneeGNg",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T00:59:30.000Z",
+        "clockSkewSeconds": 10
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    },
+    {
+      "name": "the last second before expiry",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.zMdeEnF2DEESsWlLc_AuNRhHyeM5a5_6Q9UFdX0tL4vh5wXL6iy-LO45Rz8y75MJR1GBCm6G66BY46VgFfy8GQ",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-10T00:59:59.000Z"
+      },
+      "outcome": {
+        "snapshot": {
+          "customer": "user_1",
+          "environment": "en_1",
+          "issuedAt": "2026-10-09T01:00:00.000Z",
+          "expiresAt": "2026-10-10T01:00:00.000Z",
+          "served": {
+            "track": {
+              "id": "tr_1",
+              "name": "Main"
+            },
+            "source": {
+              "type": "release",
+              "id": "rl_1",
+              "number": 2
+            }
+          },
+          "entitlements": [
+            {
+              "key": "export_pdf",
+              "type": "switch",
+              "entitled": true,
+              "value": true,
+              "markets": null,
+              "decimals": 0,
+              "currency": null,
+              "sources": [
+                {
+                  "type": "plan",
+                  "planId": "pl_1",
+                  "plan": "pro",
+                  "name": "Pro",
+                  "version": 1,
+                  "product": "pr_1",
+                  "byDefault": false,
+                  "value": true,
+                  "markets": null,
+                  "through": null
+                }
+              ],
+              "upgrades": [],
+              "meter": null
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "expired",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.zYWWI7mYnxW57LSjQOJwkKy4N1hFex6fsLQEqcLq7tgXBfcSo-6gcgoZ6ohMhaYP-Hf8i_NAUA3CPSBxmxjFXA",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-10T01:00:00.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_EXPIRED"
+      }
+    },
+    {
+      "name": "a key that is not in the set",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMiJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.HeACMFARBM9Xn4gGRlpoj78IKYTzQ1KdeGHlh8-SYc3DGlhsVT5IiPXzDbzHGLZniRrPR0hvrwive9SKedmg9A",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    },
+    {
+      "name": "a known kid with another key's signature",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.nJbyTHaOz0qbFuzUK_a_c4OY0x4l_dpYA1ka4WX25rD7F7bw0RbM__otz_Lx4_MD2y2TIBmQuSSiZDDiwB_amQ",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    },
+    {
+      "name": "edited claims",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMiIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.IcoMMBgDIkt1wAC9HK30wmnsLly840IPEE7Bd4SrbO6LujVTaJfnuYZMRkiZpZ11QhhLmBZnbdl1bsPYHcAaUg",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    },
+    {
+      "name": "another type",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InZlYy0xIn0.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.crO95rfK5l2NPGwHWAi6S6lXqtsmCPPfd1awHQ3Z7RLkbLiqtXrtUYq44rv247BMOKpW4-oonmKety19fs-5JQ",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    },
+    {
+      "name": "another issuer",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJzb21lb25lIiwic3ViIjoidXNlcl8xIiwiZW52aXJvbm1lbnQiOnsiaWQiOiJlbl8xIn0sInRyYWNrIjp7ImlkIjoidHJfMSIsIm5hbWUiOiJNYWluIn0sInJlbGVhc2UiOnsiaWQiOiJybF8xIiwibnVtYmVyIjoyfSwiaWF0IjoxNzkxNTA3NjAwLCJleHAiOjE3OTE1OTQwMDAsImVudGl0bGVtZW50cyI6W3sia2V5IjoiZXhwb3J0X3BkZiIsImtpbmQiOiJzd2l0Y2giLCJ2YWx1ZSI6dHJ1ZSwiZW50aXRsZWQiOnRydWUsInNvdXJjZXMiOlt7InR5cGUiOiJwbGFuIiwicGxhbiI6eyJpZCI6InBsXzEiLCJrZXkiOiJwcm8iLCJuYW1lIjoiUHJvIn0sInZlcnNpb24iOjEsInByb2R1Y3QiOiJwcl8xIiwidmFsdWUiOnRydWUsInRocm91Z2giOm51bGx9XX1dfQ.kndVP7T_gI14il-3ow1So42MxqXuo0CUcL4RUpP0ML0VLz3Rjy4hDiKGPe2YJUQk6ijRDNNEIENGnnInTz2unA",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    },
+    {
+      "name": "another customer",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMiIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMSJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.jJ2ZtmgaP8iMtppEo7fAh8NrowBPoJa59_I1StXCk4SorePOZE1yRRQLWbxZf0P6hoSlLrIXcydt3hyUV6Jp3Q",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    },
+    {
+      "name": "another environment",
+      "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImVudGl0bGVtZW50cytqd3QiLCJraWQiOiJ2ZWMtMSJ9.eyJpc3MiOiJlbnRpdGxlciIsInN1YiI6InVzZXJfMSIsImVudmlyb25tZW50Ijp7ImlkIjoiZW5fMiJ9LCJ0cmFjayI6eyJpZCI6InRyXzEiLCJuYW1lIjoiTWFpbiJ9LCJyZWxlYXNlIjp7ImlkIjoicmxfMSIsIm51bWJlciI6Mn0sImlhdCI6MTc5MTUwNzYwMCwiZXhwIjoxNzkxNTk0MDAwLCJlbnRpdGxlbWVudHMiOlt7ImtleSI6ImV4cG9ydF9wZGYiLCJraW5kIjoic3dpdGNoIiwidmFsdWUiOnRydWUsImVudGl0bGVkIjp0cnVlLCJzb3VyY2VzIjpbeyJ0eXBlIjoicGxhbiIsInBsYW4iOnsiaWQiOiJwbF8xIiwia2V5IjoicHJvIiwibmFtZSI6IlBybyJ9LCJ2ZXJzaW9uIjoxLCJwcm9kdWN0IjoicHJfMSIsInZhbHVlIjp0cnVlLCJ0aHJvdWdoIjpudWxsfV19XX0.VPKqTwDbc4rkER-s7vV6Na59rlP623gNnwYK8LW1LGBy9JF5c0Car3Loc9pKmK78ycubuyWfjDXAPS9A5ZId1A",
+      "expected": {
+        "customer": "user_1",
+        "environment": "en_1",
+        "now": "2026-10-09T01:00:01.000Z"
+      },
+      "outcome": {
+        "error": "SNAPSHOT_INVALID"
+      }
+    }
+  ]
+}
