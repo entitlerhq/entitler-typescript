@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { EntitlerClient, MemoryCache, TokenError } from "../../src/index.js";
-import { apiError, checkAnswer, fakeFetch, json } from "./fake.js";
+import { defineFeature, EntitlerClient, MemoryCache, TokenError } from "../../src/index.js";
+import { apiError, checkAnswer, fakeFetch, json, usageAnswer } from "./fake.js";
 
 const registered = {
   customer: {
@@ -52,6 +52,32 @@ describe("EntitlerClient", () => {
       "Bearer ct_2",
       "Bearer ct_2",
     ]);
+  });
+
+  it("keeps the answer to a refreshed read under the new token", async () => {
+    let issued = 0;
+    const { fetch, sent } = fakeFetch((request) =>
+      request.headers.authorization === "Bearer ct_1"
+        ? apiError(401, "Unauthenticated", "TOKEN_EXPIRED")
+        : json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "private, max-age=60" }),
+    );
+    const entitler = new EntitlerClient({ token: async () => `ct_${++issued}`, fetch });
+    await entitler.me.check("a");
+    await entitler.me.check("a");
+    expect(sent).toHaveLength(2);
+  });
+
+  it("sends a refused write again, once, with the new token and the same body", async () => {
+    let issued = 0;
+    const { fetch, sent } = fakeFetch((request) =>
+      request.headers.authorization === "Bearer ct_1"
+        ? apiError(401, "Unauthenticated", "TOKEN_EXPIRED")
+        : json(usageAnswer()),
+    );
+    const entitler = new EntitlerClient({ token: async () => `ct_${++issued}`, fetch });
+    await entitler.me.recordUsage(defineFeature("ai_credits", "metered"), 1, { idempotencyKey: "job-1" });
+    expect(sent.map((request) => request.headers.authorization)).toEqual(["Bearer ct_1", "Bearer ct_2"]);
+    expect(sent[1]?.body).toEqual(sent[0]?.body);
   });
 
   it("refreshes once per call, and passes a second refusal on", async () => {
