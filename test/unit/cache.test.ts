@@ -198,6 +198,25 @@ describe("stale answers", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it("leaves no unhandled rejection from a store that fails after an abort", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    const controller = new AbortController();
+    const failing: CacheStore = {
+      get: () => {
+        controller.abort();
+        return Promise.reject(new Error("store down"));
+      },
+      set: () => undefined,
+    };
+    const { fetch } = fakeFetch(json(checkAnswer(), 200, fresh));
+    const customer = new EntitlerServer({ key: "k", fetch, cache: failing }).customer("u");
+    await expect(customer.check("f", { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    process.off("unhandledRejection", unhandled);
+    expect(unhandled).not.toHaveBeenCalled();
+  });
+
   it("throws other failures", async () => {
     const { fetch } = fakeFetch(
       json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "no-cache" }),
