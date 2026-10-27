@@ -88,6 +88,29 @@ describe("EntitlerClient", () => {
     await expect(entitler.me.check("f")).rejects.toMatchObject({ status: 401 });
     expect(sent).toHaveLength(2);
     expect(token).toHaveBeenCalledTimes(2);
+    await expect(entitler.me.check("f")).rejects.toMatchObject({ status: 401 });
+    expect(sent[2]?.headers.authorization).toBe("Bearer ct_3");
+  });
+
+  it("keeps a refused token out when the call that asked again was cancelled", async () => {
+    let answer: ((token: string) => void) | undefined;
+    let asked = 0;
+    const token = () => (++asked === 2 ? new Promise<string>((resolve) => (answer = resolve)) : `ct_${asked}`);
+    const { fetch, sent } = fakeFetch((request) =>
+      request.headers.authorization === "Bearer ct_1"
+        ? apiError(401, "Unauthenticated", "TOKEN_EXPIRED")
+        : json(checkAnswer()),
+    );
+    const entitler = new EntitlerClient({ token, fetch });
+    const controller = new AbortController();
+    const call = entitler.me.check("f", { signal: controller.signal });
+    await vi.waitFor(() => expect(answer).toBeDefined());
+    controller.abort();
+    await expect(call).rejects.toMatchObject({ name: "AbortError" });
+    answer?.("ct_1");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await entitler.me.check("f");
+    expect(sent.map((request) => request.headers.authorization)).toEqual(["Bearer ct_1", "Bearer ct_3"]);
   });
 
   it("never resends a refused token the provider answers again, nor keeps it", async () => {
