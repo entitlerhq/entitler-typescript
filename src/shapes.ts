@@ -628,21 +628,23 @@ function billed(given: Wire.BilledProduct | Wire.CustomerBilling): Omit<BilledPr
   };
 }
 
-const UNLINKED: CustomerBilling = {
-  linked: false,
-  connectionId: null,
-  status: "unspecified",
-  items: 0,
-  renews: false,
-  sku: null,
-  drift: null,
-  products: [],
-};
+function unlinked(): CustomerBilling {
+  return {
+    linked: false,
+    connectionId: null,
+    status: "unspecified",
+    items: 0,
+    renews: false,
+    sku: null,
+    drift: null,
+    products: [],
+  };
+}
 
 /** Decodes `Billing.GetBilling`'s answer. @internal */
 export const decodeBilling: Decoder = (value) => {
   const billing = object<Wire.GetBillingResponse>(value).billing;
-  if (billing === undefined) return UNLINKED;
+  if (billing === undefined) return unlinked();
   const given = at("billing", () => object<Wire.CustomerBilling>(billing));
   return at("billing", () => ({
     linked: at("linked", () => bool(given.linked)),
