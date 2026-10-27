@@ -10,10 +10,13 @@ import type {
   FeatureType,
   Grant,
   GrantResult,
+  HeldPlan,
   IssuedCustomerToken,
   Limit,
   Markets,
   Meter,
+  MoveStep,
+  PlanChange,
   PricedPlan,
   PriceLine,
   PricingMarket,
@@ -431,6 +434,57 @@ export const decodeTrack: Decoder = (value) => {
     changed: at("changed", () => bool(given.changed)),
     endedTestHoldings: at("endedTestHoldings", () => whole(given.endedTestHoldings)),
   } satisfies TrackAssignment;
+};
+
+function heldPlan(value: unknown): HeldPlan {
+  const given = object<Wire.HeldPlan>(value);
+  return {
+    id: at("planId", () => text(given.planId)),
+    key: at("planKey", () => text(given.planKey)),
+    name: at("planName", () => text(given.planName)),
+    version: at("versionNumber", () => whole(given.versionNumber)),
+    byDefault: at("byDefault", () => bool(given.byDefault)),
+    money: at("money", () => enumName(given.money, "CUSTOMER_MONEY_")),
+    period: at("periodId", () => optionalText(given.periodId)),
+  };
+}
+
+function planChange(value: unknown): PlanChange {
+  const given = object<Wire.PlanChange>(value);
+  return {
+    product: at("productId", () => optionalText(given.productId)),
+    plan: at("plan", () => nullable(given.plan, heldPlan)),
+    quantity: at("quantity", () => (given.quantity === undefined ? null : whole(given.quantity))),
+    effective: at("effective", () => enumName(given.effective, "EFFECTIVE_")),
+    at: at("at", () => seconds(given.at)),
+    until: at("until", () => optionalSeconds(given.until)),
+    changed: at("changed", () => bool(given.changed)),
+    policy: at("policy", () => enumName(given.policy, "SUBSCRIPTION_MOVE_POLICY_")),
+  };
+}
+
+/** Decodes a plan move's answer. @internal */
+export const decodeMove: Decoder = (value) => {
+  const given = object<Wire.SetPlanResponse>(value);
+  if (given.pay !== undefined) {
+    const pay = at("pay", () => object<Wire.PaymentStep>(given.pay));
+    return at("pay", () => ({
+      next: "pay",
+      url: at("url", () => text(pay.url)),
+      status: at("status", () => enumName(pay.status, "PAYMENT_STEP_STATUS_")),
+    })) satisfies MoveStep;
+  }
+  if (given.confirming !== undefined) return { next: "confirming" } satisfies MoveStep;
+  const done = at("done", () => object<Wire.MoveResult>(given.done));
+  return at("done", () => ({
+    next: "done",
+    result: {
+      customerId: at("customerId", () => text(done.customerId)),
+      revision: at("revision", () => whole(done.revision)),
+      money: at("money", () => enumName(done.money, "CUSTOMER_MONEY_")),
+      change: at("change", () => nullable(done.change, planChange)),
+    },
+  })) satisfies MoveStep;
 };
 
 /** Decodes an answer the SDK has no use for. @internal */

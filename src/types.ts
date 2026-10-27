@@ -417,6 +417,68 @@ export interface TrackAssignment {
   readonly endedTestHoldings: number;
 }
 
+/** A plan the customer holds after a move. */
+export interface HeldPlan {
+  /** The plan's id. */
+  readonly id: string;
+  /** The plan's key. */
+  readonly key: string;
+  /** The plan's name. */
+  readonly name: string;
+  /** The plan's version the customer holds. */
+  readonly version: number;
+  /** True when it is the product's default plan, held because the customer holds no other. */
+  readonly byDefault: boolean;
+  /** `real` when the customer pays real money for it, `test` in test mode. */
+  readonly money: Open<"real" | "test">;
+  /** The id of the billing period it renews on, or `null`. */
+  readonly period: string | null;
+}
+
+/** What a move changed in one product. */
+export interface PlanChange {
+  /** The product's id, or `null`. */
+  readonly product: string | null;
+  /** The plan held in it after the move, or `null` when it holds none. */
+  readonly plan: HeldPlan | null;
+  /** The add-on's quantity after the move, or `null` for a plan. */
+  readonly quantity: number | null;
+  /** `now` when the move took effect at once, `renewal` when it is booked for the next renewal. */
+  readonly effective: Open<"now" | "renewal">;
+  /** When it takes effect. */
+  readonly at: Date;
+  /** When the plan ends, such as a store purchase's expiry, or `null`. */
+  readonly until: Date | null;
+  /** False when the customer held that already, so the move changed nothing. */
+  readonly changed: boolean;
+  /** How the move compares with what the customer held. */
+  readonly policy: Open<"upgrade" | "downgrade" | "crossgrade" | "longer" | "shorter">;
+}
+
+/** A move that is done. */
+export interface MoveResult {
+  /** Entitler's id for the customer. */
+  readonly customerId: string;
+  /** The customer's revision after the move, to pass as the next write's `expectedRevision`. */
+  readonly revision: number;
+  /** `real` for a customer who pays real money, `test` for one in test mode. */
+  readonly money: Open<"real" | "test">;
+  /** What the move changed, or `null`. */
+  readonly change: PlanChange | null;
+}
+
+/** Where a payment stands when the customer has to act on it. */
+export type PaymentStatus = Open<"checkout" | "confirmation" | "requires_action" | "declined" | "pending">;
+
+/**
+ * The answer to a move: `done` with its result; `pay`, so send the customer to `url`; or
+ * `confirming` while the payment provider confirms it, so read the customer's plans again later.
+ */
+export type MoveStep =
+  | { readonly next: "done"; readonly result: MoveResult }
+  | { readonly next: "pay"; readonly url: string; readonly status: PaymentStatus }
+  | { readonly next: "confirming" };
+
 /** What a customer token lets an in-app client do. */
 export type CustomerTokenScope = Open<"entitlements:read" | "usage:read" | "usage:write" | "billing:self">;
 

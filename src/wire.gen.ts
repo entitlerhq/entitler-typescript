@@ -10,9 +10,19 @@ export type AppleListingIds = { productId: string; subscriptionGroupId?: string 
 export type AssignmentSource = "ASSIGNMENT_SOURCE_UNSPECIFIED" | "ASSIGNMENT_SOURCE_SERVER" | "ASSIGNMENT_SOURCE_DASHBOARD";
 export type AssignTrackRequest = { target?: ProductTarget; trackId?: string };
 export type AssignTrackResponse = { assignment?: CustomerTrack; changed: boolean; endedTestHoldings: number };
+export type BilledPlan = { billingConnectionId?: string; cohortId?: string; periodId?: string; planId: string; since: number; versionNumber: number };
+export type Cancellation = { chargedBack?: Amount; endsAt: number; exitFee?: Amount };
+export type CancelPendingAddOnChangeRequest = { asOf?: number; expectedRevision?: RevisionInput; reason?: string; target?: ProductTarget };
+export type CancelPendingAddOnChangeResponse = { confirming?: PaymentConfirming; done?: MoveResult; pay?: PaymentStep };
+export type CancelPendingChangeRequest = { asOf?: number; expectedRevision?: RevisionInput; productId?: string; reason?: string; target?: ProductTarget };
+export type CancelPendingChangeResponse = { confirming?: PaymentConfirming; done?: MoveResult; pay?: PaymentStep };
 export type CancelReportRequest = { reason?: string; target?: ProductTarget };
 export type CancelReportResponse = { tracked?: TrackedUsage };
+export type CancelSubscriptionRequest = { asOf?: number; endsAt?: number; expectedRevision?: RevisionInput; productId?: string; reason?: string; target?: ProductTarget };
+export type CancelSubscriptionResponse = { confirming?: PaymentConfirming; done?: MoveResult; pay?: PaymentStep };
 export type CheckFeatureResponse = { asOf: number; customer?: EntitledCustomer; entitlement?: Entitlement; nextChangeAt?: number; served?: ServedCatalogue };
+export type ChooseSubscriptionRequest = { asOf?: number; country?: string; expectedRevision?: RevisionInput; market?: string; offer?: OfferTaken; periodId?: string; plan?: PlanSelector; quantity?: number; reason?: string; register?: boolean; returnUrl?: string; target?: ProductTarget };
+export type ChooseSubscriptionResponse = { confirming?: PaymentConfirming; done?: MoveResult; pay?: PaymentStep };
 export type ConnectionMode = "CONNECTION_MODE_UNSPECIFIED" | "CONNECTION_MODE_LIVE" | "CONNECTION_MODE_TEST";
 export type CreateGrantRequest = { currency?: string; days?: number; expectedRevision?: RevisionInput; featureKey?: string; reason?: string; target?: ProductTarget; value?: GrantValue };
 export type CreateGrantResponse = { grant?: Grant; revision: number };
@@ -33,6 +43,9 @@ export type CustomerPrices = { market?: PricingMarket; subscriptions: Subscripti
 export type CustomerTokenScope = "CUSTOMER_TOKEN_SCOPE_UNSPECIFIED" | "CUSTOMER_TOKEN_SCOPE_ENTITLEMENTS_READ" | "CUSTOMER_TOKEN_SCOPE_USAGE_READ" | "CUSTOMER_TOKEN_SCOPE_USAGE_WRITE" | "CUSTOMER_TOKEN_SCOPE_BILLING_SELF";
 export type CustomerTrack = { customerId: string; externalId: string; money: CustomerMoney; previousTrackId?: string; revision: number; source: AssignmentSource; trackId?: string };
 export type DefaultPlanSource = { planId: string; planKey: string; planName: string; productId?: string; throughFeatureKey?: string; versionNumber: number };
+export type DiscountGivenBy = "DISCOUNT_GIVEN_BY_UNSPECIFIED" | "DISCOUNT_GIVEN_BY_BUSINESS" | "DISCOUNT_GIVEN_BY_CUSTOMER" | "DISCOUNT_GIVEN_BY_CODE";
+export type Effective = "EFFECTIVE_UNSPECIFIED" | "EFFECTIVE_NOW" | "EFFECTIVE_RENEWAL";
+export type EndProduct = { productId?: string };
 export type EntitledCustomer = { customerId?: string; externalId: string };
 export type EntitledFeatureKind = "ENTITLED_FEATURE_KIND_UNSPECIFIED" | "ENTITLED_FEATURE_KIND_SWITCH" | "ENTITLED_FEATURE_KIND_METERED" | "ENTITLED_FEATURE_KIND_CONFIGURATION" | "ENTITLED_FEATURE_KIND_GROUP";
 export type Entitlement = { currency: string; decimals: number; entitled: boolean; featureKey: string; kind: EntitledFeatureKind; meter?: Meter; sources: EntitlementSource[]; upgrades: Upgrade[]; value?: FeatureValue };
@@ -53,6 +66,12 @@ export type GrantValue = { limit?: Limit; on?: SwitchOn };
 export type GroupMember = { configuration?: Limit; featureKey: string; group?: GroupValue; metered?: Limit; switch?: boolean };
 export type GroupSource = { featureKeys: string[] };
 export type GroupValue = { members: GroupMember[] };
+export type HeldAddOn = { addedAt: number; billingConnectionId?: string; cohortId?: string; cohortNumber?: number; lockedUntil?: number; money: CustomerMoney; movingToPlanId?: string; planId: string; planKey: string; planName: string; purchaseSource?: string; quantity: number; required: boolean; versionNumber: number };
+export type HeldDiscount = { amount?: Amount; applied: boolean; fees: OfferFee[]; givenAt: number; givenBy: DiscountGivenBy; minimumStayMonths?: number; offerId: string; offerKey: string; offerName: string; percentThousandths?: number; periodIds: string[]; periodsLeft?: number; planIds: string[]; startsAt?: number; until?: number };
+export type HeldPlan = { billingConnectionId?: string; byDefault: boolean; cohortId?: string; cohortNumber?: number; lockedUntil?: number; money: CustomerMoney; periodId?: string; planId: string; planKey: string; planName: string; purchaseSource?: string; versionNumber: number };
+export type HeldTerm = { endsAt: number; then: TermThen };
+export type Holdings = { grants: Grant[]; lanes: LaneHolding[] };
+export type LaneHolding = { addOns: HeldAddOn[]; billed?: BilledPlan; cancellation?: Cancellation; cancelsAt?: number; collection: SubscriptionCollection; contractStartedAt?: number; discounts: HeldDiscount[]; paidUntil?: number; paymentAmount?: Amount; paymentDays?: number; paymentDueAt?: number; pending?: PendingChange; periodsAhead: number; plan?: HeldPlan; productId?: string; renewsAt?: number; scheduledChanges: ScheduledChange[]; startedAt?: number; term?: HeldTerm; trialEndsAt?: number; until?: number };
 export type Limit = { count?: number; unlimited?: Unlimited };
 export type ListEntitlementsResponse = { asOf: number; customer?: EntitledCustomer; entitlements: Entitlement[]; nextChangeAt?: number; served?: ServedCatalogue };
 export type ListingIds = { apple?: AppleListingIds; google?: GoogleListingIds; stripe?: StripeListingIds };
@@ -63,16 +82,29 @@ export type MarketLimit = { limit?: Limit; marketId: string };
 export type MarketLimits = { limits: MarketLimit[] };
 export type MarketTax = "MARKET_TAX_UNSPECIFIED" | "MARKET_TAX_INCLUDED" | "MARKET_TAX_ADDED";
 export type Meter = { banked: number; held: number; remaining?: Limit; resetsAt?: number; used: number };
+export type MoveResult = { change?: PlanChange; customerId: string; holdings?: Holdings; money: CustomerMoney; revision: number };
 export type NextCharge = { amount?: Amount; at: number; direction: FeeDirection; feeKey: string };
 export type NothingServed = Record<string, never>;
+export type OfferChoice = { offerKey?: string; value?: OfferValue };
+export type OfferFee = { feeKey: string; planId: string };
+export type OfferTaken = { code?: string; offerKey?: string };
+export type OfferValue = { amount?: number; percentThousandths?: number };
 export type OnPurchase = Record<string, never>;
+export type PaymentConfirming = Record<string, never>;
 export type PaymentProvider = "PAYMENT_PROVIDER_UNSPECIFIED" | "PAYMENT_PROVIDER_STRIPE" | "PAYMENT_PROVIDER_APPLE" | "PAYMENT_PROVIDER_GOOGLE";
+export type PaymentStep = { status: PaymentStepStatus; url: string };
+export type PaymentStepStatus = "PAYMENT_STEP_STATUS_UNSPECIFIED" | "PAYMENT_STEP_STATUS_CHECKOUT" | "PAYMENT_STEP_STATUS_CONFIRMATION" | "PAYMENT_STEP_STATUS_REQUIRES_ACTION" | "PAYMENT_STEP_STATUS_DECLINED" | "PAYMENT_STEP_STATUS_PENDING";
+export type PendingCancel = Record<string, never>;
+export type PendingChange = { at: number; cancel?: PendingCancel; move?: PendingPlanMove };
+export type PendingPlanMove = { periodId?: string; planId: string; until?: number };
 export type PeriodPrice = { bands: PricedBand[]; periodId?: string; price?: Amount };
 export type PeriodUnit = "PERIOD_UNIT_UNSPECIFIED" | "PERIOD_UNIT_DAYS" | "PERIOD_UNIT_WEEKS" | "PERIOD_UNIT_MONTHS";
+export type PlanChange = { at: number; changed: boolean; effective: Effective; plan?: HeldPlan; policy: SubscriptionMovePolicy; productId?: string; quantity?: number; until?: number };
 export type PlanItem = { bank?: Limit; benefitThousandths?: number; featureKey: string; value?: FeatureValue };
 export type PlanKind = "PLAN_KIND_UNSPECIFIED" | "PLAN_KIND_PLAN" | "PLAN_KIND_ADD_ON";
 export type PlanListing = { channels: PricedChannel[]; periodId?: string };
 export type PlanPriceState = "PLAN_PRICE_STATE_UNSPECIFIED" | "PLAN_PRICE_STATE_FREE" | "PLAN_PRICE_STATE_PRICED" | "PLAN_PRICE_STATE_NOT_PRICED";
+export type PlanSelector = { planId?: string; planKey?: string };
 export type PlanSource = { planId: string; planKey: string; planName: string; productId?: string; throughFeatureKey?: string; value?: FeatureValue; versionNumber: number };
 export type PlanStatus = "PLAN_STATUS_UNSPECIFIED" | "PLAN_STATUS_ACTIVE" | "PLAN_STATUS_LEGACY" | "PLAN_STATUS_ARCHIVED";
 export type PricedBand = { amount?: Amount; perUnit: boolean; upTo?: number };
@@ -88,20 +120,31 @@ export type QuantityRule = { max?: number; min: number };
 export type RegisterCustomerRequest = { attributes?: CustomerAttributeChange[]; email?: string; name?: string; target?: ProductTarget; visitorId?: string };
 export type RegisterCustomerResponse = { created: boolean; customer?: Customer };
 export type ReleaseHoldResponse = { tracked?: TrackedUsage };
+export type RemoveAddOnRequest = { asOf?: number; expectedRevision?: RevisionInput; reason?: string; target?: ProductTarget };
+export type RemoveAddOnResponse = { confirming?: PaymentConfirming; done?: MoveResult; pay?: PaymentStep };
 export type ReportUsageRequest = { amount?: number; currency?: string; featureKey?: string; idempotencyKey?: string; mode?: UsageMode; occurredAtMs?: number; register?: boolean; target?: ProductTarget };
 export type ReportUsageResponse = { tracked?: TrackedUsage };
 export type RevisionInput = { value?: number };
 export type RevokeGrantRequest = { expectedRevision?: RevisionInput; reason?: string; target?: ProductTarget };
 export type RevokeGrantResponse = { changed: boolean; grant?: Grant; revision: number };
+export type ScheduledChange = { acceptanceRequired: boolean; accepted: boolean; amount?: Amount; effectiveAt: number; planId: string; rolloutId: string; versionNumber: number };
 export type ServedCatalogue = { changeId?: string; nothing?: NothingServed; release?: ServedRelease; track?: ServedTrack };
 export type ServedRelease = { id: string; number: number };
 export type ServedTrack = { id: string; name: string };
+export type SetAddOnRequest = { asOf?: number; expectedRevision?: RevisionInput; quantity?: number; reason?: string; register?: boolean; replaces?: PlanSelector; target?: ProductTarget };
+export type SetAddOnResponse = { confirming?: PaymentConfirming; done?: MoveResult; pay?: PaymentStep };
+export type SetPlanRequest = { asOf?: number; country?: string; end?: EndProduct; endBilling?: boolean; expectedRevision?: RevisionInput; keepBilling?: boolean; latestVersion?: boolean; market?: string; offers?: OfferChoice[]; periodId?: string; reason?: string; register?: boolean; set?: PlanSelector; target?: ProductTarget; until?: number; waiveExitCharges?: boolean; when?: SubscriptionMoveWhen };
+export type SetPlanResponse = { confirming?: PaymentConfirming; done?: MoveResult; pay?: PaymentStep };
 export type SettleHoldRequest = { amount?: number; target?: ProductTarget };
 export type SettleHoldResponse = { tracked?: TrackedUsage };
 export type SnapshotKeySet = { keys: { alg: "ES256"; crv: "P-256"; kid: string; kty: "EC"; use: "sig"; x: string; y: string }[] };
 export type StripeListingIds = { priceId: string };
+export type SubscriptionCollection = "SUBSCRIPTION_COLLECTION_UNSPECIFIED" | "SUBSCRIPTION_COLLECTION_PROVIDER" | "SUBSCRIPTION_COLLECTION_BUSINESS" | "SUBSCRIPTION_COLLECTION_NOT_CHARGED";
+export type SubscriptionMovePolicy = "SUBSCRIPTION_MOVE_POLICY_UNSPECIFIED" | "SUBSCRIPTION_MOVE_POLICY_UPGRADE" | "SUBSCRIPTION_MOVE_POLICY_DOWNGRADE" | "SUBSCRIPTION_MOVE_POLICY_CROSSGRADE" | "SUBSCRIPTION_MOVE_POLICY_LONGER" | "SUBSCRIPTION_MOVE_POLICY_SHORTER";
+export type SubscriptionMoveWhen = "SUBSCRIPTION_MOVE_WHEN_UNSPECIFIED" | "SUBSCRIPTION_MOVE_WHEN_NOW" | "SUBSCRIPTION_MOVE_WHEN_PERIOD_END";
 export type SubscriptionPrice = { atRenewal?: CustomerPriceLines; nextCharges: NextCharge[]; now: CustomerPriceLine[]; productId?: string; renewsAt: number; subscriptionId: string };
 export type SwitchOn = Record<string, never>;
+export type TermThen = "TERM_THEN_UNSPECIFIED" | "TERM_THEN_RENEW" | "TERM_THEN_ROLLING" | "TERM_THEN_END";
 export type TrackedUsage = { asOf: number; customer?: EntitledCustomer; entitlement?: Entitlement; served?: ServedCatalogue; usage?: UsageResult };
 export type TrialLength = { days?: number; months?: number };
 export type Unlimited = Record<string, never>;
@@ -133,6 +176,13 @@ export const ROUTES = {
   "Pricing.GetPricing": { method: "GET", path: "/v1/pricing", query: ["target.team_id","target.project_id","target.environment_id","market","country"] },
   "SnapshotKeys": { method: "GET", path: "/v1/snapshot-keys", query: [] },
   "Snapshots.CreateSnapshot": { method: "POST", path: "/v1/customers/{external_id}/snapshots", query: [] },
+  "Subscriptions.CancelPendingAddOnChange": { method: "POST", path: "/v1/customers/{external_id}/add-ons/{plan_key}:cancelPendingChange", query: [] },
+  "Subscriptions.CancelPendingChange": { method: "POST", path: "/v1/customers/{external_id}/subscription:cancelPendingChange", query: [] },
+  "Subscriptions.CancelSubscription": { method: "POST", path: "/v1/customers/{external_id}/subscription:cancel", query: [] },
+  "Subscriptions.ChooseSubscription": { method: "POST", path: "/v1/customers/{external_id}/subscription", query: [] },
+  "Subscriptions.RemoveAddOn": { method: "POST", path: "/v1/customers/{external_id}/add-ons/{plan_key}:remove", query: [] },
+  "Subscriptions.SetAddOn": { method: "PUT", path: "/v1/customers/{external_id}/add-ons/{plan_key}", query: [] },
+  "Subscriptions.SetPlan": { method: "PUT", path: "/v1/customers/{external_id}/plan", query: [] },
   "Usage.AdjustMeter": { method: "POST", path: "/v1/customers/{external_id}/meters/{feature_key}:adjust", query: [] },
   "Usage.CancelReport": { method: "POST", path: "/v1/customers/{external_id}/usage/{usage_id}:cancel", query: [] },
   "Usage.CreateHold": { method: "POST", path: "/v1/customers/{external_id}/usage/holds", query: [] },

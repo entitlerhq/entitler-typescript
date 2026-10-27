@@ -9,6 +9,7 @@ import {
   decodeCustomerPricing,
   decodeEntitlements,
   decodeGrant,
+  decodeMove,
   decodeNothing,
   decodeRegistered,
   decodeRevokedGrant,
@@ -29,6 +30,8 @@ import type {
   GrantResult,
   IssuedCustomerToken,
   Limit,
+  MoveStep,
+  Open,
   RegisteredCustomer,
   RevokedGrant,
   Snapshot,
@@ -186,6 +189,21 @@ export interface Customer {
    */
   pricing(options?: CustomerPricingOptions): Promise<CustomerPricing>;
   /**
+   * Moves the customer to a plan, or adds an add-on, as their own choice under self-serve rules,
+   * and answers the next step. In an app it needs the `billing:self` scope. Never retried.
+   *
+   * @example
+   * ```ts
+   * const step = await customer.subscribe("pro", { period: "pe_monthly", returnUrl });
+   * if (step.next === "pay") location.assign(step.url);
+   * ```
+   */
+  subscribe(plan: string, options?: SubscribeOptions): Promise<MoveStep>;
+  /** Cancels the customer's subscription as their own choice; the project's policy decides when. */
+  cancel(options?: CancelOptions): Promise<MoveStep>;
+  /** Undoes the change booked for the customer's next renewal. */
+  undoPendingChange(options?: ProductMoveOptions): Promise<MoveStep>;
+  /**
    * Records usage of a metered feature. A refusal in `gate` mode is an answer (`outcome:
    * "refused"`), not an error.
    *
@@ -317,6 +335,94 @@ export interface CancelUsageOptions extends CallOptions {
   reason?: string;
 }
 
+/** Where to price a move: a market by its key, or the market of a country. */
+interface PlaceOptions {
+  /** The key of the market to price the plan in. */
+  market?: string;
+  /** The ISO 3166-1 country code whose market prices the plan, when `market` is left out. */
+  country?: string;
+}
+
+/** Options for {@link Customer.subscribe}. */
+export interface SubscribeOptions extends CallOptions, PlaceOptions {
+  /** The id of the billing period to buy, such as monthly or yearly. Defaults to the plan's first. */
+  period?: string;
+  /** How many seats or units to buy. */
+  quantity?: number;
+  /** An offer the customer takes, by its key or by a code they typed. */
+  offer?: { key: string } | { code: string };
+  /** Where the payment provider sends the customer back to after paying. */
+  returnUrl?: string;
+  /** Registers a customer not registered yet, if the credential may register customers. */
+  register?: boolean;
+}
+
+/** Options for a move in one product. */
+export interface ProductMoveOptions extends RevisionOptions {
+  /** The product's id. Leave it out when the project has one product. */
+  product?: string;
+}
+
+/** Options for {@link Customer.cancel}. */
+export interface CancelOptions extends ProductMoveOptions {
+  /** When the subscription ends. Leave it out for the project's cancellation policy to decide. */
+  endsAt?: Date;
+}
+
+/** An offer the company gives with a plan, at its own value or at the value passed. */
+export interface OfferChoice {
+  /** The offer's key. */
+  key: string;
+  /** A fixed amount off, in the currency's smallest unit, instead of the offer's own. */
+  amount?: number;
+  /** A percentage off in thousandths of a percent, such as 12_500 for 12.5 %, instead of the offer's own. */
+  percentThousandths?: number;
+}
+
+/** Options for {@link ServerCustomer.setPlan} when moving to a plan. */
+export interface SetPlanOptions extends RevisionOptions, PlaceOptions {
+  /** The id of the billing period to move to. Defaults to the one the customer holds, else the plan's first. */
+  period?: string;
+  /** `now`, or `period_end` to book the move for renewal. The project's policy decides when left out. */
+  when?: Open<"now" | "period_end">;
+  /** When the plan ends, such as a store purchase's expiry. */
+  until?: Date;
+  /** Offers given with the plan. */
+  offers?: readonly OfferChoice[];
+  /** Moves the customer to the plan's latest version even when they hold an earlier one. */
+  latestVersion?: boolean;
+  /** Keeps the payment provider billing as it does, so the move changes only entitlements. */
+  keepBilling?: boolean;
+  /** Ends the payment provider's billing for the plan the customer leaves. */
+  endBilling?: boolean;
+  /** Waives the exit fees and charge-backs leaving early would cost. */
+  waiveExitCharges?: boolean;
+  /** Registers a customer not registered yet. */
+  register?: boolean;
+}
+
+/** Options for {@link ServerCustomer.setPlan} when ending the plan in a product. */
+export interface EndPlanOptions extends RevisionOptions {
+  /** The id of the product whose plan ends. */
+  product: string;
+  /** `now`, or `period_end` to end it at renewal. The project's policy decides when left out. */
+  when?: Open<"now" | "period_end">;
+  /** Ends the payment provider's billing for the plan. */
+  endBilling?: boolean;
+  /** Waives the exit fees and charge-backs leaving early would cost. */
+  waiveExitCharges?: boolean;
+}
+
+/** Options for {@link ServerCustomer.setAddOn}. */
+export interface SetAddOnOptions extends RevisionOptions {
+  /** How many to hold. Defaults to 1. */
+  quantity?: number;
+  /** The key of an add-on this one replaces. */
+  replaces?: string;
+  /** Registers a customer not registered yet. */
+  register?: boolean;
+}
+
 /** A customer from the server client: everything an app's customer does, plus their record and tokens. */
 export interface ServerCustomer extends Customer {
   /**
@@ -364,6 +470,23 @@ export interface ServerCustomer extends Customer {
   adjustMeter(feature: Feature<"metered"> | string, options: AdjustMeterOptions): Promise<UsageResult>;
   /** Cancels a usage report, giving back what it used. Cancelling twice is safe. */
   cancelUsage(usageId: string, options?: CancelUsageOptions): Promise<UsageResult>;
+  /**
+   * Moves the customer to any plan, sales-led ones included, by its key.
+   *
+   * @example
+   * ```ts
+   * await customer.setPlan("enterprise", { period: "pe_yearly", when: "now", reason: "Signed order 118" });
+   * ```
+   */
+  setPlan(plan: string, options?: SetPlanOptions): Promise<MoveStep>;
+  /** Ends the customer's plan in `product`: they move to its default plan, or hold none. */
+  setPlan(plan: null, options: EndPlanOptions): Promise<MoveStep>;
+  /** Adds an add-on by its key, or sets how many the customer holds, taking effect now. */
+  setAddOn(addOn: string, options?: SetAddOnOptions): Promise<MoveStep>;
+  /** Removes an add-on. */
+  removeAddOn(addOn: string, options?: RevisionOptions): Promise<MoveStep>;
+  /** Undoes the change booked for an add-on at renewal. */
+  undoAddOnChange(addOn: string, options?: RevisionOptions): Promise<MoveStep>;
 }
 
 function details(options: CustomerDetailsInput | undefined): Record<string, unknown> {
@@ -404,6 +527,41 @@ function adjustment(options: AdjustMeterOptions): Record<string, number> {
     throw new TypeError("Pass exactly one of setTo and changeBy.");
   if (setTo !== undefined) return { setTo: wholeNumber(setTo, "setTo", 0) };
   return { changeBy: wholeNumber(changeBy, "changeBy", Number.MIN_SAFE_INTEGER) };
+}
+
+function epochSeconds(value: unknown, name: string): number {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new TypeError(`Pass ${name} as a valid date.`);
+  return Math.floor(value.getTime() / 1000);
+}
+
+function place(options: PlaceOptions | undefined): Record<string, string> {
+  if (options?.market !== undefined && options.country !== undefined) {
+    throw new TypeError("Pass market or country, not both.");
+  }
+  return {
+    ...(options?.market === undefined ? {} : { market: options.market }),
+    ...(options?.country === undefined ? {} : { country: options.country }),
+  };
+}
+
+function when(value: string | undefined): Record<string, string> {
+  return value === undefined ? {} : { when: `SUBSCRIPTION_MOVE_WHEN_${value.toUpperCase()}` };
+}
+
+function flags(options: object | undefined, names: readonly string[]): Record<string, true> {
+  const given = (options ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(names.filter((name) => given[name] === true).map((name) => [name, true]));
+}
+
+function offerChoice(offer: OfferChoice): Record<string, unknown> {
+  const value = {
+    ...(offer.amount === undefined ? {} : { amount: wholeNumber(offer.amount, "amount", 0) }),
+    ...(offer.percentThousandths === undefined
+      ? {}
+      : { percentThousandths: wholeNumber(offer.percentThousandths, "percentThousandths", 0, 100_000) }),
+  };
+  const key = requireId(offer?.key, "Name each offer by its key.");
+  return Object.keys(value).length === 0 ? { offerKey: key } : { offerKey: key, value };
 }
 
 const SNAPSHOT_SECONDS = 30 * 24 * 60 * 60;
@@ -797,6 +955,91 @@ export class CustomerApi implements ServerCustomer {
     };
     const retryable = idempotencyKey !== undefined;
     return (await this.#usage("Usage.AdjustMeter", meter, body, options, idempotencyKey, retryable)).data;
+  }
+
+  #move(
+    operation: Operation,
+    body: Record<string, unknown>,
+    options: RevisionOptions | undefined,
+    variables: Record<string, string> = {},
+  ): Promise<MoveStep> {
+    const retryable = operation !== "Subscriptions.ChooseSubscription" && options?.expectedRevision === undefined;
+    return this.#send(operation, { ...body, ...revision(options) }, decodeMove, options, retryable, variables);
+  }
+
+  async subscribe(plan: string, options?: SubscribeOptions): Promise<MoveStep> {
+    const offer = options?.offer;
+    const body = {
+      plan: { planKey: requireId(plan, "Name the plan by its key.") },
+      ...(options?.period === undefined ? {} : { periodId: options.period }),
+      ...(options?.quantity === undefined ? {} : { quantity: wholeNumber(options.quantity, "quantity", 1) }),
+      ...(offer === undefined ? {} : { offer: "code" in offer ? { code: offer.code } : { offerKey: offer.key } }),
+      ...(options?.returnUrl === undefined ? {} : { returnUrl: options.returnUrl }),
+      ...flags(options, ["register"]),
+      ...place(options),
+    };
+    return this.#move("Subscriptions.ChooseSubscription", body, options);
+  }
+
+  async cancel(options?: CancelOptions): Promise<MoveStep> {
+    const body = {
+      ...(options?.product === undefined ? {} : { productId: options.product }),
+      ...(options?.endsAt === undefined ? {} : { endsAt: epochSeconds(options.endsAt, "endsAt") }),
+    };
+    return this.#move("Subscriptions.CancelSubscription", body, options);
+  }
+
+  async undoPendingChange(options?: ProductMoveOptions): Promise<MoveStep> {
+    const body = options?.product === undefined ? {} : { productId: options.product };
+    return this.#move("Subscriptions.CancelPendingChange", body, options);
+  }
+
+  setPlan(plan: string, options?: SetPlanOptions): Promise<MoveStep>;
+  setPlan(plan: null, options: EndPlanOptions): Promise<MoveStep>;
+  async setPlan(plan: string | null, options?: SetPlanOptions | EndPlanOptions): Promise<MoveStep> {
+    if (plan === null) {
+      const end = options as EndPlanOptions | undefined;
+      const body = {
+        end: { productId: requireId(end?.product, "Pass product: the id of the product whose plan ends.") },
+        ...when(end?.when),
+        ...flags(end, ["endBilling", "waiveExitCharges"]),
+      };
+      return this.#move("Subscriptions.SetPlan", body, end);
+    }
+    const move = options as SetPlanOptions | undefined;
+    const body = {
+      set: { planKey: requireId(plan, "Name the plan by its key, or pass null to end it.") },
+      ...(move?.period === undefined ? {} : { periodId: move.period }),
+      ...when(move?.when),
+      ...(move?.until === undefined ? {} : { until: epochSeconds(move.until, "until") }),
+      ...(move?.offers === undefined ? {} : { offers: move.offers.map(offerChoice) }),
+      ...flags(move, ["latestVersion", "keepBilling", "endBilling", "waiveExitCharges", "register"]),
+      ...place(move),
+    };
+    return this.#move("Subscriptions.SetPlan", body, move);
+  }
+
+  async setAddOn(addOn: string, options?: SetAddOnOptions): Promise<MoveStep> {
+    const body = {
+      ...(options?.quantity === undefined ? {} : { quantity: wholeNumber(options.quantity, "quantity", 1) }),
+      ...(options?.replaces === undefined
+        ? {}
+        : { replaces: { planKey: requireId(options.replaces, "Name the replaced add-on by its key.") } }),
+      ...flags(options, ["register"]),
+    };
+    return this.#move("Subscriptions.SetAddOn", body, options, this.#addOn(addOn));
+  }
+
+  async removeAddOn(addOn: string, options?: RevisionOptions): Promise<MoveStep> {
+    return this.#move("Subscriptions.RemoveAddOn", {}, options, this.#addOn(addOn));
+  }
+
+  async undoAddOnChange(addOn: string, options?: RevisionOptions): Promise<MoveStep> {
+    return this.#move("Subscriptions.CancelPendingAddOnChange", {}, options, this.#addOn(addOn));
+  }
+
+  #addOn(addOn: string): Record<string, string> {
+    return { plan_key: requireId(addOn, "Name the add-on by its key.") };
   }
 
   async cancelUsage(usageId: string, options?: CancelUsageOptions): Promise<UsageResult> {

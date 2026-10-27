@@ -19,6 +19,9 @@ All notable changes to this package are listed here. The format follows
 - The server's writes for one customer: `grant()` and `revokeGrant()` give and end feature values
   outside their plans, `setTrack()` moves them to a track, `adjustMeter()` sets or moves a meter,
   and `cancelUsage()` cancels a usage report.
+- Plan moves, answered as a `MoveStep` (`done`, `pay` or `confirming`): `subscribe()`, `cancel()` and
+  `undoPendingChange()` for the customer's own choices, and on the server `setPlan()`, `setAddOn()`,
+  `removeAddOn()` and `undoAddOnChange()`.
 - `EntitlerClient`, the in-app client for one signed-in customer, built from a customer token (or a
   provider for one) or from a publishable key and an identity token. It asks the provider again
   when Entitler refuses the token, and answers through `me`. `TokenError` reports a failing provider.
