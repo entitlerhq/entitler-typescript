@@ -358,6 +358,7 @@ export class CustomerApi implements ServerCustomer {
   ): Promise<T & { stale: boolean }> {
     const answer = await this.#transport.send<T>({
       ...route(operation, { external_id: this.id, ...variables }, asOf(options)),
+      customer: this.id,
       cached: true,
       revalidate: options?.revalidate,
       decode,
@@ -410,6 +411,7 @@ export class CustomerApi implements ServerCustomer {
   ): Promise<Answer<UsageResult>> {
     return this.#transport.send<UsageResult>({
       ...route(operation, { external_id: this.id, ...variables }),
+      customer: this.id,
       body,
       ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
       retryable: true,
@@ -611,6 +613,7 @@ export class CustomerApi implements ServerCustomer {
   ): Promise<T> {
     const answer = await this.#transport.send<T>({
       ...route(operation, { external_id: this.id }),
+      customer: this.id,
       body,
       ...(retryable === undefined ? {} : { retryable }),
       decode,
@@ -644,6 +647,7 @@ export class CustomerApi implements ServerCustomer {
       {},
       options,
       decodeCustomerPricing,
+      this.id,
     );
   }
 

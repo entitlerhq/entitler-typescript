@@ -20,6 +20,9 @@ function spyStore(): CacheStore & { entries: Map<string, CacheEntry> } {
   };
 }
 
+const answers = (store: { entries: Map<string, CacheEntry> }) =>
+  [...store.entries.values()].filter((entry) => entry.etag !== undefined || entry.cacheControl !== undefined);
+
 describe("the answer cache", () => {
   it("answers a fresh entry without a request", async () => {
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
@@ -45,7 +48,7 @@ describe("the answer cache", () => {
     expect(sent).toHaveLength(2);
     expect(sent[1]?.headers["if-none-match"]).toBe('"v1"');
     expect(check.entitled).toBe(true);
-    const [entry] = store.entries.values();
+    const [entry] = answers(store);
     expect(entry).toMatchObject({ v: 1, etag: '"v2"', cacheControl: "max-age=60" });
     expect(Math.floor(entry?.receivedAt ?? 0)).toBe(61_000);
     await customer.check("f");
@@ -83,7 +86,7 @@ describe("the answer cache", () => {
     const customer = new EntitlerServer({ key: "k", fetch, cache: store }).customer("u");
     await customer.check("f");
     await customer.check("f");
-    expect(store.entries.size).toBe(0);
+    expect(answers(store)).toHaveLength(0);
     expect(sent).toHaveLength(2);
   });
 
@@ -91,7 +94,7 @@ describe("the answer cache", () => {
     const store = spyStore();
     const { fetch } = fakeFetch(json(checkAnswer()));
     await new EntitlerServer({ key: "k", fetch, cache: store }).customer("u").check("f");
-    expect(store.entries.size).toBe(0);
+    expect(answers(store)).toHaveLength(0);
   });
 
   it("is off with cache: false", async () => {
@@ -176,7 +179,7 @@ describe("stale answers", () => {
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
     const customer = new EntitlerServer({ key: "k", fetch, cache: store, onError }).customer("u");
     await customer.check("f");
-    for (const [key, entry] of store.entries) store.entries.set(key, { ...entry, body: "{" });
+    for (const [key, entry] of store.entries) if (entry.etag) store.entries.set(key, { ...entry, body: "{" });
     expect((await customer.check("f")).entitled).toBe(true);
     expect(sent).toHaveLength(2);
     expect(sent[1]?.headers["if-none-match"]).toBeUndefined();
@@ -222,8 +225,8 @@ describe("stale answers", () => {
     const controller = new AbortController();
     const store: CacheStore = {
       get: () => undefined,
-      set: () => {
-        throw new Error("store down");
+      set: (_, entry) => {
+        if (entry.etag) throw new Error("store down");
       },
     };
     const { fetch } = fakeFetch(() => {
@@ -283,5 +286,39 @@ describe("MemoryCache", () => {
 
   it("refuses a size below 1", () => {
     expect(() => new MemoryCache({ maxEntries: 0 })).toThrow(RangeError);
+  });
+});
+
+describe("invalidation", () => {
+  it("drops a customer's kept answers after a write for them, in every process sharing the store", async () => {
+    const store = spyStore();
+    const { fetch, sent } = fakeFetch((request) =>
+      request.method === "GET" ? json(checkAnswer(), 200, fresh) : json({ erased: 1 }),
+    );
+    const one = new EntitlerServer({ key: "k", fetch, cache: store });
+    const two = new EntitlerServer({ key: "k", fetch, cache: store });
+    await one.customer("u").check("f");
+    await two.customer("u").check("f");
+    await one.customer("v").check("f");
+    expect(sent).toHaveLength(2);
+    await one.customer("u").erase();
+    await two.customer("u").check("f");
+    await one.customer("v").check("f");
+    expect(sent.map((request) => request.method + request.path)).toEqual([
+      "GET/v1/customers/u/entitlements/f",
+      "GET/v1/customers/v/entitlements/f",
+      "POST/v1/customers/u:erase",
+      "GET/v1/customers/u/entitlements/f",
+    ]);
+  });
+
+  it("misses rather than answers an old entry once the customer's generation is gone", async () => {
+    const store = spyStore();
+    const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
+    const customer = new EntitlerServer({ key: "k", fetch, cache: store }).customer("u");
+    await customer.check("f");
+    for (const [key, entry] of store.entries) if (!entry.etag) store.entries.delete(key);
+    await customer.check("f");
+    expect(sent).toHaveLength(2);
   });
 });
