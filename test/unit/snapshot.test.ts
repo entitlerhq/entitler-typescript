@@ -174,6 +174,11 @@ describe("verifySnapshot", () => {
       "The snapshot's header is not an Entitler snapshot's.",
     ],
     [
+      "a signature that is not base64url",
+      async () => `${(await sign()).split(".").slice(0, 2).join(".")}.A`,
+      "The snapshot is not a compact JWS.",
+    ],
+    [
       "an unknown key",
       async () => sign(claims, { ...header, kid: "2" }),
       "None of the keys passed signed this snapshot.",
