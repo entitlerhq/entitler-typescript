@@ -147,6 +147,24 @@ describe("holds", () => {
     await expect(expired.customer.startHold(aiCredits, 500, key)).rejects.toBeInstanceOf(UsageReplayedError);
   });
 
+  it("runs withHold's work on another caller's hold, and leaves that hold to its owner", async () => {
+    const { customer, sent } = holdFlow(undefined, { outcome: "duplicate", expiresAtMs: 1_791_507_900_000 });
+    const seen = await customer.withHold(aiCredits, 500, ({ hold }) => hold.duplicate, key);
+    expect(seen).toBe(true);
+    const failure = new Error("failed");
+    await expect(
+      customer.withHold(
+        aiCredits,
+        500,
+        () => {
+          throw failure;
+        },
+        key,
+      ),
+    ).rejects.toBe(failure);
+    expect(paths(sent)).toEqual([`POST${HOLDS}`, `POST${HOLDS}`]);
+  });
+
   it("acts only on the first of finish, release and disposal", async () => {
     const { customer, sent } = holdFlow();
     const hold = await customer.startHold(aiCredits, 500, key);
