@@ -4,7 +4,7 @@ import { type Operation, route } from "./routes.js";
 import { type Decoder, decodeCheck, decodeEntitlements, decodeUsage } from "./shapes.js";
 import { type Answer, type CallOptions, isClosed, type ReadOptions, type Transport } from "./transport.js";
 import type { Check, Feature, FeatureType, UsageMode, UsageResult } from "./types.js";
-import { featureKey, requiredKey, requireId, wholeNumber } from "./util.js";
+import { featureKey, requiredKey, requireId, untilAborted, wholeNumber } from "./util.js";
 
 /** Options for a customer's reads. */
 export interface CheckOptions extends ReadOptions {
@@ -188,16 +188,6 @@ const AMOUNT_USED = "Pass the amount used as a whole number of 0 or more.";
 const EXCESS = ":excess";
 const DISPOSE = Symbol("dispose");
 
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(signal.reason);
-  return new Promise((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
-  });
-}
-
 function asOf(options: CheckOptions | undefined): Record<string, string | undefined> {
   const given = options?.asOf;
   if (given === undefined) return {};
@@ -359,12 +349,15 @@ export class CustomerApi implements Customer {
       const observe = (amount: number) =>
         this.recordUsage(feature, amount, { ...call(), mode: "observe", idempotencyKey: key + EXCESS });
       let unrecorded = excess;
+      let closed = false;
       try {
         let result: UsageResult;
         try {
           result = await this.settleUsage(holdId, settled, call());
+          closed = true;
         } catch (error) {
           if (!(error instanceof ApiError && error.reason === "HOLD_EXPIRED")) throw error;
+          closed = true;
           if (total === 0) return await release();
           unrecorded = total;
           return await observe(total);
@@ -372,7 +365,14 @@ export class CustomerApi implements Customer {
         if (excess !== undefined) await observe(excess);
         return result;
       } catch (cause) {
-        throw new UsageSettlementError({ holdId, amount: settled, excess: unrecorded, result: undefined, cause });
+        throw new UsageSettlementError({
+          holdId,
+          settled: closed,
+          amount: settled,
+          excess: unrecorded,
+          result: undefined,
+          cause,
+        });
       }
     };
     const release = () => this.releaseUsage(holdId, call());
@@ -415,6 +415,7 @@ export class CustomerApi implements Customer {
     const signal = options.signal;
     let result: R;
     try {
+      signal?.throwIfAborted();
       result = await untilAborted(
         Promise.resolve(work({ hold, signal: signal ?? new AbortController().signal })),
         signal,
@@ -429,6 +430,7 @@ export class CustomerApi implements Customer {
       if (!(error instanceof UsageSettlementError)) throw error;
       throw new UsageSettlementError({
         holdId: error.holdId,
+        settled: error.settled,
         amount: error.amount,
         excess: error.excess,
         result,

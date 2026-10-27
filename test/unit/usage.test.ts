@@ -190,8 +190,34 @@ describe("holds", () => {
     const hold = await customer.startHold(aiCredits, 500, key);
     hold.use(520);
     const error = (await hold.finish().catch((e: unknown) => e)) as UsageSettlementError;
-    expect(error).toMatchObject({ name: "UsageSettlementError", holdId: "hold_1", amount: 500, excess: 20 });
-    expect(error.message).toBe("Entitler could not settle hold hold_1. Settle it again with settleUsage().");
+    expect(error).toMatchObject({
+      name: "UsageSettlementError",
+      holdId: "hold_1",
+      settled: false,
+      amount: 500,
+      excess: 20,
+    });
+    expect(error.message).toBe(
+      "Entitler could not settle hold hold_1. Settle it again with settleUsage() before it expires.",
+    );
+  });
+
+  it("says the hold is closed when only recording the excess fails", async () => {
+    const { fetch } = fakeFetch((request) => {
+      if (request.path === HOLDS) {
+        return json(usageAnswer({ outcome: "held", holdId: "hold_1", amount: 500, expiresAtMs: 32_503_680_000_000 }));
+      }
+      if (request.path.endsWith(":settle")) return json(usageAnswer({ outcome: "settled" }));
+      return apiError(400, "InvalidArgument", "USAGE_KEY_MISMATCH");
+    });
+    const customer = new EntitlerServer({ key: "k", fetch }).customer("user_1");
+    const hold = await customer.startHold(aiCredits, 500, key);
+    hold.use(520);
+    const error = (await hold.finish().catch((e: unknown) => e)) as UsageSettlementError;
+    expect(error).toMatchObject({ settled: true, excess: 20 });
+    expect(error.message).toBe(
+      "Hold hold_1 is closed, but Entitler could not record the 20 used beyond it. Record it in observe mode under the hold's key plus :excess.",
+    );
   });
 
   it("refuses a hold with UsageRefusedError, carrying the answer", async () => {
@@ -353,6 +379,21 @@ describe("withHold", () => {
     );
     expect(await call.catch((e: unknown) => e)).toBe(controller.signal.reason);
     expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 30 } });
+  });
+
+  it("frees the hold without running the work when the call was cancelled while it was held", async () => {
+    const controller = new AbortController();
+    const { customer, sent } = setup((request) => {
+      if (request.method === "DELETE") return json(usageAnswer({ outcome: "released" }));
+      controller.abort();
+      return json(usageAnswer({ outcome: "held", holdId: "hold_1", amount: 5, expiresAtMs: 32_503_680_000_000 }));
+    });
+    const work = vi.fn();
+    await expect(customer.withHold(aiCredits, 5, work, { ...key, signal: controller.signal })).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(work).not.toHaveBeenCalled();
+    expect(sent.at(-1)?.method).toBe("DELETE");
   });
 
   it("fails a settlement with UsageSettlementError carrying the work's result", async () => {

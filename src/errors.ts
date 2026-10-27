@@ -167,30 +167,43 @@ export class UsageReplayedError extends EntitlerError {
 
 /** Fields a {@link UsageSettlementError} is built from. */
 export interface UsageSettlementErrorInit {
-  /** The hold that is still open. */
+  /** The hold. */
   holdId: string;
-  /** The amount to settle it with. */
+  /** True when the hold is closed, settled or expired, and only `excess` is left to record. */
+  settled: boolean;
+  /** The amount to settle it with, while `settled` is false. */
   amount: number;
   /** The excess over the hold still to record in `observe` mode, or `undefined`. */
   excess: number | undefined;
   /** What `work` answered, or `undefined` from `finish()`. */
   result: unknown;
-  /** Why settling or recording the excess failed. */
+  /** Why settling, recording the excess or releasing failed. */
   cause: unknown;
+}
+
+function settlementMessage({ holdId, settled, excess }: UsageSettlementErrorInit): string {
+  if (!settled)
+    return `Entitler could not settle hold ${holdId}. Settle it again with settleUsage() before it expires.`;
+  if (excess !== undefined) {
+    return `Hold ${holdId} is closed, but Entitler could not record the ${excess} used beyond it. Record it in observe mode under the hold's key plus :excess.`;
+  }
+  return `Hold ${holdId} expired with nothing used, and Entitler could not confirm its release. Nothing is owed.`;
 }
 
 /**
  * Raised only by a hold's `finish()`, and so by `withHold` after `work` succeeded, when settling the
- * hold or recording the excess fails after its retries. Keep the work's output, settle again with
- * `settleUsage(holdId, amount)` before the hold expires, and record `excess` under the hold's key
- * plus `:excess`.
+ * hold or recording the excess fails after its retries. Keep the work's output. While `settled` is
+ * false, settle again with `settleUsage(holdId, amount)` before the hold expires; record any
+ * `excess` in `observe` mode under the hold's key plus `:excess`.
  */
 export class UsageSettlementError extends EntitlerError {
   /** `UsageSettlementError`. */
   override name = "UsageSettlementError";
-  /** The hold that is still open. */
+  /** The hold. */
   readonly holdId: string;
-  /** The amount to settle it with. */
+  /** True when the hold is closed, settled or expired, and only `excess` is left to record. */
+  readonly settled: boolean;
+  /** The amount to settle it with, while `settled` is false. */
   readonly amount: number;
   /** The excess over the hold still to record in `observe` mode, or `undefined`. */
   readonly excess: number | undefined;
@@ -199,10 +212,9 @@ export class UsageSettlementError extends EntitlerError {
 
   /** Creates a settlement error. The SDK raises these; apps rarely need to. */
   constructor(init: UsageSettlementErrorInit) {
-    super(`Entitler could not settle hold ${init.holdId}. Settle it again with settleUsage().`, {
-      cause: init.cause,
-    });
+    super(settlementMessage(init), { cause: init.cause });
     this.holdId = init.holdId;
+    this.settled = init.settled;
     this.amount = init.amount;
     this.excess = init.excess;
     this.result = init.result;
