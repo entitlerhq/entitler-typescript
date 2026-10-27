@@ -4,6 +4,7 @@ import { type CustomerPricingOptions, readPricing } from "./pricing.js";
 import { type Operation, route } from "./routes.js";
 import {
   type Decoder,
+  decodeBilling,
   decodeCheck,
   decodeCustomer,
   decodeCustomerPricing,
@@ -11,9 +12,12 @@ import {
   decodeGrant,
   decodeMove,
   decodeNothing,
+  decodePlans,
+  decodePortal,
   decodeRegistered,
   decodeRevokedGrant,
   decodeSnapshot,
+  decodeSync,
   decodeToken,
   decodeTrack,
   decodeUsage,
@@ -22,6 +26,8 @@ import {
 import { type Answer, type CallOptions, isClosed, type ReadOptions, type Transport } from "./transport.js";
 import type {
   Check,
+  CustomerBilling,
+  CustomerPlans,
   CustomerPricing,
   CustomerRecord,
   CustomerTokenScope,
@@ -199,6 +205,21 @@ export interface Customer {
    * ```
    */
   subscribe(plan: string, options?: SubscribeOptions): Promise<MoveStep>;
+  /**
+   * Reads the plans the customer can move to, each with what moving would do, and what they hold
+   * now: a lane per product with its plan, add-ons, dates and booked changes, and their grants.
+   */
+  plans(options?: CheckOptions): Promise<CustomerPlans>;
+  /**
+   * Opens the payment provider's page for payment details and invoices, and answers its `url`. It
+   * changes no plan. In an app it needs the `billing:self` scope.
+   */
+  billingPortal(options: BillingPortalOptions): Promise<{ readonly url: string }>;
+  /**
+   * Reads the customer's state from the payment provider now, so the page they return to after
+   * paying shows the plan they paid for. Call it before `plans({ revalidate: true })`.
+   */
+  syncBilling(options?: CallOptions): Promise<{ readonly changed: boolean }>;
   /** Cancels the customer's subscription as their own choice; the project's policy decides when. */
   cancel(options?: CancelOptions): Promise<MoveStep>;
   /** Undoes the change booked for the customer's next renewal. */
@@ -423,6 +444,12 @@ export interface SetAddOnOptions extends RevisionOptions {
   register?: boolean;
 }
 
+/** Options for {@link Customer.billingPortal}. */
+export interface BillingPortalOptions extends CallOptions {
+  /** Where the provider's page sends the customer back to. */
+  returnUrl: string;
+}
+
 /** A customer from the server client: everything an app's customer does, plus their record and tokens. */
 export interface ServerCustomer extends Customer {
   /**
@@ -487,6 +514,8 @@ export interface ServerCustomer extends Customer {
   removeAddOn(addOn: string, options?: RevisionOptions): Promise<MoveStep>;
   /** Undoes the change booked for an add-on at renewal. */
   undoAddOnChange(addOn: string, options?: RevisionOptions): Promise<MoveStep>;
+  /** Reads the payment provider's view of the customer, for support tools. Billing pages read `plans()`. */
+  billing(options?: CallOptions): Promise<CustomerBilling>;
 }
 
 function details(options: CustomerDetailsInput | undefined): Record<string, unknown> {
@@ -1036,6 +1065,26 @@ export class CustomerApi implements ServerCustomer {
 
   async undoAddOnChange(addOn: string, options?: RevisionOptions): Promise<MoveStep> {
     return this.#move("Subscriptions.CancelPendingAddOnChange", {}, options, this.#addOn(addOn));
+  }
+
+  plans(options?: CheckOptions): Promise<CustomerPlans> {
+    return this.#cached<CustomerPlans>("Subscriptions.ListAvailablePlans", {}, options, decodePlans);
+  }
+
+  async billingPortal(options: BillingPortalOptions): Promise<{ readonly url: string }> {
+    const returnUrl = requireId(
+      options?.returnUrl,
+      "Pass returnUrl: where the provider's page sends the customer back to.",
+    );
+    return this.#send("Billing.CreatePortalSession", { returnUrl }, decodePortal, options);
+  }
+
+  syncBilling(options?: CallOptions): Promise<{ readonly changed: boolean }> {
+    return this.#send("Billing.SyncBilling", {}, decodeSync, options, true);
+  }
+
+  billing(options?: CallOptions): Promise<CustomerBilling> {
+    return this.#send("Billing.GetBilling", undefined, decodeBilling, options);
   }
 
   #addOn(addOn: string): Record<string, string> {

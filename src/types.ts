@@ -455,6 +455,197 @@ export interface PlanChange {
   readonly policy: Open<"upgrade" | "downgrade" | "crossgrade" | "longer" | "shorter">;
 }
 
+/** An add-on the customer holds. */
+export interface HeldAddOn extends HeldPlan {
+  /** How many the customer holds. */
+  readonly quantity: number;
+  /** True when the plan requires it, so the customer can't remove it. */
+  readonly required: boolean;
+  /** When the customer added it. */
+  readonly addedAt: Date;
+}
+
+/** A change booked for a lane's next renewal. */
+export interface PendingChange {
+  /** When it takes effect. */
+  readonly at: Date;
+  /** True when the subscription ends then. */
+  readonly cancel: boolean;
+  /** The id of the plan the customer moves to then, or `null`. */
+  readonly plan: string | null;
+  /** The id of the billing period they move to then, or `null`. */
+  readonly period: string | null;
+}
+
+/** A cancellation in progress. */
+export interface Cancellation {
+  /** When the subscription ends. */
+  readonly endsAt: Date;
+  /** The fee for leaving early, or `null`. */
+  readonly exitFee: Amount | null;
+  /** The discounts charged back for leaving early, or `null`. */
+  readonly chargedBack: Amount | null;
+}
+
+/** A discount on a lane. */
+export interface HeldDiscount {
+  /** The offer's key. */
+  readonly offerKey: string;
+  /** The offer's name. */
+  readonly offerName: string;
+  /** A fixed amount off, or `null`. */
+  readonly amount: Amount | null;
+  /** A percentage off in thousandths of a percent, or `null`. */
+  readonly percentThousandths: number | null;
+  /** When it ends, or `null`. */
+  readonly until: Date | null;
+  /** True once it applies to what the customer pays. */
+  readonly applied: boolean;
+}
+
+/** What the customer holds in one product: their plan, add-ons, dates and booked changes. */
+export interface Lane {
+  /** The product's id, or `null`. */
+  readonly product: string | null;
+  /** The plan held, or `null`. */
+  readonly plan: HeldPlan | null;
+  /** The add-ons held. */
+  readonly addOns: readonly HeldAddOn[];
+  /** When the subscription started, or `null`. */
+  readonly startedAt: Date | null;
+  /** When it next renews, or `null`. */
+  readonly renewsAt: Date | null;
+  /** When the trial ends, or `null`. */
+  readonly trialEndsAt: Date | null;
+  /** When it ends after a cancellation, or `null`. */
+  readonly cancelsAt: Date | null;
+  /** The end of the period paid for, or `null`. */
+  readonly paidUntil: Date | null;
+  /** When the plan ends, such as a store purchase's expiry, or `null`. */
+  readonly until: Date | null;
+  /** Who collects payment: the payment `provider`, the `business` itself, or `not_charged`. */
+  readonly collection: Open<"provider" | "business" | "not_charged">;
+  /** The change booked for renewal, or `null`. */
+  readonly pending: PendingChange | null;
+  /** The cancellation in progress, or `null`. */
+  readonly cancellation: Cancellation | null;
+  /** The discounts on the lane. */
+  readonly discounts: readonly HeldDiscount[];
+  /** The payment the business collects itself: its amount, when it is due, and the days allowed. */
+  readonly payment: {
+    readonly amount: Amount | null;
+    readonly dueAt: Date | null;
+    readonly days: number | null;
+  };
+}
+
+/** Everything the customer holds: a lane per product, and their grants. */
+export interface Holdings {
+  /** A lane per product. */
+  readonly lanes: readonly Lane[];
+  /** Their grants. */
+  readonly grants: readonly Grant[];
+}
+
+/** How one feature changes with a plan option. */
+export interface FeatureImpact {
+  /** The feature's key. */
+  readonly feature: string;
+  /** Whether the customer `gains`, `loses` or `changes` it. */
+  readonly kind: Open<"gains" | "loses" | "changes">;
+  /** The value now, or `null`. */
+  readonly from: Value | null;
+  /** The value with the option, or `null`. */
+  readonly to: Value | null;
+  /** A money feature's limits by market now, or `null`. */
+  readonly fromMarkets: Markets | null;
+  /** A money feature's limits by market with the option, or `null`. */
+  readonly toMarkets: Markets | null;
+}
+
+/** A plan the customer can move to, and what moving would do. */
+export interface PlanOption {
+  /** The plan. */
+  readonly plan: { readonly id: string; readonly key: string; readonly name: string };
+  /** The product's id, or `null`. */
+  readonly product: string | null;
+  /** `subscribe` to a first plan, `move` to another, `add` an add-on, or `replace` one. */
+  readonly kind: Open<"subscribe" | "move" | "add" | "replace">;
+  /** Whether it is an upgrade, a crossgrade or a downgrade. */
+  readonly direction: Open<"up" | "cross" | "down">;
+  /** `self_serve` when the customer can buy it, `sales_led` when the company sells it. */
+  readonly selling: Open<"self_serve" | "sales_led">;
+  /** When it would take effect: now keeping the renewal date, now on a new one, or at period end. */
+  readonly timing: Open<"now_keep" | "now_new" | "period_end">;
+  /** The ids of the billing periods it sells. */
+  readonly periods: readonly string[];
+  /** The id of the plan it replaces, or `null`. */
+  readonly replaces: string | null;
+  /** How each feature would change. */
+  readonly impact: readonly FeatureImpact[];
+}
+
+/** The plans a customer can move to, and what they hold now. */
+export interface CustomerPlans {
+  /** When Entitler answered. */
+  readonly asOf: Date;
+  /** Entitler's id for the customer, or `null` while they are not registered. */
+  readonly customerId: string | null;
+  /** The plans they can move to. */
+  readonly options: readonly PlanOption[];
+  /** What they hold, or `null`. */
+  readonly holdings: Holdings | null;
+  /** True when this is a kept answer standing in while Entitler can't be reached. */
+  readonly stale: boolean;
+}
+
+/** A provider subscription's state. */
+export type ProviderStatus = Open<
+  "active" | "trialing" | "past_due" | "incomplete" | "incomplete_expired" | "canceled" | "unpaid" | "paused"
+>;
+
+/** Where the provider bills a plan the customer doesn't hold in Entitler. */
+export interface BillingDrift {
+  /** The id of the plan the provider bills. */
+  readonly billedPlan: string;
+  /** The id of the plan the customer holds, or `null`. */
+  readonly heldPlan: string | null;
+  /** The product's id, or `null`. */
+  readonly product: string | null;
+  /** When Entitler saw it. */
+  readonly observedAt: Date;
+}
+
+/** What the provider bills for one product. */
+export interface BilledProduct {
+  /** The product's id, or `null`. */
+  readonly product: string | null;
+  /** The payment connection's id, or `null`. */
+  readonly connectionId: string | null;
+  /** The provider subscription's state. */
+  readonly status: ProviderStatus;
+  /** How many items it bills. */
+  readonly items: number;
+  /** True when it renews. */
+  readonly renews: boolean;
+  /** The price it bills, or `null`. */
+  readonly sku: {
+    readonly priceId: string;
+    readonly period: string | null;
+    readonly price: ListingPrice | null;
+  } | null;
+  /** Where it bills a plan the customer doesn't hold, or `null`. */
+  readonly drift: BillingDrift | null;
+}
+
+/** The payment provider's view of the customer, for support tools. */
+export interface CustomerBilling extends Omit<BilledProduct, "product"> {
+  /** True when the customer is linked to a provider customer. */
+  readonly linked: boolean;
+  /** What the provider bills for each product. */
+  readonly products: readonly BilledProduct[];
+}
+
 /** A move that is done. */
 export interface MoveResult {
   /** Entitler's id for the customer. */
@@ -465,6 +656,8 @@ export interface MoveResult {
   readonly money: Open<"real" | "test">;
   /** What the move changed, or `null`. */
   readonly change: PlanChange | null;
+  /** What the customer holds after the move, or `null`. */
+  readonly holdings: Holdings | null;
 }
 
 /** Where a payment stands when the customer has to act on it. */

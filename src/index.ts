@@ -8,6 +8,7 @@ export {
 } from "./client.js";
 export type {
   AdjustMeterOptions,
+  BillingPortalOptions,
   CancelOptions,
   CancelUsageOptions,
   CheckOptions,

@@ -22,6 +22,11 @@ All notable changes to this package are listed here. The format follows
 - Plan moves, answered as a `MoveStep` (`done`, `pay` or `confirming`): `subscribe()`, `cancel()` and
   `undoPendingChange()` for the customer's own choices, and on the server `setPlan()`, `setAddOn()`,
   `removeAddOn()` and `undoAddOnChange()`.
+- `plans()` reads the plans a customer can move to, with what each would change, and what they hold:
+  a lane per product with its plan, add-ons, dates, booked changes and discounts, and their grants.
+  A done move answers the holdings too. `billingPortal()` opens the payment provider's page,
+  `syncBilling()` reads the customer's state from the provider, and the server's `billing()` reads
+  the provider's view for support tools.
 - `EntitlerClient`, the in-app client for one signed-in customer, built from a customer token (or a
   provider for one) or from a publishable key and an identity token. It asks the provider again
   when Entitler refuses the token, and answers through `me`. `TokenError` reports a failing provider.
