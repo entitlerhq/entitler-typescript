@@ -4,7 +4,8 @@ The official Entitler SDK for TypeScript and JavaScript. Entitler helps SaaS tea
 feature access, usage limits and customer grants. This SDK checks whether a customer is entitled to a
 feature, records metered usage, shows pricing and moves customers between plans, from your servers
 and from your apps. It retries, times out, keeps answers for their `max-age` and stands in with the
-last known answer while Entitler is unreachable, so a check never takes your app down.
+last known answer while Entitler is unreachable, and `isEntitled()` falls back to the default you
+pass, so an outage never takes your app down.
 
 Learn more at [entitler.co](https://entitler.co).
 
@@ -36,7 +37,8 @@ if (await customer.isEntitled(exportPdf, { default: false })) {
   console.log("Exporting the PDF.");
 }
 
-await customer.recordUsage(aiCredits, 3, { idempotencyKey: "job_42" });
+const job = { id: crypto.randomUUID() };
+await customer.recordUsage(aiCredits, 3, { idempotencyKey: `summary-${job.id}` });
 ```
 
 ## Three clients
@@ -115,7 +117,8 @@ if (step.next === "pay") location.assign(step.url);
 
 Every move answers its next step: `done` with what changed, `pay` with the payment page's `url`, or
 `confirming` while the payment provider confirms it. When the customer comes back, call
-`syncBilling()` and read `plans()` again. `cancel()` and `undoPendingChange()` are the customer's own
+`syncBilling()` and read `plans()` again; when the sync fails or the plan isn't there yet, show the
+payment as pending. `cancel()` and `undoPendingChange()` are the customer's own
 choices, and `billingPortal({ returnUrl })` opens the provider's page for payment details and invoices.
 In an app these need a customer token with the `billing:self` scope.
 
@@ -157,7 +160,8 @@ customer drops their kept answers, across processes when the cache is shared. Pa
 `maxRetries`, `staleFor`, `onError` or your own `fetch` when building a client, and `signal` or
 `timeout` on any call.
 
-Every error is an `EntitlerError`. `ApiError` carries the API's `status`, `code`, `reason` and
+Every error a request raises is an `EntitlerError`; a bad argument throws `TypeError` or
+`RangeError` before anything is sent. `ApiError` carries the API's `status`, `code`, `reason` and
 `parameters`; `ConnectionError` and `TimeoutError` mean Entitler could not be asked, and
 `isUnreachable(error)` tells them apart from a refusal.
 
@@ -167,7 +171,7 @@ Every error is an `EntitlerError`. `ApiError` carries the API's `status`, `code`
 import { fakeCustomer } from "@entitlerhq/entitler/testing";
 
 const customer = fakeCustomer({ export_pdf: true, ai_credits: { value: 100, used: 90 } });
-await customer.recordUsage(aiCredits, 25, { idempotencyKey: "job-1" }); // refused
+const result = await customer.recordUsage(aiCredits, 25, { idempotencyKey: "job-1" }); // outcome "refused"
 customer.answer("plans", async () => myPlans);
 console.log(customer.writes);
 ```
