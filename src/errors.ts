@@ -175,17 +175,19 @@ export interface UsageSettlementErrorInit {
   amount: number;
   /** The excess over the hold still to record in `observe` mode, or `undefined`. */
   excess: number | undefined;
+  /** The idempotency key to record `excess` under: the hold's key plus `:excess`. */
+  excessKey: string;
   /** What `work` answered, or `undefined` from `finish()`. */
   result: unknown;
   /** Why settling, recording the excess or releasing failed. */
   cause: unknown;
 }
 
-function settlementMessage({ holdId, settled, excess }: UsageSettlementErrorInit): string {
+function settlementMessage({ holdId, settled, excess, excessKey }: UsageSettlementErrorInit): string {
   if (!settled)
     return `Entitler could not settle hold ${holdId}. Settle it again with settleUsage() before it expires.`;
   if (excess !== undefined) {
-    return `Hold ${holdId} is closed, but Entitler could not record the ${excess} used beyond it. Record it in observe mode under the hold's key plus :excess.`;
+    return `Hold ${holdId} is closed, but Entitler could not record the ${excess} used beyond it. Record it in observe mode under the key ${excessKey}.`;
   }
   return `Hold ${holdId} expired with nothing used, and Entitler could not confirm its release. Nothing is owed.`;
 }
@@ -194,7 +196,7 @@ function settlementMessage({ holdId, settled, excess }: UsageSettlementErrorInit
  * Raised only by a hold's `finish()`, and so by `withHold` after `work` succeeded, when settling the
  * hold or recording the excess fails after its retries. Keep the work's output. While `settled` is
  * false, settle again with `settleUsage(holdId, amount)` before the hold expires; record any
- * `excess` in `observe` mode under the hold's key plus `:excess`.
+ * `excess` in `observe` mode under `excessKey`.
  */
 export class UsageSettlementError extends EntitlerError {
   /** `UsageSettlementError`. */
@@ -207,6 +209,8 @@ export class UsageSettlementError extends EntitlerError {
   readonly amount: number;
   /** The excess over the hold still to record in `observe` mode, or `undefined`. */
   readonly excess: number | undefined;
+  /** The idempotency key to record `excess` under: the hold's key plus `:excess`. */
+  readonly excessKey: string;
   /** What `withHold`'s `work` answered, so its output is not lost; `undefined` from `finish()`. */
   readonly result: unknown;
 
@@ -217,6 +221,7 @@ export class UsageSettlementError extends EntitlerError {
     this.settled = init.settled;
     this.amount = init.amount;
     this.excess = init.excess;
+    this.excessKey = init.excessKey;
     this.result = init.result;
   }
 }

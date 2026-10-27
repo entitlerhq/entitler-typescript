@@ -370,6 +370,7 @@ export class CustomerApi implements Customer {
           settled: closed,
           amount: settled,
           excess: unrecorded,
+          excessKey: key + EXCESS,
           result: undefined,
           cause,
         });
@@ -433,6 +434,7 @@ export class CustomerApi implements Customer {
         settled: error.settled,
         amount: error.amount,
         excess: error.excess,
+        excessKey: error.excessKey,
         result,
         cause: error.cause,
       });
