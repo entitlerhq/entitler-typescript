@@ -45,7 +45,11 @@ export type FakeAnswer<M extends CustomerMethod> = ServerCustomer[M] extends (..
 export interface FakeCustomer extends ServerCustomer {
   /** Every write received, in order. */
   readonly writes: readonly FakeWrite[];
-  /** Replaces one method's answer: `fn` receives the call's arguments and answers in its place. */
+  /**
+   * Replaces one method's answer: `fn` receives the call's arguments and answers in its place. It
+   * replaces calls the test makes, not the calls a method makes itself: `isEntitled` still asks the
+   * model rather than a replaced `check`, and `withHold` still holds and settles through the model.
+   */
   answer<M extends CustomerMethod>(method: M, fn: NoInfer<FakeAnswer<M>>): void;
 }
 
