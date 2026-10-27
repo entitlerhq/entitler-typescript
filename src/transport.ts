@@ -421,7 +421,10 @@ export class Transport {
 
   async #get(cache: CacheStore, key: string, signal: AbortSignal | undefined): Promise<CacheEntry | undefined> {
     try {
-      const entry = await untilAborted(Promise.resolve(cache.get(key)), signal);
+      const entry = await untilAborted(
+        Promise.resolve().then(() => cache.get(key)),
+        signal,
+      );
       return entry && entry.v === 1 && typeof entry.body === "string" && typeof entry.receivedAt === "number"
         ? entry
         : undefined;
@@ -435,7 +438,10 @@ export class Transport {
   async #set(cache: CacheStore, key: string, entry: CacheEntry, signal: AbortSignal | undefined): Promise<void> {
     try {
       const ttl = this.#staleFor + (maxAgeOf(entry.cacheControl) ?? 0) * 1000;
-      await untilAborted(Promise.resolve(cache.set(key, entry, Math.min(ttl, Number.MAX_SAFE_INTEGER))), signal);
+      await untilAborted(
+        Promise.resolve().then(() => cache.set(key, entry, Math.min(ttl, Number.MAX_SAFE_INTEGER))),
+        signal,
+      );
     } catch (error) {
       if (signal?.aborted && error === signal.reason) throw error;
       this.report(error);

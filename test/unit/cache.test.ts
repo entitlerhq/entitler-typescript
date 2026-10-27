@@ -217,6 +217,24 @@ describe("stale answers", () => {
     expect(unhandled).not.toHaveBeenCalled();
   });
 
+  it("passes an abort on even when the store then fails at once", async () => {
+    const onError = vi.fn();
+    const controller = new AbortController();
+    const store: CacheStore = {
+      get: () => undefined,
+      set: () => {
+        throw new Error("store down");
+      },
+    };
+    const { fetch } = fakeFetch(() => {
+      controller.abort();
+      return json(checkAnswer(), 200, fresh);
+    });
+    const customer = new EntitlerServer({ key: "k", fetch, cache: store, onError }).customer("u");
+    await expect(customer.check("f", { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("throws other failures", async () => {
     const { fetch } = fakeFetch(
       json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "no-cache" }),
