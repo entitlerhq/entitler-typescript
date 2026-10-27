@@ -247,8 +247,11 @@ describe("pricing", () => {
     ]);
   });
 
-  it("builds a visitor client from a publishable key alone, and never shows it", () => {
+  it("builds a visitor client from a publishable key alone, never shows it, and refuses a bad locale", async () => {
     expect(() => new EntitlerVisitor({ key: " " })).toThrow(TypeError);
+    await expect(new EntitlerVisitor({ key: "pk_test_1" }).pricing({ locale: "en\nX-Evil: 1" })).rejects.toBeInstanceOf(
+      TypeError,
+    );
     const visitor = new EntitlerVisitor({ key: "pk_test_secretish" });
     expect(String(visitor)).not.toContain("pk_test_secretish");
     expect(visitor.toJSON()).toEqual({ baseUrl: "https://api.entitler.app", kind: "visitor" });
