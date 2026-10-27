@@ -8,7 +8,11 @@ const entitler = new EntitlerClient({
   },
 });
 
-const entitlements = await entitler.me.entitlements();
-document.querySelector("#export")?.toggleAttribute("hidden", !entitlements.has("export_pdf"));
+const signedIn = new AbortController();
+addEventListener("sign-out", () => {
+  signedIn.abort();
+  entitler.close();
+});
 
-addEventListener("sign-out", () => entitler.close());
+const entitlements = await entitler.me.entitlements({ signal: signedIn.signal });
+document.querySelector("#export")?.toggleAttribute("hidden", !entitlements.has("export_pdf"));
