@@ -37,8 +37,9 @@ if (await customer.isEntitled(exportPdf, { default: false })) {
   console.log("Exporting the PDF.");
 }
 
-const job = { id: crypto.randomUUID() };
-await customer.recordUsage(aiCredits, 3, { idempotencyKey: `summary-${job.id}` });
+const documentId = "doc_42";
+const result = await customer.recordUsage(aiCredits, 3, { idempotencyKey: `summary-${documentId}` });
+if (result.outcome === "refused") console.log("Out of AI credits:", result.upgrades);
 ```
 
 ## Three clients
@@ -51,8 +52,7 @@ await customer.recordUsage(aiCredits, 3, { idempotencyKey: `summary-${job.id}` }
 
 A secret key never goes into an app: anyone can read it out of a browser bundle or an app binary, and
 it acts on every customer in the environment. Mint a customer token on your server with
-`entitler.customer(id).token()` and hand it to your own signed-in app. Each client refuses the other
-kind of key when it is built.
+`entitler.customer(id).token()` and hand it to your own signed-in app.
 
 The server's customer and the in-app client's `me` answer the same `Customer` interface, so code that
 gates features, records usage and offers the customer's own billing choices is written once.
@@ -89,13 +89,17 @@ For work whose cost is known only at the end, hold an amount first:
 
 ```ts
 const reply = await customer.withHold(aiCredits, 2_000, async ({ hold, signal }) => {
+  if (hold.duplicate) return await replyFor(message.id);
+  hold.use(0);
   for await (const chunk of stream(signal)) hold.use(chunk.totalTokens);
   return text;
 }, { idempotencyKey: message.id });
 ```
 
-`withHold` settles what the work reported, frees the hold when it throws, and throws
-`UsageRefusedError` before the work runs when too little is left. `startHold` gives you the hold to
+`withHold` settles what the work reported with `hold.use()`, even when the work throws, and frees the
+hold when it reported nothing. It throws `UsageRefusedError` before the work runs when too little is
+left. When another caller already holds the same key, `hold.duplicate` is true and that caller
+settles, so return its result rather than run the work again. `startHold` gives you the hold to
 finish yourself, and `cancelUsage(usageId)` corrects a report.
 
 ## Pricing and billing pages
@@ -134,8 +138,8 @@ On the server, a customer also takes the company's own decisions:
 - `setTrack()` moves them to a track.
 - `billing()` reads the payment provider's view, for support tools.
 
-Each write can pass the customer's `expectedRevision`, so it fails rather than overwrite a change made
-since it was read.
+`grant()`, `revokeGrant()` and the plan and add-on moves can pass the customer's `expectedRevision`,
+so they fail rather than overwrite a change made since it was read.
 
 ## Offline snapshots
 
@@ -156,7 +160,8 @@ request and throws `SnapshotError` with `SNAPSHOT_INVALID` or `SNAPSHOT_EXPIRED`
 Each attempt times out after 10 seconds. Idempotent requests retry twice on connection failures,
 timeouts, `408`, `429`, `500`, `502`, `503` and `504`, waiting for `Retry-After`. Reads are kept for their `max-age`, and a kept
 answer stands in for up to 24 hours while Entitler is unreachable, marked `stale`. A write for a
-customer drops their kept answers, across processes when the cache is shared. Pass `timeout`,
+customer drops their kept answers for every client using the same key, across processes when the
+cache is shared. Pass `timeout`,
 `maxRetries`, `staleFor`, `onError` or your own `fetch` when building a client, and `signal` or
 `timeout` on any call.
 

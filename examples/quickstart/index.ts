@@ -12,8 +12,8 @@ if (await customer.isEntitled(exportPdf, { default: false })) {
   console.log("Exporting the PDF.");
 }
 
-const job = { id: crypto.randomUUID() };
-const result = await customer.recordUsage(aiCredits, 3, { idempotencyKey: `summary-${job.id}` });
+const documentId = "doc_42";
+const result = await customer.recordUsage(aiCredits, 3, { idempotencyKey: `summary-${documentId}` });
 if (result.outcome === "refused") console.log("Out of AI credits:", result.upgrades);
 
 entitler.close();
