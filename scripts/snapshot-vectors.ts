@@ -133,41 +133,90 @@ async function sign(claims: Claims, head = header("vec-1"), privateKey = signer.
 const at = (seconds: number) => new Date(seconds * 1000).toISOString();
 const withEntitlements = (...entitlements: unknown[]) => ({ ...base, entitlements });
 
-const cases: { name: string; token: Promise<string>; now?: number; clockSkewSeconds?: number }[] = [
-  { name: "plan, default plan and grant sources with a meter", token: sign(withEntitlements(exportPdf, aiCredits)) },
-  { name: "an add-on source through a group", token: sign(withEntitlements(addOns)) },
-  { name: "a money feature's limits by market", token: sign(withEntitlements(spend)) },
-  { name: "a group and its member, skipping an unknown source", token: sign(withEntitlements(group, member)) },
-  { name: "a metered feature with no meter", token: sign(withEntitlements(noMeter)) },
-  { name: "signed within the clock skew", token: sign(withEntitlements(exportPdf)), now: ISSUED - 60 },
-  { name: "signed beyond the clock skew", token: sign(withEntitlements(exportPdf)), now: ISSUED - 61 },
+const cases: {
+  name: string;
+  expect: "verified" | "SNAPSHOT_INVALID" | "SNAPSHOT_EXPIRED";
+  token: Promise<string>;
+  now?: number;
+  clockSkewSeconds?: number;
+}[] = [
+  {
+    name: "plan, default plan and grant sources with a meter",
+    expect: "verified",
+    token: sign(withEntitlements(exportPdf, aiCredits)),
+  },
+  { name: "an add-on source through a group", expect: "verified", token: sign(withEntitlements(addOns)) },
+  { name: "a money feature's limits by market", expect: "verified", token: sign(withEntitlements(spend)) },
+  {
+    name: "a group and its member, skipping an unknown source",
+    expect: "verified",
+    token: sign(withEntitlements(group, member)),
+  },
+  { name: "a metered feature with no meter", expect: "verified", token: sign(withEntitlements(noMeter)) },
+  {
+    name: "signed within the clock skew",
+    expect: "verified",
+    token: sign(withEntitlements(exportPdf)),
+    now: ISSUED - 60,
+  },
+  {
+    name: "signed beyond the clock skew",
+    expect: "SNAPSHOT_INVALID",
+    token: sign(withEntitlements(exportPdf)),
+    now: ISSUED - 61,
+  },
   {
     name: "signed beyond a narrower clock skew",
+    expect: "SNAPSHOT_INVALID",
     token: sign(withEntitlements(exportPdf)),
     now: ISSUED - 30,
     clockSkewSeconds: 10,
   },
-  { name: "the last second before expiry", token: sign(withEntitlements(exportPdf)), now: EXPIRES - 1 },
-  { name: "expired", token: sign(withEntitlements(exportPdf)), now: EXPIRES },
+  {
+    name: "the last second before expiry",
+    expect: "verified",
+    token: sign(withEntitlements(exportPdf)),
+    now: EXPIRES - 1,
+  },
+  { name: "expired", expect: "SNAPSHOT_EXPIRED", token: sign(withEntitlements(exportPdf)), now: EXPIRES },
   {
     name: "a key that is not in the set",
+    expect: "SNAPSHOT_INVALID",
     token: sign(withEntitlements(exportPdf), header("vec-2"), stranger.privateKey),
   },
   {
     name: "a known kid with another key's signature",
+    expect: "SNAPSHOT_INVALID",
     token: sign(withEntitlements(exportPdf), header("vec-1"), stranger.privateKey),
   },
   {
     name: "edited claims",
+    expect: "SNAPSHOT_INVALID",
     token: sign(withEntitlements(exportPdf)).then((token) => {
       const [head, , signature] = token.split(".");
       return `${head}.${encode({ ...withEntitlements(exportPdf), sub: "user_2" })}.${signature}`;
     }),
   },
-  { name: "another type", token: sign(withEntitlements(exportPdf), header("vec-1", "JWT")) },
-  { name: "another issuer", token: sign({ ...withEntitlements(exportPdf), iss: "someone" }) },
-  { name: "another customer", token: sign({ ...withEntitlements(exportPdf), sub: "user_2" }) },
-  { name: "another environment", token: sign({ ...withEntitlements(exportPdf), environment: { id: "en_2" } }) },
+  {
+    name: "another type",
+    expect: "SNAPSHOT_INVALID",
+    token: sign(withEntitlements(exportPdf), header("vec-1", "JWT")),
+  },
+  {
+    name: "another issuer",
+    expect: "SNAPSHOT_INVALID",
+    token: sign({ ...withEntitlements(exportPdf), iss: "someone" }),
+  },
+  {
+    name: "another customer",
+    expect: "SNAPSHOT_INVALID",
+    token: sign({ ...withEntitlements(exportPdf), sub: "user_2" }),
+  },
+  {
+    name: "another environment",
+    expect: "SNAPSHOT_INVALID",
+    token: sign({ ...withEntitlements(exportPdf), environment: { id: "en_2" } }),
+  },
 ];
 
 const keys = { keys: [signer.key] };
@@ -199,6 +248,8 @@ for (const given of cases) {
       return { error: error.reason };
     },
   );
+  const got = "error" in outcome ? outcome.error : "verified";
+  if (got !== given.expect) throw new Error(`${given.name}: expected ${given.expect}, got ${got}.`);
   vectors.push({ name: given.name, token, expected, outcome });
 }
 
