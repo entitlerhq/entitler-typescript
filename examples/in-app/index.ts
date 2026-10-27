@@ -1,8 +1,8 @@
 import { EntitlerClient } from "@entitlerhq/entitler";
 
 const entitler = new EntitlerClient({
-  token: async () => {
-    const response = await fetch("/api/entitler-token", { method: "POST" });
+  token: async ({ signal }) => {
+    const response = await fetch("/api/entitler-token", { method: "POST", signal });
     const { token } = (await response.json()) as { token: string };
     return token;
   },
