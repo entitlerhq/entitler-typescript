@@ -20,6 +20,10 @@ bun install
 
 ## Releases
 
+Before the first release, an npm owner of `@entitlerhq/entitler` registers this repository as a
+[trusted publisher](https://docs.npmjs.com/trusted-publishers) on npmjs.com, with the workflow
+`publish.yml` and the environment `release`; until then publishing can't authenticate.
+
 1. Move the `## [Unreleased]` entries into a new `## [x.y.z] - <date>` section of `CHANGELOG.md`.
 2. Set `version` in `package.json`.
 3. Merge, then push the tag `vx.y.z`. `publish.yml` checks the tag matches the version and has a
