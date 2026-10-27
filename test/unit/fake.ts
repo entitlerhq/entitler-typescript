@@ -78,6 +78,8 @@ export function wireEntitlement(overrides: Record<string, unknown> = {}) {
     ],
     upgrades: [],
     value: { switch: true },
+    decimals: 0,
+    currency: "",
     ...overrides,
   };
 }
@@ -107,6 +109,7 @@ export function usageAnswer(usage: Record<string, unknown> = {}, tracked: Record
         overBy: 0,
         late: false,
         replayed: false,
+        saturated: false,
         ...rest,
       },
       ...tracked,

@@ -123,6 +123,9 @@ describe("verifySnapshot", () => {
       type: "metered",
       entitled: true,
       value: 1000,
+      markets: null,
+      decimals: 0,
+      currency: null,
       upgrades: [],
       meter: { used: 10, held: 2, banked: 0, remaining: 990, resetsAt: new Date(1_793_491_200_000) },
       sources: [
@@ -135,6 +138,7 @@ describe("verifySnapshot", () => {
           version: 3,
           byDefault: true,
           value: null,
+          markets: null,
           through: null,
         },
         {
@@ -145,11 +149,41 @@ describe("verifySnapshot", () => {
           version: 1,
           quantity: 2,
           value: "unlimited",
+          markets: null,
           through: "bundle",
         },
-        { type: "grant", grant: "gr_1", until: new Date(1_793_491_200_000), value: 500, through: null },
+        { type: "grant", grant: "gr_1", until: new Date(1_793_491_200_000), value: 500, markets: null, through: null },
         { type: "group", features: ["ai_chat"] },
       ],
+    });
+  });
+
+  it("reads a money feature's limits by market, its decimals and its currency", async () => {
+    const money = [
+      { marketId: "mk_au", limit: 5000 },
+      { marketId: "mk_us", limit: "unlimited" },
+    ];
+    const spend = {
+      key: "spend",
+      kind: "metered",
+      value: money,
+      entitled: true,
+      sources: [{ type: "grant", grant: "gr_2", until: null, value: money, through: null }],
+      decimals: 2,
+      currency: "aud",
+      used: 150,
+      held: 0,
+      banked: 0,
+      remaining: 4850,
+      resetsAt: null,
+    };
+    const { entitlements } = await verifySnapshot(await sign({ ...claims, entitlements: [spend] }), expected());
+    expect(entitlements.get("spend")).toMatchObject({
+      value: 0,
+      markets: { mk_au: 5000, mk_us: "unlimited" },
+      decimals: 2,
+      currency: "aud",
+      sources: [{ type: "grant", value: 0, markets: { mk_au: 5000, mk_us: "unlimited" } }],
     });
   });
 

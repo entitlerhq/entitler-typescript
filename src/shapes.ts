@@ -7,6 +7,7 @@ import type {
   FeatureType,
   IssuedCustomerToken,
   Limit,
+  Markets,
   Meter,
   RegisteredCustomer,
   Served,
@@ -117,6 +118,21 @@ function sourceValue(value: unknown): Value | null {
   return value === undefined ? null : featureValue(value, true);
 }
 
+function markets(value: unknown): Markets | null {
+  const money = value === undefined ? undefined : object<Wire.FeatureValue>(value).money;
+  if (money === undefined) return null;
+  return at("money", () =>
+    Object.fromEntries(
+      at("limits", () =>
+        list(object<Wire.MarketLimits>(money).limits, (item) => {
+          const market = object<Wire.MarketLimit>(item);
+          return [at("marketId", () => text(market.marketId)), at("limit", () => limit(market.limit ?? {}))];
+        }),
+      ),
+    ),
+  );
+}
+
 function source(value: unknown): EntitlementSource | null {
   const given = object<Wire.EntitlementSource>(value);
   const through = (key: unknown) => (key === undefined || key === "" ? null : text(key));
@@ -131,6 +147,7 @@ function source(value: unknown): EntitlementSource | null {
       version: at("versionNumber", () => whole(plan.versionNumber)),
       byDefault: given.plan === undefined,
       value: at("value", () => sourceValue(plan.value)),
+      markets: at("value", () => markets(plan.value)),
       through: at("throughFeatureKey", () => through(plan.throughFeatureKey)),
     }));
   }
@@ -144,6 +161,7 @@ function source(value: unknown): EntitlementSource | null {
       version: at("versionNumber", () => whole(addOn.versionNumber)),
       quantity: at("quantity", () => whole(addOn.quantity)),
       value: at("value", () => sourceValue(addOn.value)),
+      markets: at("value", () => markets(addOn.value)),
       through: at("throughFeatureKey", () => through(addOn.throughFeatureKey)),
     }));
   }
@@ -154,6 +172,7 @@ function source(value: unknown): EntitlementSource | null {
       grant: at("grantId", () => text(grant.grantId)),
       until: at("until", () => optionalSeconds(grant.until)),
       value: at("value", () => sourceValue(grant.value)),
+      markets: at("value", () => markets(grant.value)),
       through: at("throughFeatureKey", () => through(grant.throughFeatureKey)),
     }));
   }
@@ -200,6 +219,9 @@ function entitlement(value: unknown): Entitlement {
     type,
     entitled,
     value: at("value", () => featureValue(given.value, entitled)),
+    markets: at("value", () => markets(given.value)),
+    decimals: at("decimals", () => whole(given.decimals)),
+    currency: at("currency", () => text(given.currency) || null),
     sources: at("sources", () =>
       list(given.sources, source).filter((known): known is EntitlementSource => known !== null),
     ),
@@ -282,6 +304,7 @@ export const decodeUsage: Decoder = (value) => {
         occurredAt: at("occurredAtMs", () => optionalMilliseconds(usage.occurredAtMs)),
         expiresAt: at("expiresAtMs", () => optionalMilliseconds(usage.expiresAtMs)),
         replayed: at("replayed", () => bool(usage.replayed)),
+        saturated: at("saturated", () => bool(usage.saturated)),
       })),
     } satisfies UsageResult;
   });
@@ -392,17 +415,28 @@ function claimLimit(value: unknown): Limit {
   return value === "unlimited" ? "unlimited" : whole(value);
 }
 
-function claimValue(value: unknown, entitled: boolean): Value {
+function claimValue(value: unknown, entitled: boolean, type: FeatureType): Value {
   if (value === null || value === undefined) return 0;
   if (typeof value === "boolean") return value ? true : 0;
-  if (Array.isArray(value)) return entitled ? true : 0;
+  if (Array.isArray(value)) return type === "group" && entitled ? true : 0;
   return claimLimit(value);
 }
 
-function claimSource(value: unknown): EntitlementSource | null {
+function claimMarkets(value: unknown, type: FeatureType): Markets | null {
+  if (type === "group" || !Array.isArray(value)) return null;
+  return Object.fromEntries(
+    list(value, (item) => {
+      const market = object<Record<string, unknown>>(item);
+      return [at("marketId", () => text(market.marketId)), at("limit", () => claimLimit(market.limit))];
+    }),
+  );
+}
+
+function claimSource(value: unknown, type: FeatureType): EntitlementSource | null {
   const given = object<Record<string, unknown>>(value);
   const through = () => at("through", () => nullable(given.through, text));
-  const sourceValue = () => at("value", () => nullable(given.value, (held) => claimValue(held, true)));
+  const sourceValue = () => at("value", () => nullable(given.value, (held) => claimValue(held, true, type)));
+  const sourceMarkets = () => at("value", () => claimMarkets(given.value, type));
   const plan = () => {
     const named = at("plan", () => object<Record<string, unknown>>(given.plan));
     return {
@@ -421,6 +455,7 @@ function claimSource(value: unknown): EntitlementSource | null {
         product: at("product", () => nullable(given.product, text)),
         byDefault: given.type === "default_plan",
         value: given.type === "plan" ? sourceValue() : null,
+        markets: given.type === "plan" ? sourceMarkets() : null,
         through: through(),
       };
     case "add_on":
@@ -429,6 +464,7 @@ function claimSource(value: unknown): EntitlementSource | null {
         ...plan(),
         quantity: at("quantity", () => whole(given.quantity)),
         value: sourceValue(),
+        markets: sourceMarkets(),
         through: through(),
       };
     case "grant":
@@ -437,6 +473,7 @@ function claimSource(value: unknown): EntitlementSource | null {
         grant: at("grant", () => text(given.grant)),
         until: at("until", () => nullable(given.until, seconds)),
         value: sourceValue(),
+        markets: sourceMarkets(),
         through: through(),
       };
     case "group":
@@ -454,9 +491,14 @@ function claimEntitlement(value: unknown): Entitlement {
     key: at("key", () => text(given.key)),
     type,
     entitled,
-    value: at("value", () => claimValue(given.value, entitled)),
+    value: at("value", () => claimValue(given.value, entitled, type)),
+    markets: at("value", () => claimMarkets(given.value, type)),
+    decimals: at("decimals", () => (given.decimals === undefined ? 0 : whole(given.decimals))),
+    currency: at("currency", () => nullable(given.currency, text)),
     sources: at("sources", () =>
-      list(given.sources, claimSource).filter((known): known is EntitlementSource => known !== null),
+      list(given.sources, (item) => claimSource(item, type)).filter(
+        (known): known is EntitlementSource => known !== null,
+      ),
     ),
     upgrades: [],
     meter:
