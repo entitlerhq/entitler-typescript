@@ -171,7 +171,7 @@ export interface Customer {
   /**
    * Holds an amount, runs `work`, then settles what `work` reported with `hold.use(n)`, or the whole
    * hold when it reported nothing. When `work` throws, settles what it reported or frees the hold.
-   * Throws {@link UsageRefusedError} before `work` runs when the customer has too little left, and
+   * When the call is cancelled, rejects at once and closes the hold once `work` stops. Throws {@link UsageRefusedError} before `work` runs when the customer has too little left, and
    * {@link UsageSettlementError} holding `work`'s result when settling fails.
    *
    * @example
@@ -503,15 +503,19 @@ export class CustomerApi implements ServerCustomer {
     if (typeof work !== "function") throw new TypeError("Pass work as a function.");
     const hold = await this.startHold(feature, amount, options);
     const signal = options.signal;
+    const dispose = (hold as Hold & { [DISPOSE]: () => Promise<void> })[DISPOSE];
+    let running: Promise<R> | undefined;
     let result: R;
     try {
       signal?.throwIfAborted();
-      result = await untilAborted(
-        Promise.resolve(work({ hold, signal: signal ?? new AbortController().signal })),
-        signal,
-      );
+      running = Promise.resolve(work({ hold, signal: signal ?? new AbortController().signal }));
+      result = await untilAborted(running, signal);
     } catch (error) {
-      await (hold as Hold & { [DISPOSE]: () => Promise<void> })[DISPOSE]();
+      if (running && signal?.aborted && error === signal.reason) {
+        void running.then(dispose, dispose);
+      } else {
+        await dispose();
+      }
       throw error;
     }
     try {

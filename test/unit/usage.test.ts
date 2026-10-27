@@ -364,21 +364,29 @@ describe("withHold", () => {
     expect(after.sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 300 } });
   });
 
-  it("disposes of the hold outside the caller's cancellation, then propagates it", async () => {
+  it("passes a cancellation on at once, and keeps the hold until the work stops", async () => {
     const { customer, sent } = holdFlow();
     const controller = new AbortController();
+    let stop: (() => void) | undefined;
     const call = customer.withHold(
       aiCredits,
       500,
       ({ hold }) => {
         hold.use(30);
         controller.abort();
-        return new Promise(() => {});
+        return new Promise<void>((resolve) => {
+          stop = () => {
+            hold.use(45);
+            resolve();
+          };
+        });
       },
       { ...key, signal: controller.signal },
     );
     expect(await call.catch((e: unknown) => e)).toBe(controller.signal.reason);
-    expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 30 } });
+    expect(paths(sent)).toEqual([`POST${HOLDS}`]);
+    stop?.();
+    await vi.waitFor(() => expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 45 } }));
   });
 
   it("frees the hold without running the work when the call was cancelled while it was held", async () => {
