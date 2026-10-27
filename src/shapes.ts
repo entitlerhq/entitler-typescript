@@ -1,6 +1,8 @@
 import type {
+  Amount,
   AnswerContext,
   Check,
+  CustomerPricing,
   CustomerRecord,
   Entitlement,
   EntitlementSource,
@@ -9,6 +11,10 @@ import type {
   Limit,
   Markets,
   Meter,
+  PricedPlan,
+  PriceLine,
+  PricingMarket,
+  PricingSheet,
   RegisteredCustomer,
   Served,
   Snapshot,
@@ -559,3 +565,278 @@ export function decodeClaims(value: unknown): SnapshotClaims {
     entitlements: at("entitlements", () => list(given.entitlements, claimEntitlement)),
   };
 }
+
+function amount(value: unknown): Amount {
+  const given = object<Wire.Amount>(value);
+  return {
+    amount: at("amount", () => integer(given.amount)),
+    currency: at("currency", () => text(given.currency)),
+    display: at("display", () => text(given.display)),
+  };
+}
+
+function pricingMarket(value: unknown): PricingMarket {
+  const given = object<Wire.PricingMarket>(value);
+  return {
+    id: at("id", () => text(given.id)),
+    key: at("key", () => text(given.key)),
+    name: at("name", () => text(given.name)),
+    currency: at("currency", () => text(given.currency)),
+    tax: at("tax", () => enumName(given.tax, "MARKET_TAX_")),
+  };
+}
+
+function feeSchedule(value: unknown) {
+  const given = object<Wire.FeeSchedule>(value);
+  if (given.onPurchase !== undefined) return { type: "on_purchase" as const };
+  if (given.everyMonths !== undefined) {
+    const every = object<Wire.EveryMonths>(given.everyMonths);
+    return at("everyMonths", () => ({
+      type: "every_months" as const,
+      months: at("months", () => whole(every.months)),
+      firstAfterMonths: at("firstAfterMonths", () => whole(every.firstAfterMonths)),
+    }));
+  }
+  if (given.yearlyOn !== undefined) {
+    const yearly = object<Wire.YearlyOn>(given.yearlyOn);
+    return at("yearlyOn", () => ({
+      type: "yearly" as const,
+      dates: at("dates", () =>
+        list(yearly.dates, (item) => {
+          const date = object<Wire.YearlyDate>(item);
+          return { month: at("month", () => whole(date.month)), day: at("day", () => whole(date.day)) };
+        }),
+      ),
+    }));
+  }
+  return null;
+}
+
+function listingIds(value: unknown): Record<string, string> {
+  const given = object<Record<string, unknown>>(value);
+  const ids: Record<string, string> = {};
+  for (const provider of ["apple", "google", "stripe"]) {
+    if (given[provider] === undefined) continue;
+    at(provider, () => {
+      for (const [name, id] of Object.entries(object<Record<string, unknown>>(given[provider]))) {
+        ids[name] = at(name, () => text(id));
+      }
+    });
+  }
+  return ids;
+}
+
+function channel(value: unknown) {
+  const given = object<Wire.PricedChannel>(value);
+  return {
+    provider: at("provider", () => enumName(given.provider, "PAYMENT_PROVIDER_")),
+    connectionId: at("connectionId", () => text(given.connectionId)),
+    name: at("name", () => text(given.name)),
+    mode: at("mode", () => enumName(given.mode, "CONNECTION_MODE_")),
+    purchasable: at("purchasable", () => bool(given.purchasable)),
+    ids: at("ids", () => (given.ids === undefined ? {} : listingIds(given.ids))),
+    price: at("price", () =>
+      nullable(given.price, (price) => {
+        const listed = object<Wire.ListingPrice>(price);
+        return {
+          amount: at("amount", () => integer(listed.amount)),
+          currency: at("currency", () => text(listed.currency)),
+          interval: at("interval", () => enumName(listed.interval, "LISTING_PRICE_INTERVAL_")),
+          intervalCount: at("intervalCount", () => whole(listed.intervalCount)),
+          tax: at("tax", () => enumName(listed.tax, "LISTING_TAX_BEHAVIOUR_")),
+        };
+      }),
+    ),
+  };
+}
+
+function pricedPlan(value: unknown): PricedPlan {
+  const given = object<Wire.PricedPlan>(value);
+  return {
+    id: at("id", () => text(given.id)),
+    key: at("key", () => text(given.key)),
+    name: at("name", () => text(given.name)),
+    description: at("description", () => text(given.description)),
+    kind: at("kind", () => enumName(given.kind, "PLAN_KIND_")),
+    product: at("productId", () => optionalText(given.productId)),
+    version: at("versionNumber", () => whole(given.versionNumber)),
+    byDefault: at("byDefault", () => bool(given.byDefault)),
+    status: at("status", () => enumName(given.status, "PLAN_STATUS_")),
+    salesLed: at("salesLed", () => bool(given.salesLed)),
+    priceState: at("priceState", () => enumName(given.priceState, "PLAN_PRICE_STATE_")),
+    trial: at("trial", () =>
+      nullable(given.trial, (trial) => {
+        const length = object<Wire.TrialLength>(trial);
+        return {
+          days: at("days", () => whole(length.days ?? 0)),
+          months: at("months", () => whole(length.months ?? 0)),
+        };
+      }),
+    ),
+    quantity: at("quantity", () =>
+      nullable(given.quantity, (quantity) => {
+        const rule = object<Wire.QuantityRule>(quantity);
+        return { min: at("min", () => whole(rule.min)), max: at("max", () => nullable(rule.max, whole)) };
+      }),
+    ),
+    periods: at("periods", () =>
+      list(given.periods, (item) => {
+        const period = object<Wire.PricedPeriod>(item);
+        return {
+          id: at("id", () => text(period.id)),
+          key: at("key", () => text(period.key)),
+          label: at("label", () => text(period.label)),
+          count: at("count", () => whole(period.count)),
+          unit: at("unit", () => enumName(period.unit, "PERIOD_UNIT_")),
+        };
+      }),
+    ),
+    prices: at("prices", () =>
+      list(given.prices, (item) => {
+        const price = object<Wire.PeriodPrice>(item);
+        return {
+          period: at("periodId", () => optionalText(price.periodId)),
+          price: at("price", () => nullable(price.price, amount)),
+          bands: at("bands", () =>
+            list(price.bands, (band) => {
+              const priced = object<Wire.PricedBand>(band);
+              return {
+                upTo: at("upTo", () => nullable(priced.upTo, whole)),
+                perUnit: at("perUnit", () => bool(priced.perUnit)),
+                amount: at("amount", () => nullable(priced.amount, amount)),
+              };
+            }),
+          ),
+        };
+      }),
+    ),
+    fees: at("fees", () =>
+      list(given.fees, (item) => {
+        const fee = object<Wire.PricedFee>(item);
+        return {
+          key: at("key", () => text(fee.key)),
+          name: at("name", () => text(fee.name)),
+          direction: at("direction", () => enumName(fee.direction, "FEE_DIRECTION_")),
+          price: at("price", () => nullable(fee.price, amount)),
+          schedule: at("schedule", () => nullable(fee.schedule, feeSchedule)),
+        };
+      }),
+    ),
+    items: at("items", () =>
+      list(given.items, (item) => {
+        const planItem = object<Wire.PlanItem>(item);
+        return {
+          feature: at("featureKey", () => text(planItem.featureKey)),
+          value: at("value", () => featureValue(planItem.value, true)),
+          markets: at("value", () => markets(planItem.value)),
+          bank: at("bank", () => nullable(planItem.bank, limit)),
+          benefitThousandths: at("benefitThousandths", () => nullable(planItem.benefitThousandths, whole)),
+        };
+      }),
+    ),
+    availableOn: at("availableOn", () => list(given.availableOn, text)),
+    listings: at("listings", () =>
+      list(given.listings, (item) => {
+        const listing = object<Wire.PlanListing>(item);
+        return {
+          period: at("periodId", () => optionalText(listing.periodId)),
+          channels: at("channels", () => list(listing.channels, channel)),
+        };
+      }),
+    ),
+  };
+}
+
+function pricingSheet(value: unknown): PricingSheet {
+  const given = object<Wire.PricingSheet>(value);
+  return {
+    market: at("market", () => nullable(given.market, pricingMarket)),
+    products: at("products", () =>
+      list(given.products, (item) => {
+        const product = object<Wire.PricedProduct>(item);
+        return {
+          id: at("id", () => text(product.id)),
+          key: at("key", () => text(product.key)),
+          name: at("name", () => text(product.name)),
+          defaultPlanId: at("defaultPlanId", () => optionalText(product.defaultPlanId)),
+        };
+      }),
+    ),
+    plans: at("plans", () => list(given.plans, pricedPlan)),
+    served: at("served", () => served(given.served ?? {})),
+    testers: at("testers", () => bool(given.testers)),
+    customer: at("customer", () => optionalText(given.customer)),
+  };
+}
+
+/** Decodes `Pricing.GetPricing`'s answer. @internal */
+export const decodePricing: Decoder = (value) =>
+  at("pricing", () => pricingSheet(object<Wire.GetPricingResponse>(value).pricing));
+
+function priceLine(value: unknown): PriceLine {
+  const given = object<Wire.CustomerPriceLine>(value);
+  return {
+    planId: at("planId", () => text(given.planId)),
+    version: at("version", () => whole(given.version)),
+    period: at("periodId", () => optionalText(given.periodId)),
+    quantity: at("quantity", () => whole(given.quantity)),
+    state: at("state", () => enumName(given.state, "PLAN_PRICE_STATE_")),
+    price: at("price", () => nullable(given.price, amount)),
+    unitPrice: at("unitPrice", () => nullable(given.unitPrice, amount)),
+    listPrice: at("listPrice", () => nullable(given.listPrice, amount)),
+    discounts: at("discounts", () =>
+      list(given.discounts, (item) => {
+        const discount = object<Wire.CustomerLineDiscount>(item);
+        return {
+          offerId: at("offerId", () => text(discount.offerId)),
+          offerKey: at("offerKey", () => text(discount.offerKey)),
+          offerName: at("offerName", () => text(discount.offerName)),
+          amount: at("amount", () => nullable(discount.amount, amount)),
+        };
+      }),
+    ),
+  };
+}
+
+/** Decodes `Pricing.GetCustomerPricing`'s answer. @internal */
+export const decodeCustomerPricing: Decoder = (value) => {
+  const given = object<Wire.GetCustomerPricingResponse>(value);
+  return {
+    ...at("pricing", () => pricingSheet(given.pricing)),
+    prices: at("prices", () =>
+      nullable(given.prices, (prices) => {
+        const customer = object<Wire.CustomerPrices>(prices);
+        return {
+          market: at("market", () => nullable(customer.market, pricingMarket)),
+          subscriptions: at("subscriptions", () =>
+            list(customer.subscriptions, (item) => {
+              const subscription = object<Wire.SubscriptionPrice>(item);
+              return {
+                subscriptionId: at("subscriptionId", () => text(subscription.subscriptionId)),
+                product: at("productId", () => optionalText(subscription.productId)),
+                renewsAt: at("renewsAt", () => seconds(subscription.renewsAt)),
+                now: at("now", () => list(subscription.now, priceLine)),
+                atRenewal: at("atRenewal", () =>
+                  nullable(subscription.atRenewal, (lines) =>
+                    at("lines", () => list(object<Wire.CustomerPriceLines>(lines).lines, priceLine)),
+                  ),
+                ),
+                nextCharges: at("nextCharges", () =>
+                  list(subscription.nextCharges, (charge) => {
+                    const next = object<Wire.NextCharge>(charge);
+                    return {
+                      fee: at("feeKey", () => text(next.feeKey)),
+                      direction: at("direction", () => enumName(next.direction, "FEE_DIRECTION_")),
+                      at: at("at", () => seconds(next.at)),
+                      amount: at("amount", () => nullable(next.amount, amount)),
+                    };
+                  }),
+                ),
+              };
+            }),
+          ),
+        };
+      }),
+    ),
+  } satisfies CustomerPricing;
+};

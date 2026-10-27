@@ -403,3 +403,278 @@ export interface SnapshotKeySet {
   /** The keys. */
   readonly keys: readonly SnapshotKey[];
 }
+
+/** An amount of money: a whole number of the currency's minor unit, and how to show it. */
+export interface Amount {
+  /** The amount in the currency's minor unit, such as cents. */
+  readonly amount: number;
+  /** The lower-case currency code. */
+  readonly currency: string;
+  /** The amount formatted for the request's locale, such as `$12.00`. */
+  readonly display: string;
+}
+
+/** The market prices are in. */
+export interface PricingMarket {
+  /** The market's id. */
+  readonly id: string;
+  /** The market's key. */
+  readonly key: string;
+  /** The market's name. */
+  readonly name: string;
+  /** The lower-case currency code its prices are in. */
+  readonly currency: string;
+  /** Whether its prices include tax or have it added. */
+  readonly tax: Open<"included" | "added">;
+}
+
+/** A product on sale. */
+export interface PricedProduct {
+  /** The product's id. */
+  readonly id: string;
+  /** The product's key. */
+  readonly key: string;
+  /** The product's name. */
+  readonly name: string;
+  /** The plan a customer holds by default, or `null`. */
+  readonly defaultPlanId: string | null;
+}
+
+/** A billing period a plan is sold for. */
+export interface PricedPeriod {
+  /** The period's id. */
+  readonly id: string;
+  /** The period's key, such as `monthly`. */
+  readonly key: string;
+  /** The period's label, such as `Monthly`. */
+  readonly label: string;
+  /** How many units it lasts. */
+  readonly count: number;
+  /** Its unit. */
+  readonly unit: Open<"days" | "weeks" | "months">;
+}
+
+/** One band of a tiered or per-unit price. */
+export interface PricedBand {
+  /** The quantity the band runs up to, or `null` for the last band. */
+  readonly upTo: number | null;
+  /** True when the amount is per unit, false when it is for the whole band. */
+  readonly perUnit: boolean;
+  /** The band's amount, or `null`. */
+  readonly amount: Amount | null;
+}
+
+/** A plan's price for one period. */
+export interface PeriodPrice {
+  /** The period's id, or `null` for a price with no period. */
+  readonly period: string | null;
+  /** The price, or `null` when the plan is not priced in the market. */
+  readonly price: Amount | null;
+  /** The bands of a price that depends on quantity; empty otherwise. */
+  readonly bands: readonly PricedBand[];
+}
+
+/** When a fee is charged. */
+export type FeeSchedule =
+  | { readonly type: "on_purchase" }
+  | { readonly type: "every_months"; readonly months: number; readonly firstAfterMonths: number }
+  | { readonly type: "yearly"; readonly dates: readonly { readonly month: number; readonly day: number }[] };
+
+/** A fee a plan charges or credits beside its price. */
+export interface PricedFee {
+  /** The fee's key. */
+  readonly key: string;
+  /** The fee's name. */
+  readonly name: string;
+  /** `debit` charges the customer, `credit` pays them. */
+  readonly direction: Open<"debit" | "credit">;
+  /** The fee's amount, or `null`. */
+  readonly price: Amount | null;
+  /** When it is charged, or `null`. */
+  readonly schedule: FeeSchedule | null;
+}
+
+/** A feature a plan gives. */
+export interface PlanItem {
+  /** The feature's key. */
+  readonly feature: string;
+  /** The value the plan gives; `true` for an on/off feature or a group, and `0` for money. */
+  readonly value: Value;
+  /** A money value's limit in each market, by market id, or `null` for a value that isn't money. */
+  readonly markets: Markets | null;
+  /** How much unused allowance carries over, or `null`. */
+  readonly bank: Limit | null;
+  /** The benefit a group member's share counts for, in thousandths, or `null`. */
+  readonly benefitThousandths: number | null;
+}
+
+/** A store's price for a listing. */
+export interface ListingPrice {
+  /** The amount in the currency's minor unit. */
+  readonly amount: number;
+  /** The lower-case currency code. */
+  readonly currency: string;
+  /** How often it renews. */
+  readonly interval: Open<"day" | "week" | "month" | "year">;
+  /** How many intervals each renewal spans. */
+  readonly intervalCount: number;
+  /** Whether the price includes tax. */
+  readonly tax: Open<"inclusive" | "exclusive">;
+}
+
+/** A store or payment provider a plan is listed in. */
+export interface PricedChannel {
+  /** The payment provider. */
+  readonly provider: Open<"stripe" | "apple" | "google">;
+  /** The connection's id. */
+  readonly connectionId: string;
+  /** The connection's name. */
+  readonly name: string;
+  /** `live` or `test`. */
+  readonly mode: Open<"live" | "test">;
+  /** True when the customer can buy it there now. */
+  readonly purchasable: boolean;
+  /** The provider's ids for the listing, as the provider names them, such as `productId` or `priceId`. */
+  readonly ids: Readonly<Record<string, string>>;
+  /** The provider's price, or `null`. */
+  readonly price: ListingPrice | null;
+}
+
+/** Where a plan is listed for one period. */
+export interface PlanListing {
+  /** The period's id, or `null`. */
+  readonly period: string | null;
+  /** The stores and payment providers it is listed in. */
+  readonly channels: readonly PricedChannel[];
+}
+
+/** A plan or add-on on sale, with its prices in the sheet's market. */
+export interface PricedPlan {
+  /** The plan's id. */
+  readonly id: string;
+  /** The plan's key. */
+  readonly key: string;
+  /** The plan's name. */
+  readonly name: string;
+  /** The plan's description. */
+  readonly description: string;
+  /** `plan` or `add_on`. */
+  readonly kind: Open<"plan" | "add_on">;
+  /** The product's id, or `null`. */
+  readonly product: string | null;
+  /** The plan version on sale. */
+  readonly version: number;
+  /** True for the product's default plan. */
+  readonly byDefault: boolean;
+  /** `active`, `legacy` or `archived`. */
+  readonly status: Open<"active" | "legacy" | "archived">;
+  /** True when only the company sells it. */
+  readonly salesLed: boolean;
+  /** `free`, `priced`, or `not_priced` in the sheet's market. */
+  readonly priceState: Open<"free" | "priced" | "not_priced">;
+  /** The trial a new subscriber gets, or `null`. */
+  readonly trial: { readonly days: number; readonly months: number } | null;
+  /** How many a customer may hold, or `null` when it has no quantity. */
+  readonly quantity: { readonly min: number; readonly max: number | null } | null;
+  /** The periods it is sold for. */
+  readonly periods: readonly PricedPeriod[];
+  /** Its price for each period. */
+  readonly prices: readonly PeriodPrice[];
+  /** Its fees. */
+  readonly fees: readonly PricedFee[];
+  /** The features it gives. */
+  readonly items: readonly PlanItem[];
+  /** The plans it can be added to, for an add-on. */
+  readonly availableOn: readonly string[];
+  /** Where it is listed for sale. */
+  readonly listings: readonly PlanListing[];
+}
+
+/** The plans on sale and their prices. */
+export interface PricingSheet {
+  /** The market prices are in, or `null` when none was asked for. */
+  readonly market: PricingMarket | null;
+  /** The products on sale. */
+  readonly products: readonly PricedProduct[];
+  /** The plans and add-ons on sale. */
+  readonly plans: readonly PricedPlan[];
+  /** The catalogue the sheet comes from. */
+  readonly served: Served;
+  /** True when the sheet is a track for testers'. */
+  readonly testers: boolean;
+  /** The customer's external id for a customer's sheet, else `null`. */
+  readonly customer: string | null;
+}
+
+/** An offer's discount on a price line. */
+export interface LineDiscount {
+  /** The offer's id. */
+  readonly offerId: string;
+  /** The offer's key. */
+  readonly offerKey: string;
+  /** The offer's name. */
+  readonly offerName: string;
+  /** The discount, or `null`. */
+  readonly amount: Amount | null;
+}
+
+/** One plan's line on a customer's subscription. */
+export interface PriceLine {
+  /** The plan's id. */
+  readonly planId: string;
+  /** The plan version held. */
+  readonly version: number;
+  /** The period's id, or `null`. */
+  readonly period: string | null;
+  /** How many are held. */
+  readonly quantity: number;
+  /** `free`, `priced` or `not_priced`. */
+  readonly state: Open<"free" | "priced" | "not_priced">;
+  /** What the customer pays for the line, discounts taken off, or `null`. */
+  readonly price: Amount | null;
+  /** The price of one, or `null`. */
+  readonly unitPrice: Amount | null;
+  /** The price before discounts, or `null`. */
+  readonly listPrice: Amount | null;
+  /** The discounts taken off. */
+  readonly discounts: readonly LineDiscount[];
+}
+
+/** A charge or credit a subscription will make. */
+export interface NextCharge {
+  /** The fee's key. */
+  readonly fee: string;
+  /** `debit` or `credit`. */
+  readonly direction: Open<"debit" | "credit">;
+  /** When it happens. */
+  readonly at: Date;
+  /** The amount, or `null`. */
+  readonly amount: Amount | null;
+}
+
+/** What a customer pays for one subscription. */
+export interface SubscriptionPrice {
+  /** The subscription's id. */
+  readonly subscriptionId: string;
+  /** The product's id, or `null`. */
+  readonly product: string | null;
+  /** When it next renews. */
+  readonly renewsAt: Date;
+  /** The lines it charges now. */
+  readonly now: readonly PriceLine[];
+  /** The lines it will charge at renewal, or `null` when nothing changes. */
+  readonly atRenewal: readonly PriceLine[] | null;
+  /** The charges and credits coming. */
+  readonly nextCharges: readonly NextCharge[];
+}
+
+/** A customer's pricing: the plans on sale to them, and what they pay now. */
+export interface CustomerPricing extends PricingSheet {
+  /** What the customer pays for each subscription, or `null` when Entitler has no prices for them. */
+  readonly prices: {
+    /** The customer's market, or `null`. */
+    readonly market: PricingMarket | null;
+    /** Each subscription's prices. */
+    readonly subscriptions: readonly SubscriptionPrice[];
+  } | null;
+}

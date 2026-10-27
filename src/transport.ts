@@ -434,7 +434,16 @@ export class Transport {
 
   async #key(call: Call, url: string, auth: Authorised): Promise<string> {
     return sha256Hex(
-      JSON.stringify(["entitler-cache-v1", call.method, url, auth.kind, await fingerprint(auth.credential)]),
+      JSON.stringify([
+        "entitler-cache-v1",
+        call.method,
+        url,
+        auth.kind,
+        await fingerprint(auth.credential),
+        Object.entries(call.headers ?? {})
+          .filter(([, value]) => value !== undefined)
+          .sort(([a], [b]) => a.localeCompare(b)),
+      ]),
     );
   }
 
