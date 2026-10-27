@@ -29,6 +29,9 @@ All notable changes to this package are listed here. The format follows
   the provider's view for support tools.
 - `features()` on the server and visitor clients reads the catalogue's features served on the default
   track: each one's type, name, unit, decimals and whether it counts money.
+- `@entitlerhq/entitler/testing`: `fakeCustomer()` answers a customer for an app's own tests that
+  makes no request. Checks, usage reports, holds and cancelled usage behave as against Entitler;
+  `answer()` gives any other method's answer, and `writes` lists every write received.
 - `EntitlerClient`, the in-app client for one signed-in customer, built from a customer token (or a
   provider for one) or from a publishable key and an identity token. It asks the provider again
   when Entitler refuses the token, and answers through `me`. `TokenError` reports a failing provider.
