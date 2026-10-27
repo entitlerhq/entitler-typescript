@@ -418,6 +418,38 @@ describe("withHold", () => {
     await vi.waitFor(() => expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 45 } }));
   });
 
+  it("settles a cancelled hold with the usage its work reported before it rejected, before expiry", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const { customer, sent } = holdFlow(undefined, { expiresAtMs: 1_791_507_600_060 });
+      const controller = new AbortController();
+      let fail: (() => void) | undefined;
+      const call = customer.withHold(
+        aiCredits,
+        500,
+        ({ hold }) => {
+          hold.use(30);
+          return new Promise<void>((_, reject) => {
+            fail = () => {
+              hold.use(45);
+              reject(new Error("stopped"));
+            };
+          });
+        },
+        { ...key, signal: controller.signal },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      controller.abort(Number.NaN);
+      await expect(call).rejects.toBeNaN();
+      expect(paths(sent)).toEqual([`POST${HOLDS}`]);
+      fail?.();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 45 } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("frees the hold without running the work when the call was cancelled while it was held", async () => {
     const controller = new AbortController();
     const { customer, sent } = setup((request) => {
