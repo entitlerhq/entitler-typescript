@@ -14,5 +14,9 @@ addEventListener("sign-out", () => {
   entitler.close();
 });
 
-const entitlements = await entitler.me.entitlements({ signal: signedIn.signal });
-document.querySelector("#export")?.toggleAttribute("hidden", !entitlements.has("export_pdf"));
+try {
+  const entitlements = await entitler.me.entitlements({ signal: signedIn.signal });
+  document.querySelector("#export")?.toggleAttribute("hidden", !entitlements.has("export_pdf"));
+} catch (error) {
+  if (!signedIn.signal.aborted) throw error;
+}
