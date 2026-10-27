@@ -67,6 +67,7 @@ export interface Authorised {
 export interface Credentials {
   readonly kind: string;
   authorise(signal: AbortSignal | undefined): Promise<Authorised>;
+  refresh?(used: Authorised, signal: AbortSignal | undefined): Promise<Authorised>;
 }
 
 /** One request. @internal */
@@ -494,13 +495,15 @@ export class Transport {
     const signal = call.options?.signal;
     const timeout = positive(call.options?.timeout ?? this.timeout, "timeout");
     const body = call.body === undefined ? undefined : JSON.stringify(call.body);
+    let current = auth;
+    let refreshed = false;
     for (let retry = 0; ; ) {
       let failure: EntitlerError;
       try {
         const received = await this.#attempt(
           url,
           call.method,
-          { ...headers, ...auth.headers },
+          { ...headers, ...current.headers },
           body,
           signal,
           timeout,
@@ -513,6 +516,11 @@ export class Transport {
         const refused = apiError(received, call.idempotencyKey);
         failure = refused;
         if (received.redirect) throw failure;
+        if (received.status === 401 && !refreshed && this.#credentials.refresh && !call.open) {
+          refreshed = true;
+          current = redacted(await this.#credentials.refresh(current, signal));
+          continue;
+        }
         if (!(RETRIED.has(received.status) || refused.code === "Aborted") || !retryable(call)) throw failure;
       } catch (error) {
         if (!(error instanceof ConnectionError || error instanceof TimeoutError) || !retryable(call)) throw error;
