@@ -214,9 +214,9 @@ describe("holds", () => {
     const hold = await customer.startHold(aiCredits, 500, key);
     hold.use(520);
     const error = (await hold.finish().catch((e: unknown) => e)) as UsageSettlementError;
-    expect(error).toMatchObject({ settled: true, excess: 20 });
+    expect(error).toMatchObject({ settled: true, excess: 20, excessKey: "job-7:excess" });
     expect(error.message).toBe(
-      "Hold hold_1 is closed, but Entitler could not record the 20 used beyond it. Record it in observe mode under the hold's key plus :excess.",
+      "Hold hold_1 is closed, but Entitler could not record the 20 used beyond it. Record it in observe mode under the key job-7:excess.",
     );
   });
 
