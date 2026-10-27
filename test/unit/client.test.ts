@@ -178,6 +178,18 @@ describe("EntitlerClient", () => {
     expect(mock).not.toHaveBeenCalled();
   });
 
+  it("doesn't stand a kept answer in when the provider answers the token Entitler refused", async () => {
+    let served = false;
+    const { fetch } = fakeFetch(() => {
+      if (served) return apiError(401, "Unauthenticated", "TOKEN_EXPIRED");
+      served = true;
+      return json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "private, max-age=0" });
+    });
+    const entitler = new EntitlerClient({ token: async () => "ct_1", fetch });
+    expect((await entitler.me.check("a")).stale).toBe(false);
+    await expect(entitler.me.check("a")).rejects.toBeInstanceOf(TokenError);
+  });
+
   it("aborts the pending token request at close", async () => {
     let seen: AbortSignal | undefined;
     const { fetch } = fakeFetch(json(checkAnswer()));
