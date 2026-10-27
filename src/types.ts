@@ -13,6 +13,9 @@ export type Value = true | number | "unlimited";
 /** An amount, or `"unlimited"`. */
 export type Limit = number | "unlimited";
 
+/** A money value's limit in each market, by market id. */
+export type Markets = Readonly<Record<string, Limit>>;
+
 /** A release answered. */
 export interface ServedRelease {
   /** `release`. */
@@ -85,6 +88,8 @@ export interface PlanSource {
   readonly byDefault: boolean;
   /** The plan's share of the value, or `null` when the answer names none. */
   readonly value: Value | null;
+  /** A money value's limit in each market, by market id, or `null` for a value that isn't money. */
+  readonly markets: Markets | null;
   /** The group whose membership passed this value on, or `null`. */
   readonly through: string | null;
 }
@@ -105,6 +110,8 @@ export interface AddOnSource {
   readonly quantity: number;
   /** The add-on's share of the value, or `null` when the answer names none. */
   readonly value: Value | null;
+  /** A money value's limit in each market, by market id, or `null` for a value that isn't money. */
+  readonly markets: Markets | null;
   /** The group whose membership passed this value on, or `null`. */
   readonly through: string | null;
 }
@@ -119,6 +126,8 @@ export interface GrantSource {
   readonly until: Date | null;
   /** The grant's share of the value, or `null` when the answer names none. */
   readonly value: Value | null;
+  /** A money value's limit in each market, by market id, or `null` for a value that isn't money. */
+  readonly markets: Markets | null;
   /** The group whose membership passed this value on, or `null`. */
   readonly through: string | null;
 }
@@ -180,8 +189,17 @@ export interface Entitlement {
   readonly type: FeatureType;
   /** Entitler's decision: whether the customer may use the feature now. */
   readonly entitled: boolean;
-  /** The customer's value; for an on/off feature or a group, `true` or `0`. */
+  /** The customer's value; for an on/off feature or a group, `true` or `0`, and `0` for money. */
   readonly value: Value;
+  /** A money value's limit in each market, by market id, or `null` for a value that isn't money. */
+  readonly markets: Markets | null;
+  /**
+   * How many decimal places the feature's amounts count: every amount on it (the allowance, the
+   * meter, usage) is a whole number of its smallest unit, so 1.5 GB at 3 decimals is 1500.
+   */
+  readonly decimals: number;
+  /** The lower-case currency code a money feature counts in, or `null` for any other feature. */
+  readonly currency: string | null;
   /** Where the value comes from; a group names its member features. */
   readonly sources: readonly EntitlementSource[];
   /** Plans and add-ons that would give the customer the feature. */
@@ -298,6 +316,8 @@ export interface UsageResult extends AnswerContext, Entitlement {
   readonly expiresAt: Date | null;
   /** True when the idempotency key repeated an earlier request, which answered this. */
   readonly replayed: boolean;
+  /** True when the write would have taken the meter past 2^53 − 1, so it was recorded off the meter. */
+  readonly saturated: boolean;
 }
 
 /** A customer as Entitler keeps them. */

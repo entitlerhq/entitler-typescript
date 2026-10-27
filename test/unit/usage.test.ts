@@ -302,6 +302,30 @@ describe("holds", () => {
     });
   });
 
+  it("sends a money feature's currency, and records its excess in the same currency", async () => {
+    const spend = defineFeature("spend", "metered");
+    const answer = (usage: Record<string, unknown>) => {
+      const reply = usageAnswer(usage);
+      Object.assign(reply.tracked.entitlement, { featureKey: "spend", decimals: 2, currency: "aud" });
+      return json(reply);
+    };
+    const { customer, sent } = setup((request) => {
+      if (request.path === HOLDS)
+        return answer({ outcome: "held", holdId: "hold_1", amount: 500, expiresAtMs: 32_503_680_000_000 });
+      if (request.path.endsWith(":settle")) return answer({ outcome: "settled" });
+      return answer({ mode: "observe", saturated: true });
+    });
+    await customer.withHold(spend, 500, ({ hold }) => hold.use(650), { idempotencyKey: "job-8", currency: "aud" });
+    expect(sent[0]?.body).toMatchObject({ featureKey: "spend", amount: 500, currency: "aud" });
+    expect(sent[2]?.body).toMatchObject({ amount: 150, idempotencyKey: "job-8:excess", currency: "aud" });
+    const recorded = await customer.recordUsage(spend, 250, { idempotencyKey: "job-9", currency: "aud" });
+    expect(sent[3]?.body).toMatchObject({ amount: 250, currency: "aud" });
+    expect(recorded).toMatchObject({ decimals: 2, currency: "aud", saturated: true });
+    await expect(
+      customer.recordUsage(spend, 1, { idempotencyKey: "job-10", currency: 36 as unknown as string }),
+    ).rejects.toBeInstanceOf(TypeError);
+  });
+
   it("frees a hold that expired with nothing used", async () => {
     const { customer, sent } = holdFlow(apiError(400, "FailedPrecondition", "HOLD_EXPIRED"));
     const hold = await customer.startHold(aiCredits, 500, key);

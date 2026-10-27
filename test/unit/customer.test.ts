@@ -31,11 +31,15 @@ describe("check", () => {
           version: 1,
           byDefault: false,
           value: true,
+          markets: null,
           through: null,
         },
       ],
       upgrades: [],
       meter: null,
+      markets: null,
+      decimals: 0,
+      currency: null,
       stale: false,
     });
   });
@@ -141,10 +145,28 @@ describe("check", () => {
         version: 3,
         byDefault: true,
         value: null,
+        markets: null,
         through: "suite",
       },
-      { type: "addon", planId: "pl_2", plan: "seats", name: "Seats", version: 1, quantity: 4, value: 4, through: null },
-      { type: "grant", grant: "gr_1", until: new Date("2026-11-01T00:00:00Z"), value: true, through: null },
+      {
+        type: "addon",
+        planId: "pl_2",
+        plan: "seats",
+        name: "Seats",
+        version: 1,
+        quantity: 4,
+        value: 4,
+        markets: null,
+        through: null,
+      },
+      {
+        type: "grant",
+        grant: "gr_1",
+        until: new Date("2026-11-01T00:00:00Z"),
+        value: true,
+        markets: null,
+        through: null,
+      },
     ]);
     expect(check.upgrades).toEqual([
       { kind: "plan", planId: "pl_3", plan: "team", name: "Team", product: "pr_1", move: "upgrade", action: "buy" },
@@ -179,6 +201,36 @@ describe("check", () => {
     expect(check.customerId).toBeNull();
     expect(check.entitled).toBe(false);
     expect(check.sources[0]).toMatchObject({ type: "plan", product: null, byDefault: true });
+  });
+
+  it("reads a money feature's limits by market, its decimals and its currency", async () => {
+    const money = {
+      money: {
+        limits: [
+          { marketId: "mk_au", limit: { count: 5000 } },
+          { marketId: "mk_us", limit: { unlimited: {} } },
+        ],
+      },
+    };
+    const { customer: ada } = customer(
+      json(
+        checkAnswer({
+          kind: "ENTITLED_FEATURE_KIND_METERED",
+          value: money,
+          meter: { used: 150, held: 0, banked: 0, remaining: { count: 4850 } },
+          sources: [{ grant: { grantId: "gr_1", value: money } }],
+          decimals: 2,
+          currency: "aud",
+        }),
+      ),
+    );
+    expect(await ada.check("spend")).toMatchObject({
+      value: 0,
+      markets: { mk_au: 5000, mk_us: "unlimited" },
+      decimals: 2,
+      currency: "aud",
+      sources: [{ type: "grant", value: 0, markets: { mk_au: 5000, mk_us: "unlimited" } }],
+    });
   });
 
   it("skips a source kind this SDK doesn't know", async () => {

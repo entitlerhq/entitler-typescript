@@ -54,6 +54,11 @@ export interface UsageWriteOptions extends CallOptions {
    * another process or after a restart never charges twice.
    */
   idempotencyKey: string;
+  /**
+   * The lower-case currency code the amount counts in, for a money feature: it must be the
+   * customer's, the `currency` its entitlement answers. Leave it out for any other feature.
+   */
+  currency?: string;
 }
 
 /** Options for {@link Customer.recordUsage}. */
@@ -296,6 +301,12 @@ function details(options: CustomerDetailsInput | undefined): Record<string, unkn
   };
 }
 
+function currency(options: UsageWriteOptions): { currency?: string } {
+  if (options.currency === undefined) return {};
+  if (typeof options.currency !== "string") throw new TypeError("Pass currency as a currency code.");
+  return { currency: options.currency };
+}
+
 const SNAPSHOT_SECONDS = 30 * 24 * 60 * 60;
 
 const USAGE_AMOUNT = `Pass amount as a whole number from 1 to ${Number.MAX_SAFE_INTEGER}.`;
@@ -412,6 +423,7 @@ export class CustomerApi implements ServerCustomer {
       ...(options.mode === undefined ? {} : { mode: `USAGE_MODE_${options.mode.toUpperCase()}` }),
       ...(occurredAt === undefined ? {} : { occurredAtMs: occurredAt.getTime() }),
       ...(options.register === undefined ? {} : { register: options.register }),
+      ...currency(options),
     };
     return (await this.#usage("Usage.ReportUsage", {}, body, options, idempotencyKey)).data;
   }
@@ -429,6 +441,7 @@ export class CustomerApi implements ServerCustomer {
       ...(options.ttlSeconds === undefined
         ? {}
         : { ttlSeconds: wholeNumber(options.ttlSeconds, "ttlSeconds", 1, 3600) }),
+      ...currency(options),
     };
     return this.#usage("Usage.CreateHold", {}, body, options, idempotencyKey);
   }
@@ -473,7 +486,12 @@ export class CustomerApi implements ServerCustomer {
       const settled = Math.min(total, answer.amount);
       const excess = total > answer.amount ? total - answer.amount : undefined;
       const observe = (amount: number) =>
-        this.recordUsage(feature, amount, { ...call(), mode: "observe", idempotencyKey: key + EXCESS });
+        this.recordUsage(feature, amount, {
+          ...call(),
+          mode: "observe",
+          idempotencyKey: key + EXCESS,
+          ...(answer.currency === null ? {} : { currency: answer.currency }),
+        });
       let unrecorded = excess;
       let closed = false;
       try {

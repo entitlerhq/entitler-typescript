@@ -22,3 +22,6 @@ All notable changes to this package are listed here. The format follows
 - Offline snapshots: `snapshot()` asks Entitler to sign the customer's entitlements, `snapshotKeys()`
   fetches the keys that verify them without a credential, and `verifySnapshot()` checks one offline
   and answers its entitlements. `SnapshotError` reports why one fails to verify.
+- Fractional usage and money: every entitlement answers the `decimals` its amounts count and, for a
+  money feature, its `currency`; a money value's limits come by market in `markets`. Usage writes
+  take a `currency`, and a usage result says when it was `saturated`.
