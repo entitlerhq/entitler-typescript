@@ -16,13 +16,15 @@ import { deadlineAfter, requireCredential, untilAborted } from "./util.js";
  */
 export type TokenProvider = (context: { signal: AbortSignal }) => string | Promise<string>;
 
+const REFUSALS_KEPT = 16;
+
 /** A token kept from a fixed string or a provider. @internal */
 export class TokenSource {
   readonly #provider: TokenProvider | undefined;
   readonly #timeout: number;
   readonly #closing: () => AbortSignal | undefined;
   #current: string | undefined;
-  #refused: string | undefined;
+  readonly #refused = new Set<string>();
   #pending: Promise<string> | undefined;
 
   constructor(value: string | TokenProvider, blank: string, timeout: number, closing: () => AbortSignal | undefined) {
@@ -41,7 +43,8 @@ export class TokenSource {
   }
 
   refuse(token: string): void {
-    this.#refused = token;
+    this.#refused.add(token);
+    if (this.#refused.size > REFUSALS_KEPT) this.#refused.delete(this.#refused.values().next().value as string);
     if (this.#current === token) this.#current = undefined;
   }
 
@@ -73,7 +76,8 @@ export class TokenSource {
     } catch {
       throw new TokenError("The token provider answered a blank token, or one that can't go in a header.");
     }
-    if (token !== this.#refused) this.#current = token;
+    if (this.#refused.has(token)) throw new TokenError("The token provider answered a token Entitler refused.");
+    this.#current = token;
     return token;
   }
 }

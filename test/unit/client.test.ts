@@ -113,15 +113,41 @@ describe("EntitlerClient", () => {
     expect(sent.map((request) => request.headers.authorization)).toEqual(["Bearer ct_1", "Bearer ct_3"]);
   });
 
-  it("never resends a refused token the provider answers again, nor keeps it", async () => {
+  it("never sends a refused token the provider answers again, nor keeps it", async () => {
     const token = vi.fn(async () => "ct_x");
     const { fetch, sent } = fakeFetch(apiError(401, "Unauthenticated", "TOKEN_INVALID"));
     const entitler = new EntitlerClient({ token, fetch });
-    await expect(entitler.me.check("f")).rejects.toMatchObject({ reason: "TOKEN_INVALID" });
+    await expect(entitler.me.check("f")).rejects.toBeInstanceOf(TokenError);
+    await expect(entitler.me.check("f")).rejects.toBeInstanceOf(TokenError);
     expect(sent).toHaveLength(1);
-    await expect(entitler.me.check("f")).rejects.toMatchObject({ reason: "TOKEN_INVALID" });
-    expect(sent).toHaveLength(2);
-    expect(token).toHaveBeenCalledTimes(4);
+    expect(token).toHaveBeenCalledTimes(3);
+  });
+
+  it("remembers every refused token, not only the latest", async () => {
+    const tokens = ["ct_1", "ct_2", "ct_1"];
+    const { fetch, sent } = fakeFetch(apiError(401, "Unauthenticated", "TOKEN_EXPIRED"));
+    const entitler = new EntitlerClient({ token: async () => tokens.shift() as string, fetch });
+    await expect(entitler.me.check("a")).rejects.toMatchObject({ status: 401 });
+    await expect(entitler.me.check("a")).rejects.toBeInstanceOf(TokenError);
+    expect(sent.map((request) => request.headers.authorization)).toEqual(["Bearer ct_1", "Bearer ct_2"]);
+  });
+
+  it("answers a kept entry as stale when the provider fails after a refusal", async () => {
+    let asked = 0;
+    const token = async () => {
+      if (++asked > 1) throw new Error("offline");
+      return "ct_1";
+    };
+    let served = false;
+    const { fetch } = fakeFetch(() => {
+      if (served) return apiError(401, "Unauthenticated", "TOKEN_EXPIRED");
+      served = true;
+      return json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "private, max-age=0" });
+    });
+    const entitler = new EntitlerClient({ token, fetch, onError: () => {} });
+    expect((await entitler.me.check("a")).stale).toBe(false);
+    expect((await entitler.me.check("a")).stale).toBe(true);
+    expect((await entitler.me.check("a")).stale).toBe(true);
   });
 
   it("passes a fixed token's refusal on without asking again", async () => {
