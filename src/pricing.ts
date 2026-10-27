@@ -17,6 +17,15 @@ export interface PricingOptions extends CustomerPricingOptions {
   country?: string;
 }
 
+function isLocale(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    return Intl.getCanonicalLocales(value).length === 1;
+  } catch {
+    return false;
+  }
+}
+
 /** Reads a pricing operation through the answer cache, in the locale asked for. @internal */
 export async function readPricing<T>(
   transport: Transport,
@@ -26,7 +35,7 @@ export async function readPricing<T>(
   options: CustomerPricingOptions | undefined,
   decode: Decoder,
 ): Promise<T> {
-  if (options?.locale !== undefined && typeof options.locale !== "string") {
+  if (options?.locale !== undefined && !isLocale(options.locale)) {
     throw new TypeError("Pass locale as a BCP 47 language tag.");
   }
   const answer = await transport.send<T>({
