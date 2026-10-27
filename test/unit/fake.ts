@@ -95,7 +95,7 @@ export function usageAnswer(usage: Record<string, unknown> = {}, tracked: Record
         featureKey: "ai_credits",
         kind: "ENTITLED_FEATURE_KIND_METERED",
         value: { metered: { count: 1000 } },
-        meter: { used: 10, remaining: { count: 990 } },
+        meter: { used: 10, held: 0, banked: 0, remaining: { count: 990 } },
         sources: [],
       }),
       usage: {
