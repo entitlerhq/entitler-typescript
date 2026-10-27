@@ -164,6 +164,8 @@ describe("EntitlerClient", () => {
     expect(error).toBeInstanceOf(TokenError);
     expect(error).toMatchObject({ message: "The token provider failed.", cause: new Error("offline") });
     expect(isUnreachable(error)).toBe(true);
+    const silent = new EntitlerClient({ token: () => Promise.reject(undefined), fetch });
+    expect(isUnreachable(await silent.me.check("f").catch((e: unknown) => e))).toBe(true);
     expect(await failing.me.isEntitled("f", { default: true })).toBe(true);
     const slow = new EntitlerClient({ token: () => new Promise<string>(() => {}), fetch, timeout: 10 });
     const late = await slow.me.check("f").catch((e: unknown) => e);

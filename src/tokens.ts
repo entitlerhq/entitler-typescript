@@ -64,7 +64,7 @@ export class TokenSource {
       if (closing?.aborted) throw closing.reason;
       throw new TokenError(
         timer.aborted ? `The token provider did not answer within ${this.#timeout} ms.` : "The token provider failed.",
-        { cause },
+        { cause: cause ?? new Error("The token provider rejected without a reason.") },
       );
     }
     let token: string;
