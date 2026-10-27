@@ -258,6 +258,7 @@ export class Transport {
   #downUntil = 0;
   #probing = false;
   #authorised: Authorised | undefined;
+  readonly #unrenewed = new Set<string>();
 
   constructor(options: TransportOptions, credentials: Credentials, headers: () => Record<string, string> = () => ({})) {
     this.baseUrl = (options.baseUrl ?? "https://api.entitler.app").replace(/\/+$/, "");
@@ -344,7 +345,7 @@ export class Transport {
       const received = await this.#exchange(call, url, headers, auth);
       if (received.status === 304) throw apiError(received, call.idempotencyKey);
       if (this.#cache && call.customer !== undefined && call.method !== "GET") {
-        await this.#renew(this.#cache, received.auth ?? auth, call.customer);
+        await this.#renew(this.#cache, await this.#generationKey(received.auth ?? auth, call.customer), signal);
       }
       return {
         data: call.empty && received.text === "" ? (undefined as T) : this.#decode<T>(received.text, received, call),
@@ -445,20 +446,16 @@ export class Transport {
   }
 
   async #generation(cache: CacheStore, auth: Authorised, customer: string, signal: AbortSignal | undefined) {
-    const found = await this.#get(cache, await this.#generationKey(auth, customer), signal);
-    return found?.body ?? (await this.#renew(cache, auth, customer, signal));
+    const key = await this.#generationKey(auth, customer);
+    const found = this.#unrenewed.has(key) ? undefined : await this.#get(cache, key, signal);
+    return found?.body ?? (await this.#renew(cache, key, signal));
   }
 
-  async #renew(cache: CacheStore, auth: Authorised, customer: string, signal?: AbortSignal): Promise<string> {
+  async #renew(cache: CacheStore, key: string, signal: AbortSignal | undefined): Promise<string> {
     const generation = crypto.randomUUID();
     const entry: CacheEntry = { v: 1, body: generation, receivedAt: Date.now() };
-    await this.#set(
-      cache,
-      await this.#generationKey(auth, customer),
-      entry,
-      signal,
-      this.#staleFor + GENERATION_LIFETIME,
-    );
+    this.#unrenewed.add(key);
+    if (await this.#set(cache, key, entry, signal, this.#staleFor + GENERATION_LIFETIME)) this.#unrenewed.delete(key);
     return generation;
   }
 
@@ -510,15 +507,17 @@ export class Transport {
     entry: CacheEntry,
     signal: AbortSignal | undefined,
     ttl = this.#staleFor + (maxAgeOf(entry.cacheControl) ?? 0) * 1000,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       await untilAborted(
         Promise.resolve().then(() => cache.set(key, entry, Math.min(ttl, Number.MAX_SAFE_INTEGER))),
         signal,
       );
+      return true;
     } catch (error) {
       if (signal?.aborted && error === signal.reason) throw error;
       this.report(error);
+      return false;
     }
   }
 
