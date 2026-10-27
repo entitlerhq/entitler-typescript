@@ -364,8 +364,8 @@ describe("withHold", () => {
     expect(after.sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 300 } });
   });
 
-  it("closes a cancelled hold when it expires, if its work never stops", async () => {
-    const { customer, sent } = holdFlow(undefined, { expiresAtMs: Date.now() + 60 });
+  it("closes a cancelled hold when it expires by the server's clock, if its work never stops", async () => {
+    const { customer, sent } = holdFlow(undefined, { expiresAtMs: 1_791_507_600_060 });
     const controller = new AbortController();
     let started = false;
     const call = customer.withHold(

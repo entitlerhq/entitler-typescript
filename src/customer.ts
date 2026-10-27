@@ -279,8 +279,8 @@ const AMOUNT_USED = "Pass the amount used as a whole number of 0 or more.";
 const EXCESS = ":excess";
 const DISPOSE = Symbol("dispose");
 
-function disposeOnceStopped(work: Promise<unknown>, expiresAt: Date, dispose: () => Promise<void>): void {
-  const expiry = setTimeout(dispose, timerDelay(expiresAt.getTime() - Date.now()));
+function disposeOnceStopped(work: Promise<unknown>, expiresIn: number, dispose: () => Promise<void>): void {
+  const expiry = setTimeout(dispose, timerDelay(expiresIn));
   (expiry as { unref?: () => void }).unref?.();
   const stopped = () => {
     clearTimeout(expiry);
@@ -514,6 +514,7 @@ export class CustomerApi implements ServerCustomer {
   ): Promise<R> {
     if (typeof work !== "function") throw new TypeError("Pass work as a function.");
     const hold = await this.startHold(feature, amount, options);
+    const heldAt = Date.now();
     const signal = options.signal;
     const dispose = (hold as Hold & { [DISPOSE]: () => Promise<void> })[DISPOSE];
     let running: Promise<R> | undefined;
@@ -524,7 +525,8 @@ export class CustomerApi implements ServerCustomer {
       result = await untilAborted(running, signal);
     } catch (error) {
       if (running && signal?.aborted && Object.is(error, signal.reason)) {
-        disposeOnceStopped(running, hold.expiresAt, dispose);
+        const lifetime = hold.expiresAt.getTime() - hold.result.asOf.getTime();
+        disposeOnceStopped(running, lifetime - (Date.now() - heldAt), dispose);
       } else {
         await dispose();
       }
