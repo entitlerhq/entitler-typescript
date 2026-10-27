@@ -17,7 +17,7 @@ bun install
 | `bun run build` | builds `dist` with `tsc` |
 | `bun run test` | the unit suite (`bun run test:coverage` adds coverage, failing below 90% of lines) |
 | `bun run generate` | regenerates `src/wire.gen.ts` from `openapi.json`, the API document |
-| `bun run vectors` | rewrites `test/fixtures/snapshot-vectors.json`, the signed snapshots and outcomes every Entitler SDK verifies alike, with a new key; rerun it only when the snapshot format changes, and share the file with the other SDKs |
+| `bun run vectors` | runs the snapshot decoder's hand-written tests, then rewrites `test/fixtures/snapshot-vectors.json`, the signed snapshots and outcomes every Entitler SDK verifies alike, with a new key; rerun it only when the snapshot format changes, and share the file with the other SDKs |
 
 ## Releases
 
