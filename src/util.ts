@@ -121,7 +121,10 @@ export function sleep(ms: number, signal: AbortSignal | undefined): Promise<void
 /** Answers `promise`, or rejects with the signal's reason once it aborts. @internal */
 export function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(signal.reason);
+  if (signal.aborted) {
+    promise.catch(() => undefined);
+    return Promise.reject(signal.reason);
+  }
   return new Promise((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
     signal.addEventListener("abort", onAbort, { once: true });
