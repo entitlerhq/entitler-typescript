@@ -19,6 +19,11 @@ export async function afterPayment(entitler: EntitlerClient, plan: string): Prom
     () => false,
   );
   const plans = synced ? await entitler.me.plans({ revalidate: true }).catch(() => null) : null;
-  const paid = !plans?.stale && (plans?.holdings?.lanes.some((lane) => lane.plan?.key === plan) ?? false);
+  const paid =
+    !plans?.stale &&
+    (plans?.holdings?.lanes.some(
+      (lane) => lane.plan?.key === plan || lane.addOns.some((addOn) => addOn.key === plan),
+    ) ??
+      false);
   return paid ? "active" : "pending";
 }
