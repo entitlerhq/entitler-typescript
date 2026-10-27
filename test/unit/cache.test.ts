@@ -323,6 +323,26 @@ describe("invalidation", () => {
     expect(ttls).toEqual([86_400_000]);
   });
 
+  it("bypasses its kept answers for a customer whose invalidation the store refused, until it takes one", async () => {
+    const store = spyStore();
+    let refusing = false;
+    const set = store.set;
+    store.set = (key, entry, ttl) =>
+      refusing && !entry.etag ? Promise.reject(new Error("store down")) : set(key, entry, ttl);
+    const { fetch, sent } = fakeFetch((request) =>
+      request.method === "GET" ? json(checkAnswer(), 200, fresh) : json({ erased: 1 }),
+    );
+    const customer = new EntitlerServer({ key: "k", fetch, cache: store, onError: () => {} }).customer("u");
+    await customer.check("f");
+    refusing = true;
+    await customer.erase();
+    await customer.check("f");
+    refusing = false;
+    await customer.check("f");
+    await customer.check("f");
+    expect(sent.map((request) => request.method)).toEqual(["GET", "POST", "GET", "GET"]);
+  });
+
   it("misses rather than answers an old entry once the customer's generation is gone", async () => {
     const store = spyStore();
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
