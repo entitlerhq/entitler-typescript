@@ -1,6 +1,6 @@
-import type { ServerCustomer } from "./customer.js";
+import type { CheckOptions, EndPlanOptions, ServerCustomer, SetPlanOptions } from "./customer.js";
 import { EntitlerServer } from "./server.js";
-import type { Limit } from "./types.js";
+import type { Feature, Limit } from "./types.js";
 
 /** A metered feature in {@link fakeCustomer}: its allowance and how much is used. */
 export interface FakeMeter {
@@ -34,7 +34,11 @@ export type CustomerMethod = {
 
 /** A replacement for one method: it takes that method's arguments and answers its result. */
 export type FakeAnswer<M extends CustomerMethod> = ServerCustomer[M] extends (...args: infer A) => infer R
-  ? (...args: A) => R | Awaited<R>
+  ? M extends "check"
+    ? (feature: Feature | string, options?: CheckOptions) => R | Awaited<R>
+    : M extends "setPlan"
+      ? (plan: string | null, options?: SetPlanOptions | EndPlanOptions) => R | Awaited<R>
+      : (...args: A) => R | Awaited<R>
   : never;
 
 /** A {@link ServerCustomer} that makes no request, for an app's own tests. */
@@ -62,7 +66,7 @@ const READS = new Set<string>(["check", "isEntitled", "entitlements", "plans", "
 
 type Body = Record<string, unknown>;
 
-interface Feature {
+interface ModelFeature {
   readonly type: "switch" | "configuration" | "metered";
   readonly value: true | Limit;
   used: number;
@@ -73,7 +77,7 @@ interface HoldState {
   readonly feature: string;
   readonly amount: number;
   readonly expiresAt: number;
-  state: "open" | "settled" | "released";
+  state: "open" | "settled" | "released" | "expired";
 }
 
 interface Report {
@@ -89,7 +93,7 @@ const failure = (status: number, code: string, reason: string): Response =>
 
 class Model {
   readonly #id: string;
-  readonly #features = new Map<string, Feature>();
+  readonly #features = new Map<string, ModelFeature>();
   readonly #holds = new Map<string, HoldState>();
   readonly #reports = new Map<string, Report>();
   readonly #keys = new Map<string, { request: string; answer: Body }>();
@@ -143,14 +147,14 @@ class Model {
     };
   }
 
-  #left(feature: Feature): number {
+  #left(feature: ModelFeature): number {
     return feature.value === "unlimited"
       ? Number.POSITIVE_INFINITY
       : Math.max(0, Number(feature.value) - feature.used - feature.held);
   }
 
   #entitlement(key: string): Body {
-    const feature = this.#features.get(key) as Feature;
+    const feature = this.#features.get(key) as ModelFeature;
     const base = { featureKey: key, sources: [], upgrades: [], decimals: 0, currency: "" };
     if (feature.type === "switch") {
       return { ...base, kind: "ENTITLED_FEATURE_KIND_SWITCH", entitled: true, value: { switch: true } };
@@ -215,14 +219,14 @@ class Model {
     return Response.json(answer);
   }
 
-  #metered(key: string): Feature | Response {
+  #metered(key: string): ModelFeature | Response {
     const feature = this.#features.get(key);
     if (!feature) return failure(404, "NotFound", "FEATURE_NOT_FOUND");
     if (feature.type !== "metered") return failure(400, "FailedPrecondition", "USAGE_FEATURE_NOT_METERED");
     return feature;
   }
 
-  #refusal(feature: Feature, amount: number): string | undefined {
+  #refusal(feature: ModelFeature, amount: number): string | undefined {
     if (feature.value === 0) return "USAGE_REFUSAL_NOT_ENTITLED";
     return amount > this.#left(feature) ? "USAGE_REFUSAL_OVER_ALLOWANCE" : undefined;
   }
@@ -266,7 +270,6 @@ class Model {
   #open(id: string): HoldState | Response {
     const hold = this.#holds.get(id);
     if (!hold) return failure(404, "NotFound", "HOLD_NOT_FOUND");
-    if (hold.expiresAt <= Date.now()) return failure(400, "FailedPrecondition", "HOLD_EXPIRED");
     if (hold.state !== "open") return failure(400, "FailedPrecondition", `HOLD_${hold.state.toUpperCase()}`);
     return hold;
   }
@@ -275,7 +278,7 @@ class Model {
     const hold = this.#open(id);
     if (hold instanceof Response) return hold;
     if (amount > hold.amount) return failure(400, "InvalidArgument", "USAGE_AMOUNT_INVALID");
-    const feature = this.#features.get(hold.feature) as Feature;
+    const feature = this.#features.get(hold.feature) as ModelFeature;
     hold.state = "settled";
     feature.held -= hold.amount;
     feature.used += amount;
@@ -296,7 +299,7 @@ class Model {
     const hold = this.#open(id);
     if (hold instanceof Response) return hold;
     hold.state = "released";
-    (this.#features.get(hold.feature) as Feature).held -= hold.amount;
+    (this.#features.get(hold.feature) as ModelFeature).held -= hold.amount;
     return Response.json(this.#answer(hold.feature, { outcome: "USAGE_OUTCOME_RELEASED", holdId: id, amount: 0 }));
   }
 
@@ -304,7 +307,7 @@ class Model {
     const report = this.#reports.get(id);
     if (!report) return failure(404, "NotFound", "USAGE_NOT_FOUND");
     const replayed = report.cancelled;
-    if (!replayed) (this.#features.get(report.feature) as Feature).used -= report.amount;
+    if (!replayed) (this.#features.get(report.feature) as ModelFeature).used -= report.amount;
     report.cancelled = true;
     return Response.json(
       this.#answer(report.feature, {
@@ -320,8 +323,8 @@ class Model {
   #expire(): void {
     for (const hold of this.#holds.values()) {
       if (hold.state === "open" && hold.expiresAt <= Date.now()) {
-        hold.state = "released";
-        (this.#features.get(hold.feature) as Feature).held -= hold.amount;
+        hold.state = "expired";
+        (this.#features.get(hold.feature) as ModelFeature).held -= hold.amount;
       }
     }
   }

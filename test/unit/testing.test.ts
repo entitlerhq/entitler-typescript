@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, defineFeature, UsageRefusedError } from "../../src/index.js";
 import { fakeCustomer } from "../../src/testing.js";
 
 const aiCredits = defineFeature("ai_credits", "metered");
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("fakeCustomer", () => {
   it("answers the features it holds, and refuses one it doesn't", async () => {
@@ -72,15 +76,38 @@ describe("fakeCustomer", () => {
     expect(customer.writes.map((write) => write.method)).toEqual(["withHold", "startHold", "startHold", "settleUsage"]);
   });
 
+  it("releases an expired hold, and refuses to settle it", async () => {
+    vi.useFakeTimers();
+    const customer = fakeCustomer({ ai_credits: { value: 100 } });
+    const hold = await customer.startHold(aiCredits, 40, { idempotencyKey: "msg-4", ttlSeconds: 60 });
+    expect((await customer.check(aiCredits)).meter).toMatchObject({ held: 40, remaining: 60 });
+    vi.advanceTimersByTime(61_000);
+    expect((await customer.check(aiCredits)).meter).toMatchObject({ held: 0, remaining: 100 });
+    await expect(customer.settleUsage(hold.id, 1)).rejects.toMatchObject({ reason: "HOLD_EXPIRED" });
+  });
+
+  it("answers a second cancellation as a replay, and never runs out of an unlimited meter", async () => {
+    const customer = fakeCustomer({ ai_credits: { value: "unlimited" } });
+    const report = await customer.recordUsage(aiCredits, 1_000_000, { idempotencyKey: "big" });
+    expect(report).toMatchObject({ outcome: "recorded", overBy: 0, meter: { remaining: "unlimited" } });
+    await customer.cancelUsage(report.id as string);
+    expect(await customer.cancelUsage(report.id as string)).toMatchObject({
+      outcome: "cancelled",
+      replayed: true,
+      meterChange: 0,
+      meter: { used: 0 },
+    });
+  });
+
   it("answers other methods only when given their answer, and logs writes", async () => {
     const customer = fakeCustomer({});
     await expect(customer.plans()).rejects.toThrow('give its answer with answer("plans", fn)');
     customer.answer("setPlan", async (plan) => ({
       next: "pay",
-      url: `https://pay.example/${plan}`,
+      url: `https://pay.example/${plan?.toUpperCase()}`,
       status: "checkout",
     }));
-    expect(await customer.setPlan("pro")).toEqual({ next: "pay", url: "https://pay.example/pro", status: "checkout" });
+    expect(await customer.setPlan("pro")).toEqual({ next: "pay", url: "https://pay.example/PRO", status: "checkout" });
     expect(customer.writes).toEqual([{ method: "setPlan", args: ["pro"] }]);
     await expect(customer.recordUsage(aiCredits, 1, { idempotencyKey: "k" })).rejects.toBeInstanceOf(ApiError);
   });
