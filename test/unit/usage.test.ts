@@ -364,6 +364,23 @@ describe("withHold", () => {
     expect(after.sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 300 } });
   });
 
+  it("closes a cancelled hold when it expires, if its work never stops", async () => {
+    const { customer, sent } = holdFlow(undefined, { expiresAtMs: Date.now() + 30 });
+    const controller = new AbortController();
+    const call = customer.withHold(
+      aiCredits,
+      500,
+      ({ hold }) => {
+        hold.use(30);
+        controller.abort();
+        return new Promise(() => {});
+      },
+      { ...key, signal: controller.signal },
+    );
+    await expect(call).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 30 } }));
+  });
+
   it("passes a cancellation on at once, and keeps the hold until the work stops", async () => {
     const { customer, sent } = holdFlow();
     const controller = new AbortController();

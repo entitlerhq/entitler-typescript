@@ -24,7 +24,7 @@ import type {
   UsageMode,
   UsageResult,
 } from "./types.js";
-import { featureKey, requiredKey, requireId, untilAborted, wholeNumber } from "./util.js";
+import { featureKey, requiredKey, requireId, timerDelay, untilAborted, wholeNumber } from "./util.js";
 
 /** Options for a customer's reads. */
 export interface CheckOptions extends ReadOptions {
@@ -171,8 +171,10 @@ export interface Customer {
   /**
    * Holds an amount, runs `work`, then settles what `work` reported with `hold.use(n)`, or the whole
    * hold when it reported nothing. When `work` throws, settles what it reported or frees the hold.
-   * When the call is cancelled, rejects at once and closes the hold once `work` stops. Throws {@link UsageRefusedError} before `work` runs when the customer has too little left, and
-   * {@link UsageSettlementError} holding `work`'s result when settling fails.
+   * When the call is cancelled, rejects at once and closes the hold once `work` stops, or when the
+   * hold expires if `work` never does. Throws {@link UsageRefusedError} before `work` runs when the
+   * customer has too little left, and {@link UsageSettlementError} holding `work`'s result when
+   * settling fails.
    *
    * @example
    * ```ts
@@ -276,6 +278,16 @@ const SETTLED_AMOUNT = "Pass amount as a whole number from 0 to the held amount.
 const AMOUNT_USED = "Pass the amount used as a whole number of 0 or more.";
 const EXCESS = ":excess";
 const DISPOSE = Symbol("dispose");
+
+function disposeOnceStopped(work: Promise<unknown>, expiresAt: Date, dispose: () => Promise<void>): void {
+  const expiry = setTimeout(dispose, timerDelay(expiresAt.getTime() - Date.now()));
+  (expiry as { unref?: () => void }).unref?.();
+  const stopped = () => {
+    clearTimeout(expiry);
+    void dispose();
+  };
+  work.then(stopped, stopped);
+}
 
 function asOf(options: CheckOptions | undefined): Record<string, string | undefined> {
   const given = options?.asOf;
@@ -512,7 +524,7 @@ export class CustomerApi implements ServerCustomer {
       result = await untilAborted(running, signal);
     } catch (error) {
       if (running && signal?.aborted && error === signal.reason) {
-        void running.then(dispose, dispose);
+        disposeOnceStopped(running, hold.expiresAt, dispose);
       } else {
         await dispose();
       }
