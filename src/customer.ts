@@ -354,7 +354,8 @@ export interface ServerCustomer extends Customer {
   grant(feature: Feature | string, options: GrantOptions): Promise<GrantResult>;
   /**
    * Ends a grant now. Revoking twice is safe: the second answers `changed: false`. Retries a
-   * revocation that failed on the way, unless it passes `expectedRevision`, which the first one may have moved on.
+   * revocation that failed on the way, unless it passes `expectedRevision`: a first revocation moves
+   * the revision on, so a retry or a second call with the same `expectedRevision` fails with `ApiError`.
    */
   revokeGrant(grantId: string, options?: RevisionOptions): Promise<RevokedGrant>;
   /** Moves the customer to a track, or back to the default track with `null`. */
