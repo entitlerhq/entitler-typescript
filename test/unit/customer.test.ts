@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defineFeature, EntitlerServer } from "../../src/index.js";
-import { answerContext, apiError, checkAnswer, fakeFetch, json, wireEntitlement } from "./fake.js";
+import { answerContext, apiError, checkAnswer, fakeFetch, json, usageAnswer, wireEntitlement } from "./fake.js";
 
 function customer(...replies: Parameters<typeof fakeFetch>) {
   const fake = fakeFetch(...replies);
@@ -201,6 +201,28 @@ describe("check", () => {
     expect((error as Error & { cause: Error }).cause.message).toBe(
       "The answer lacks a required field, or holds one of another type at entitlement.featureKey.",
     );
+  });
+
+  it.each([
+    ["entitlement.entitled", { entitled: undefined }],
+    ["entitlement.meter.used", { meter: { held: 0, banked: 0 } }],
+    ["entitlement.meter.held", { meter: { used: 0, banked: 0 } }],
+    ["entitlement.meter.banked", { meter: { used: 0, held: 0 } }],
+  ])("refuses an answer that lacks %s", async (path, overrides) => {
+    const { customer: ada } = customer(json(checkAnswer(overrides)));
+    const error = await ada.check("f").catch((e: unknown) => e);
+    expect((error as Error & { cause: Error }).cause.message).toMatch(new RegExp(` at ${path}\\.$`));
+  });
+
+  it.each(["outcome", "replayed"])("refuses a usage answer that lacks %s", async (field) => {
+    const answer = usageAnswer();
+    const usage: Record<string, unknown> = answer.tracked.usage;
+    delete usage[field];
+    const { customer: ada } = customer(json(answer));
+    const error = await ada
+      .recordUsage(defineFeature("ai_credits", "metered"), 1, { idempotencyKey: "k" })
+      .catch((e: unknown) => e);
+    expect((error as Error & { cause: Error }).cause.message).toMatch(new RegExp(` at tracked\\.usage\\.${field}\\.$`));
   });
 });
 
