@@ -8,6 +8,7 @@ import {
   decodeEntitlements,
   decodeNothing,
   decodeRegistered,
+  decodeSnapshot,
   decodeToken,
   decodeUsage,
   scopeEnum,
@@ -21,6 +22,7 @@ import type {
   FeatureType,
   IssuedCustomerToken,
   RegisteredCustomer,
+  Snapshot,
   UsageMode,
   UsageResult,
 } from "./types.js";
@@ -153,6 +155,17 @@ export interface Customer {
   /** Lists every entitlement the customer holds, groups included. */
   entitlements(options?: CheckOptions): Promise<Entitlements>;
   /**
+   * Asks Entitler to sign a snapshot of the customer's entitlements, to check them offline with
+   * `verifySnapshot` until it expires. Store the token in the app's own storage.
+   *
+   * @example
+   * ```ts
+   * const snapshot = await entitler.me.snapshot({ ttlSeconds: 86_400 });
+   * await storage.set("entitler-snapshot", snapshot.token);
+   * ```
+   */
+  snapshot(options?: SnapshotOptions): Promise<Snapshot>;
+  /**
    * Records usage of a metered feature. A refusal in `gate` mode is an answer (`outcome:
    * "refused"`), not an error.
    *
@@ -224,6 +237,15 @@ export interface RegisterOptions extends CustomerDetailsInput, CallOptions {
 /** Options for {@link ServerCustomer.update}. */
 export interface UpdateOptions extends CustomerDetailsInput, CallOptions {}
 
+/** Options for {@link Customer.snapshot}. */
+export interface SnapshotOptions extends CallOptions {
+  /**
+   * How long the snapshot verifies, 60 seconds to 30 days. Defaults to the project's offline
+   * allowance, which also caps it.
+   */
+  ttlSeconds?: number;
+}
+
 /** Options for {@link ServerCustomer.token}. */
 export interface TokenOptions extends CallOptions {
   /**
@@ -273,6 +295,8 @@ function details(options: CustomerDetailsInput | undefined): Record<string, unkn
     ...(attributes.length === 0 ? {} : { attributes }),
   };
 }
+
+const SNAPSHOT_SECONDS = 30 * 24 * 60 * 60;
 
 const USAGE_AMOUNT = `Pass amount as a whole number from 1 to ${Number.MAX_SAFE_INTEGER}.`;
 const SETTLED_AMOUNT = "Pass amount as a whole number from 0 to the held amount.";
@@ -584,6 +608,14 @@ export class CustomerApi implements ServerCustomer {
 
   erase(options?: CallOptions): Promise<void> {
     return this.#send("Customers.EraseCustomer", {}, decodeNothing, options, true);
+  }
+
+  async snapshot(options?: SnapshotOptions): Promise<Snapshot> {
+    const body =
+      options?.ttlSeconds === undefined
+        ? {}
+        : { lifetimeSeconds: wholeNumber(options.ttlSeconds, "ttlSeconds", 60, SNAPSHOT_SECONDS) };
+    return this.#send("Snapshots.CreateSnapshot", body, decodeSnapshot, options, true);
   }
 
   async token(options?: TokenOptions): Promise<IssuedCustomerToken> {

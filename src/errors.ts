@@ -174,6 +174,23 @@ export class UsageReplayedError extends EntitlerError {
   }
 }
 
+/** Why a snapshot failed to verify. */
+export type SnapshotFailure = "SNAPSHOT_INVALID" | "SNAPSHOT_EXPIRED";
+
+/** A snapshot failed to verify: `SNAPSHOT_EXPIRED` once it expired, `SNAPSHOT_INVALID` otherwise. */
+export class SnapshotError extends EntitlerError {
+  /** `SnapshotError`. */
+  override name = "SnapshotError";
+  /** `SNAPSHOT_INVALID` or `SNAPSHOT_EXPIRED`. */
+  readonly reason: SnapshotFailure;
+
+  /** Creates a snapshot error. */
+  constructor(reason: SnapshotFailure, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.reason = reason;
+  }
+}
+
 /** Fields a {@link UsageSettlementError} is built from. */
 export interface UsageSettlementErrorInit {
   /** The hold. */

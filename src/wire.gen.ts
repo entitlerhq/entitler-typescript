@@ -4,6 +4,8 @@ export type AddOnSource = { planId: string; planKey: string; planName: string; q
 export type CheckFeatureResponse = { asOf: number; customer?: EntitledCustomer; entitlement?: Entitlement; nextChangeAt?: number; served?: ServedCatalogue };
 export type CreateHoldRequest = { amount?: number; currency?: string; customer?: CustomerRef; featureKey?: string; idempotencyKey?: string; target?: ProductTarget; ttlSeconds?: number };
 export type CreateHoldResponse = { tracked?: TrackedUsage };
+export type CreateSnapshotRequest = { customer?: CustomerRef; lifetimeSeconds?: number; target?: ProductTarget };
+export type CreateSnapshotResponse = { expiresAt: number; keyId: string; token: string };
 export type CreateTokenRequest = { externalId?: string; lifetimeSeconds?: number; scopes?: CustomerTokenScope[]; target?: ProductTarget };
 export type CreateTokenResponse = { customerId?: string; expiresAt: number; scopes: CustomerTokenScope[]; token: string; tokenId: string };
 export type CredentialCustomer = Record<string, never>;
@@ -43,6 +45,7 @@ export type ServedRelease = { id: string; number: number };
 export type ServedTrack = { id: string; name: string };
 export type SettleHoldRequest = { amount?: number; customer?: CustomerRef; holdId?: string; target?: ProductTarget };
 export type SettleHoldResponse = { tracked?: TrackedUsage };
+export type SnapshotKeySet = { keys: { alg: "ES256"; crv: "P-256"; kid: string; kty: "EC"; use: "sig"; x: string; y: string }[] };
 export type TrackedUsage = { asOf: number; customer?: EntitledCustomer; entitlement?: Entitlement; served?: ServedCatalogue; usage?: UsageResult };
 export type Unlimited = Record<string, never>;
 export type UpdateCustomerRequest = { attributes?: CustomerAttributeChange[]; email?: string; expectedRevision?: RevisionInput; externalId?: string; name?: string; target?: ProductTarget };
@@ -64,6 +67,8 @@ export const ROUTES = {
   "Customers.UpdateCustomer": { method: "PATCH", path: "/v1/customers/{external_id}", query: [] },
   "Entitlements.CheckFeature": { method: "GET", path: "/v1/customers/{customer.external_id}/entitlements/{feature_key}", query: ["target.team_id","target.project_id","target.environment_id","as_of"] },
   "Entitlements.ListEntitlements": { method: "GET", path: "/v1/customers/{customer.external_id}/entitlements", query: ["target.team_id","target.project_id","target.environment_id","as_of"] },
+  "SnapshotKeys": { method: "GET", path: "/v1/snapshot-keys", query: [] },
+  "Snapshots.CreateSnapshot": { method: "POST", path: "/v1/customers/{customer.external_id}/snapshots", query: [] },
   "Usage.CreateHold": { method: "POST", path: "/v1/customers/{customer.external_id}/usage/holds", query: [] },
   "Usage.ReleaseHold": { method: "DELETE", path: "/v1/customers/{customer.external_id}/usage/holds/{hold_id}", query: ["target.team_id","target.project_id","target.environment_id"] },
   "Usage.ReportUsage": { method: "POST", path: "/v1/customers/{customer.external_id}/usage", query: [] },

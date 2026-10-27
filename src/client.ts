@@ -1,9 +1,10 @@
 import { MemoryCache } from "./cache.js";
 import { type Customer, CustomerApi } from "./customer.js";
 import { type ClientDescription, describe } from "./describe.js";
+import { snapshotKeys } from "./snapshot.js";
 import { type TokenProvider, TokenSource } from "./tokens.js";
 import { type Authorised, type CallOptions, type ClientOptions, type Credentials, Transport } from "./transport.js";
-import type { RegisteredCustomer } from "./types.js";
+import type { RegisteredCustomer, SnapshotKeySet } from "./types.js";
 import { requireCredential } from "./util.js";
 
 /** Options every in-app client takes. */
@@ -127,6 +128,14 @@ export class EntitlerClient {
    */
   register(options?: CallOptions): Promise<RegisteredCustomer> {
     return this.#me.register(options);
+  }
+
+  /**
+   * Fetches the public keys that verify snapshots, sending no credential, so it works while no token
+   * can be had. Refresh the app's stored keys with it whenever the app is online.
+   */
+  snapshotKeys(options?: CallOptions): Promise<SnapshotKeySet> {
+    return snapshotKeys(this.#transport, options);
   }
 
   /**

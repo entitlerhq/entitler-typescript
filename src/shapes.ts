@@ -10,6 +10,9 @@ import type {
   Meter,
   RegisteredCustomer,
   Served,
+  Snapshot,
+  SnapshotKey,
+  SnapshotKeySet,
   Upgrade,
   UsageResult,
   Value,
@@ -346,4 +349,170 @@ function scopeName(value: unknown): string {
   const name = enumName(value, "CUSTOMER_TOKEN_SCOPE_");
   const split = name.lastIndexOf("_");
   return split < 0 ? name : `${name.slice(0, split)}:${name.slice(split + 1)}`;
+}
+
+/** Decodes `Snapshots.CreateSnapshot`'s answer. @internal */
+export const decodeSnapshot: Decoder = (value) => {
+  const given = object<Wire.CreateSnapshotResponse>(value);
+  return {
+    token: at("token", () => text(given.token)),
+    keyId: at("keyId", () => text(given.keyId)),
+    expiresAt: at("expiresAt", () => seconds(given.expiresAt)),
+  } satisfies Snapshot;
+};
+
+function snapshotKey(value: unknown): SnapshotKey | null {
+  const given = object<Record<string, unknown>>(value);
+  if (given.kty !== "EC" || given.crv !== "P-256" || given.alg !== "ES256" || given.use !== "sig") return null;
+  return {
+    kty: "EC",
+    crv: "P-256",
+    alg: "ES256",
+    use: "sig",
+    kid: at("kid", () => text(given.kid)),
+    x: at("x", () => text(given.x)),
+    y: at("y", () => text(given.y)),
+  };
+}
+
+/** Decodes the snapshot key set, skipping keys of another kind. @internal */
+export const decodeSnapshotKeys: Decoder = (value) =>
+  ({
+    keys: at("keys", () =>
+      list(object<Wire.SnapshotKeySet>(value).keys, snapshotKey).filter((key): key is SnapshotKey => key !== null),
+    ),
+  }) satisfies SnapshotKeySet;
+
+function nullable<T>(value: unknown, decode: (value: unknown) => T): T | null {
+  return value === null || value === undefined ? null : decode(value);
+}
+
+function claimLimit(value: unknown): Limit {
+  return value === "unlimited" ? "unlimited" : whole(value);
+}
+
+function claimValue(value: unknown, entitled: boolean): Value {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "boolean") return value ? true : 0;
+  if (Array.isArray(value)) return entitled ? true : 0;
+  return claimLimit(value);
+}
+
+function claimSource(value: unknown): EntitlementSource | null {
+  const given = object<Record<string, unknown>>(value);
+  const through = () => at("through", () => nullable(given.through, text));
+  const sourceValue = () => at("value", () => nullable(given.value, (held) => claimValue(held, true)));
+  const plan = () => {
+    const named = at("plan", () => object<Record<string, unknown>>(given.plan));
+    return {
+      planId: at("plan", () => at("id", () => text(named.id))),
+      plan: at("plan", () => at("key", () => text(named.key))),
+      name: at("plan", () => at("name", () => text(named.name))),
+      version: at("version", () => whole(given.version)),
+    };
+  };
+  switch (given.type) {
+    case "plan":
+    case "default_plan":
+      return {
+        type: "plan",
+        ...plan(),
+        product: at("product", () => nullable(given.product, text)),
+        byDefault: given.type === "default_plan",
+        value: given.type === "plan" ? sourceValue() : null,
+        through: through(),
+      };
+    case "add_on":
+      return {
+        type: "addon",
+        ...plan(),
+        quantity: at("quantity", () => whole(given.quantity)),
+        value: sourceValue(),
+        through: through(),
+      };
+    case "grant":
+      return {
+        type: "grant",
+        grant: at("grant", () => text(given.grant)),
+        until: at("until", () => nullable(given.until, seconds)),
+        value: sourceValue(),
+        through: through(),
+      };
+    case "group":
+      return { type: "group", features: at("features", () => list(given.features, text)) };
+    default:
+      return null;
+  }
+}
+
+function claimEntitlement(value: unknown): Entitlement {
+  const given = object<Record<string, unknown>>(value);
+  const entitled = at("entitled", () => bool(given.entitled));
+  const type: FeatureType = at("kind", () => text(given.kind));
+  return {
+    key: at("key", () => text(given.key)),
+    type,
+    entitled,
+    value: at("value", () => claimValue(given.value, entitled)),
+    sources: at("sources", () =>
+      list(given.sources, claimSource).filter((known): known is EntitlementSource => known !== null),
+    ),
+    upgrades: [],
+    meter:
+      type !== "metered"
+        ? null
+        : given.used === undefined
+          ? { used: 0, held: 0, banked: 0, remaining: 0, resetsAt: null }
+          : {
+              used: at("used", () => whole(given.used)),
+              held: at("held", () => whole(given.held)),
+              banked: at("banked", () => whole(given.banked)),
+              remaining: at("remaining", () => claimLimit(given.remaining)),
+              resetsAt: at("resetsAt", () => nullable(given.resetsAt, seconds)),
+            },
+  };
+}
+
+function claimServed(given: Record<string, unknown>): Served {
+  const track = given.track === undefined ? null : object<Record<string, unknown>>(given.track);
+  const release = given.release === undefined ? null : object<Record<string, unknown>>(given.release);
+  const change = given.change === undefined ? null : object<Record<string, unknown>>(given.change);
+  return {
+    track:
+      track && at("track", () => ({ id: at("id", () => text(track.id)), name: at("name", () => text(track.name)) })),
+    source: release
+      ? at("release", () => ({
+          type: "release" as const,
+          id: at("id", () => text(release.id)),
+          number: at("number", () => whole(release.number)),
+        }))
+      : change
+        ? at("change", () => ({ type: "change" as const, id: at("id", () => text(change.id)) }))
+        : { type: "nothing" },
+  };
+}
+
+/** A snapshot's signed claims, decoded. @internal */
+export interface SnapshotClaims {
+  readonly issuer: string;
+  readonly customer: string;
+  readonly environment: string;
+  readonly issuedAt: Date;
+  readonly expiresAt: Date;
+  readonly served: Served;
+  readonly entitlements: readonly Entitlement[];
+}
+
+/** Decodes a snapshot's claims, throwing `TypeError` when they do not fit. @internal */
+export function decodeClaims(value: unknown): SnapshotClaims {
+  const given = object<Record<string, unknown>>(value);
+  return {
+    issuer: at("iss", () => text(given.iss)),
+    customer: at("sub", () => text(given.sub)),
+    environment: at("environment", () => at("id", () => text(object<Record<string, unknown>>(given.environment).id))),
+    issuedAt: at("iat", () => seconds(given.iat)),
+    expiresAt: at("exp", () => seconds(given.exp)),
+    served: claimServed(given),
+    entitlements: at("entitlements", () => list(given.entitlements, claimEntitlement)),
+  };
 }
