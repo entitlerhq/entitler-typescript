@@ -15,7 +15,7 @@ export async function upgrade(customer: Customer, plan: string, returnUrl: strin
 
 export async function afterPayment(entitler: EntitlerClient, plan: string): Promise<string> {
   await entitler.me.syncBilling().catch(() => undefined);
-  const { holdings } = await entitler.me.plans({ revalidate: true });
-  const paid = holdings?.lanes.some((lane) => lane.plan?.key === plan) ?? false;
+  const plans = await entitler.me.plans({ revalidate: true }).catch(() => null);
+  const paid = plans?.holdings?.lanes.some((lane) => lane.plan?.key === plan) ?? false;
   return paid ? "active" : "pending";
 }
