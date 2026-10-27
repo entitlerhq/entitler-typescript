@@ -46,6 +46,7 @@
     "lint": "biome ci .",
     "format": "biome check --write .",
     "generate": "bun scripts/generate.ts",
+    "vectors": "bun scripts/snapshot-vectors.ts",
     "test": "vitest run test/unit",
     "test:coverage": "vitest run test/unit --coverage"
   },
