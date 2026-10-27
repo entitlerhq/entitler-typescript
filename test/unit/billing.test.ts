@@ -21,10 +21,11 @@ const holdings = {
       plan: heldPlan,
       addOns: [
         {
-          ...heldPlan,
           planId: "pl_9",
           planKey: "seats",
           planName: "Seats",
+          versionNumber: 2,
+          money: "CUSTOMER_MONEY_REAL",
           quantity: 5,
           required: false,
           addedAt: 1_791_000_000,
@@ -134,9 +135,7 @@ describe("plans", () => {
           key: "seats",
           name: "Seats",
           version: 2,
-          byDefault: false,
           money: "real",
-          period: "pe_monthly",
           quantity: 5,
           required: false,
           addedAt: new Date(1_791_000_000_000),
