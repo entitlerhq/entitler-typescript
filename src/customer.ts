@@ -1,10 +1,12 @@
 import { Entitlements, type EntitlementsInit } from "./entitlements.js";
 import { ApiError, UsageRefusedError, UsageReplayedError, UsageSettlementError } from "./errors.js";
+import { type CustomerPricingOptions, readPricing } from "./pricing.js";
 import { type Operation, route } from "./routes.js";
 import {
   type Decoder,
   decodeCheck,
   decodeCustomer,
+  decodeCustomerPricing,
   decodeEntitlements,
   decodeNothing,
   decodeRegistered,
@@ -16,6 +18,7 @@ import {
 import { type Answer, type CallOptions, isClosed, type ReadOptions, type Transport } from "./transport.js";
 import type {
   Check,
+  CustomerPricing,
   CustomerRecord,
   CustomerTokenScope,
   Feature,
@@ -170,6 +173,11 @@ export interface Customer {
    * ```
    */
   snapshot(options?: SnapshotOptions): Promise<Snapshot>;
+  /**
+   * Reads the customer's pricing: the plans on sale to them on their track, in their market, and
+   * what they pay now for each subscription, discounts and coming charges included.
+   */
+  pricing(options?: CustomerPricingOptions): Promise<CustomerPricing>;
   /**
    * Records usage of a metered feature. A refusal in `gate` mode is an answer (`outcome:
    * "refused"`), not an error.
@@ -626,6 +634,17 @@ export class CustomerApi implements ServerCustomer {
 
   erase(options?: CallOptions): Promise<void> {
     return this.#send("Customers.EraseCustomer", {}, decodeNothing, options, true);
+  }
+
+  pricing(options?: CustomerPricingOptions): Promise<CustomerPricing> {
+    return readPricing(
+      this.#transport,
+      "Pricing.GetCustomerPricing",
+      { external_id: this.id },
+      {},
+      options,
+      decodeCustomerPricing,
+    );
   }
 
   async snapshot(options?: SnapshotOptions): Promise<Snapshot> {

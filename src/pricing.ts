@@ -1,0 +1,53 @@
+import { type Operation, route } from "./routes.js";
+import { type Decoder, decodePricing } from "./shapes.js";
+import type { ReadOptions, Transport } from "./transport.js";
+import type { PricingSheet } from "./types.js";
+
+/** Options for reading a customer's pricing. */
+export interface CustomerPricingOptions extends ReadOptions {
+  /** The BCP 47 locale to format amounts' `display` for, such as `en-AU`, sent as `Accept-Language`. */
+  locale?: string;
+}
+
+/** Options for reading the plans on sale. */
+export interface PricingOptions extends CustomerPricingOptions {
+  /** The key of the market to price the plans in. */
+  market?: string;
+  /** The ISO 3166-1 country code whose market prices the plans, when `market` is left out. */
+  country?: string;
+}
+
+/** Reads a pricing operation through the answer cache, in the locale asked for. @internal */
+export async function readPricing<T>(
+  transport: Transport,
+  operation: Operation,
+  variables: Record<string, string>,
+  query: Record<string, string | undefined>,
+  options: CustomerPricingOptions | undefined,
+  decode: Decoder,
+): Promise<T> {
+  if (options?.locale !== undefined && typeof options.locale !== "string") {
+    throw new TypeError("Pass locale as a BCP 47 language tag.");
+  }
+  const answer = await transport.send<T>({
+    ...route(operation, variables, query),
+    headers: { "Accept-Language": options?.locale },
+    cached: true,
+    revalidate: options?.revalidate,
+    decode,
+    options,
+  });
+  return answer.data;
+}
+
+/** Reads the plans on sale on the default track, priced in a market when one is named. @internal */
+export function pricing(transport: Transport, options: PricingOptions | undefined): Promise<PricingSheet> {
+  return readPricing(
+    transport,
+    "Pricing.GetPricing",
+    {},
+    { market: options?.market, country: options?.country },
+    options,
+    decodePricing,
+  );
+}

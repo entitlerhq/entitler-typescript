@@ -39,9 +39,11 @@ export {
   UsageSettlementError,
   type UsageSettlementErrorInit,
 } from "./errors.js";
+export type { CustomerPricingOptions, PricingOptions } from "./pricing.js";
 export { EntitlerServer, type ServerOptions } from "./server.js";
 export { type SnapshotExpectation, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
 export type { TokenProvider } from "./tokens.js";
 export type { CallOptions, ClientOptions, ReadOptions } from "./transport.js";
 export * from "./types.js";
 export { VERSION } from "./version.js";
+export { EntitlerVisitor, type VisitorOptions } from "./visitor.js";

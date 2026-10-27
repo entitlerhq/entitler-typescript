@@ -25,3 +25,6 @@ All notable changes to this package are listed here. The format follows
 - Fractional usage and money: every entitlement answers the `decimals` its amounts count and, for a
   money feature, its `currency`; a money value's limits come by market in `markets`. Usage writes
   take a `currency`, and a usage result says when it was `saturated`.
+- Pricing: `EntitlerVisitor`, a client built from a publishable key alone, and `EntitlerServer` read
+  the plans on sale with `pricing()`, priced in a market or a country's and formatted for a locale;
+  `customer.pricing()` adds what the customer pays now and their coming charges.

@@ -41,6 +41,8 @@ export const OPERATIONS = [
   "CustomerTokens.CreateToken",
   "Snapshots.CreateSnapshot",
   "SnapshotKeys",
+  "Pricing.GetPricing",
+  "Pricing.GetCustomerPricing",
 ];
 
 const REF = "#/components/schemas/";
