@@ -16,8 +16,6 @@ import { deadlineAfter, requireCredential, untilAborted } from "./util.js";
  */
 export type TokenProvider = (context: { signal: AbortSignal }) => string | Promise<string>;
 
-const REFUSALS_KEPT = 16;
-
 /** A token kept from a fixed string or a provider. @internal */
 export class TokenSource {
   readonly #provider: TokenProvider | undefined;
@@ -44,7 +42,6 @@ export class TokenSource {
 
   refuse(token: string): void {
     this.#refused.add(token);
-    if (this.#refused.size > REFUSALS_KEPT) this.#refused.delete(this.#refused.values().next().value as string);
     if (this.#current === token) this.#current = undefined;
   }
 
