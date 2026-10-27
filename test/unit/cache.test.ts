@@ -343,6 +343,42 @@ describe("invalidation", () => {
     expect(sent.map((request) => request.method)).toEqual(["GET", "POST", "GET", "GET"]);
   });
 
+  it("keeps bypassing when an older renewal lands after a newer one the store refused", async () => {
+    const store = spyStore();
+    const pending: { settle: () => void; fail: () => void }[] = [];
+    const set = store.set;
+    store.set = (key, entry, ttl) =>
+      entry.etag
+        ? set(key, entry, ttl)
+        : new Promise<void>((resolve, reject) => {
+            pending.push({
+              settle: () => resolve(set(key, entry, ttl)),
+              fail: () => reject(new Error("store down")),
+            });
+          });
+    const { fetch, sent } = fakeFetch((request) =>
+      request.method === "GET" ? json(checkAnswer(), 200, fresh) : json({ erased: 1 }),
+    );
+    const customer = new EntitlerServer({ key: "k", fetch, cache: store, onError: () => {} }).customer("u");
+    const first = customer.check("f");
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    pending[0]?.settle();
+    await first;
+    const older = customer.erase();
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    const newer = customer.erase();
+    await vi.waitFor(() => expect(pending).toHaveLength(3));
+    pending[2]?.fail();
+    await newer;
+    pending[1]?.settle();
+    await older;
+    const read = customer.check("f");
+    await vi.waitFor(() => expect(pending).toHaveLength(4));
+    pending[3]?.settle();
+    await read;
+    expect(sent.map((request) => request.method)).toEqual(["GET", "POST", "POST", "GET"]);
+  });
+
   it("misses rather than answers an old entry once the customer's generation is gone", async () => {
     const store = spyStore();
     const { fetch, sent } = fakeFetch(json(checkAnswer(), 200, fresh));
