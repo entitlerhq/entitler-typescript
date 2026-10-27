@@ -260,4 +260,18 @@ describe("billing", () => {
     });
     expect(sent[0]).toMatchObject({ method: "GET", path: "/v1/customers/user_1/billing" });
   });
+
+  it("answers an unlinked customer as not linked", async () => {
+    const { customer } = setup(json({}));
+    expect(await customer.billing()).toEqual({
+      linked: false,
+      connectionId: null,
+      status: "unspecified",
+      items: 0,
+      renews: false,
+      sku: null,
+      drift: null,
+      products: [],
+    });
+  });
 });

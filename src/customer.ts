@@ -208,16 +208,19 @@ export interface Customer {
   /**
    * Reads the plans the customer can move to, each with what moving would do, and what they hold
    * now: a lane per product with its plan, add-ons, dates and booked changes, and their grants.
+   * In an app it needs the `billing:self` scope.
    */
   plans(options?: CheckOptions): Promise<CustomerPlans>;
   /**
    * Opens the payment provider's page for payment details and invoices, and answers its `url`. It
-   * changes no plan. In an app it needs the `billing:self` scope.
+   * changes no plan. In an app it needs the `billing:self` scope and the customer portal on the
+   * team's plan, and takes one call every 10 seconds per customer.
    */
   billingPortal(options: BillingPortalOptions): Promise<{ readonly url: string }>;
   /**
    * Reads the customer's state from the payment provider now, so the page they return to after
-   * paying shows the plan they paid for. Call it before `plans({ revalidate: true })`.
+   * paying shows the plan they paid for, then read `plans()`. In an app it needs the `billing:self`
+   * scope and the customer portal on the team's plan, and takes one call every 10 seconds per customer.
    */
   syncBilling(options?: CallOptions): Promise<{ readonly changed: boolean }>;
   /** Cancels the customer's subscription as their own choice; the project's policy decides when. */
@@ -514,7 +517,10 @@ export interface ServerCustomer extends Customer {
   removeAddOn(addOn: string, options?: RevisionOptions): Promise<MoveStep>;
   /** Undoes the change booked for an add-on at renewal. */
   undoAddOnChange(addOn: string, options?: RevisionOptions): Promise<MoveStep>;
-  /** Reads the payment provider's view of the customer, for support tools. Billing pages read `plans()`. */
+  /**
+   * Reads the payment provider's view of the customer, for support tools; a customer the provider
+   * doesn't know answers `linked: false`. Billing pages read `plans()`.
+   */
   billing(options?: CallOptions): Promise<CustomerBilling>;
 }
 
