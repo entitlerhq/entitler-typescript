@@ -365,19 +365,23 @@ describe("withHold", () => {
   });
 
   it("closes a cancelled hold when it expires, if its work never stops", async () => {
-    const { customer, sent } = holdFlow(undefined, { expiresAtMs: Date.now() + 30 });
+    const { customer, sent } = holdFlow(undefined, { expiresAtMs: Date.now() + 60 });
     const controller = new AbortController();
+    let started = false;
     const call = customer.withHold(
       aiCredits,
       500,
       ({ hold }) => {
         hold.use(30);
-        controller.abort();
+        started = true;
         return new Promise(() => {});
       },
       { ...key, signal: controller.signal },
     );
-    await expect(call).rejects.toMatchObject({ name: "AbortError" });
+    await vi.waitFor(() => expect(started).toBe(true));
+    controller.abort(Number.NaN);
+    await expect(call).rejects.toBeNaN();
+    expect(paths(sent)).toEqual([`POST${HOLDS}`]);
     await vi.waitFor(() => expect(sent.at(-1)).toMatchObject({ path: `${HOLDS}/hold_1:settle`, body: { amount: 30 } }));
   });
 

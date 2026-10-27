@@ -523,7 +523,7 @@ export class CustomerApi implements ServerCustomer {
       running = Promise.resolve(work({ hold, signal: signal ?? new AbortController().signal }));
       result = await untilAborted(running, signal);
     } catch (error) {
-      if (running && signal?.aborted && error === signal.reason) {
+      if (running && signal?.aborted && Object.is(error, signal.reason)) {
         disposeOnceStopped(running, hold.expiresAt, dispose);
       } else {
         await dispose();
