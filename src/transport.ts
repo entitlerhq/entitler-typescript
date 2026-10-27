@@ -524,7 +524,9 @@ export class Transport {
         if (received.redirect) throw failure;
         if (received.status === 401 && !refreshed && this.#credentials.refresh && !call.open) {
           refreshed = true;
-          current = redacted(await this.#credentials.refresh(current, signal));
+          const next = redacted(await this.#credentials.refresh(current, signal));
+          if (next.credential === current.credential) throw failure;
+          current = next;
           continue;
         }
         if (!(RETRIED.has(received.status) || refused.code === "Aborted") || !retryable(call)) throw failure;

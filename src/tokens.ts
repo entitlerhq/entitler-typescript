@@ -42,7 +42,10 @@ export class TokenSource {
   refresh(used: string, signal: AbortSignal | undefined): Promise<string> {
     if (this.#current !== undefined && this.#current !== used) return Promise.resolve(this.#current);
     this.#current = undefined;
-    return this.#ask(signal);
+    return this.#ask(signal).then((token) => {
+      if (token === used && this.#current === token) this.#current = undefined;
+      return token;
+    });
   }
 
   #ask(signal: AbortSignal | undefined): Promise<string> {
