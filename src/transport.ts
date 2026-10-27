@@ -1,7 +1,17 @@
 import { type CacheEntry, type CacheStore, MemoryCache } from "./cache.js";
 import { ApiError, ConnectionError, type EntitlerError, grpcCode, isUnreachable, TimeoutError } from "./errors.js";
 import type { Decoder } from "./shapes.js";
-import { deadlineAfter, encode, redacted, saturated, sha256Hex, sleep, summaryOf, wholeNumber } from "./util.js";
+import {
+  deadlineAfter,
+  encode,
+  redacted,
+  saturated,
+  sha256Hex,
+  sleep,
+  summaryOf,
+  untilAborted,
+  wholeNumber,
+} from "./util.js";
 import { VERSION } from "./version.js";
 
 /** Options both clients take. */
@@ -332,7 +342,7 @@ export class Transport {
   ): Promise<Answer<T>> {
     const key = await this.#key(call, url, auth);
     keyObserver?.(key);
-    const found = await this.#get(cache, key);
+    const found = await this.#get(cache, key, call.options?.signal);
     const keptData = found && this.#readKept<T>(found.body, call);
     const kept = keptData && found;
     const usable = kept !== undefined && Math.max(0, Date.now() - Math.floor(kept.receivedAt)) < this.#staleFor;
@@ -391,7 +401,7 @@ export class Transport {
       !directive(entry.cacheControl, "no-store") &&
       (entry.etag !== undefined || maxAgeOf(entry.cacheControl) !== undefined)
     ) {
-      await this.#set(cache, key, entry);
+      await this.#set(cache, key, entry, call.options?.signal);
     }
     return { data, stale: false, replayed: false };
   }
@@ -408,23 +418,25 @@ export class Transport {
     return Math.max(0, Date.now() - Math.floor(entry.receivedAt)) / 1000 + (entry.age ?? 0) < maxAge;
   }
 
-  async #get(cache: CacheStore, key: string): Promise<CacheEntry | undefined> {
+  async #get(cache: CacheStore, key: string, signal: AbortSignal | undefined): Promise<CacheEntry | undefined> {
     try {
-      const entry = await cache.get(key);
+      const entry = await untilAborted(Promise.resolve(cache.get(key)), signal);
       return entry && entry.v === 1 && typeof entry.body === "string" && typeof entry.receivedAt === "number"
         ? entry
         : undefined;
     } catch (error) {
+      if (signal?.aborted && error === signal.reason) throw error;
       this.report(error);
       return undefined;
     }
   }
 
-  async #set(cache: CacheStore, key: string, entry: CacheEntry): Promise<void> {
+  async #set(cache: CacheStore, key: string, entry: CacheEntry, signal: AbortSignal | undefined): Promise<void> {
     try {
       const ttl = this.#staleFor + (maxAgeOf(entry.cacheControl) ?? 0) * 1000;
-      await cache.set(key, entry, Math.min(ttl, Number.MAX_SAFE_INTEGER));
+      await untilAborted(Promise.resolve(cache.set(key, entry, Math.min(ttl, Number.MAX_SAFE_INTEGER))), signal);
     } catch (error) {
+      if (signal?.aborted && error === signal.reason) throw error;
       this.report(error);
     }
   }

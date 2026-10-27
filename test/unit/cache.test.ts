@@ -183,6 +183,21 @@ describe("stale answers", () => {
     expect(onError.mock.calls[0]?.[0]).toMatchObject({ reason: "RESPONSE_INVALID" });
   });
 
+  it("lets a caller's abort and close end a cache store that never answers", async () => {
+    const onError = vi.fn();
+    const stuck: CacheStore = { get: () => new Promise(() => {}), set: () => new Promise(() => {}) };
+    const { fetch } = fakeFetch(json(checkAnswer(), 200, fresh));
+    const server = new EntitlerServer({ key: "k", fetch, cache: stuck, onError });
+    const controller = new AbortController();
+    const aborted = server.customer("u").check("f", { signal: controller.signal });
+    controller.abort();
+    await expect(aborted).rejects.toBe(controller.signal.reason);
+    const closed = server.customer("u").check("f");
+    server.close();
+    await expect(closed).rejects.toMatchObject({ name: "InvalidStateError" });
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("throws other failures", async () => {
     const { fetch } = fakeFetch(
       json(checkAnswer(), 200, { etag: '"v1"', "cache-control": "no-cache" }),
