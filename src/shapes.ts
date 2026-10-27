@@ -157,7 +157,7 @@ function source(value: unknown): EntitlementSource | null {
     const group = object<Wire.GroupSource>(given.group);
     return at("group", () => ({
       type: "group" as const,
-      features: at("featureKeys", () => list(group.featureKeys ?? [], text)),
+      features: at("featureKeys", () => list(group.featureKeys, text)),
     }));
   }
   return null;
@@ -179,9 +179,9 @@ function upgrade(value: unknown): Upgrade {
 function meter(value: unknown): Meter {
   const given = object<Wire.Meter>(value);
   return {
-    used: at("used", () => whole(given.used ?? 0)),
-    held: at("held", () => whole(given.held ?? 0)),
-    banked: at("banked", () => whole(given.banked ?? 0)),
+    used: at("used", () => whole(given.used)),
+    held: at("held", () => whole(given.held)),
+    banked: at("banked", () => whole(given.banked)),
     remaining: at("remaining", () => limit(given.remaining ?? { count: 0 })),
     resetsAt: at("resetsAt", () => optionalSeconds(given.resetsAt)),
   };
@@ -189,7 +189,7 @@ function meter(value: unknown): Meter {
 
 function entitlement(value: unknown): Entitlement {
   const given = object<Wire.Entitlement>(value);
-  const entitled = at("entitled", () => (given.entitled === undefined ? false : bool(given.entitled)));
+  const entitled = at("entitled", () => bool(given.entitled));
   const type: FeatureType = at("kind", () => enumName(given.kind, "ENTITLED_FEATURE_KIND_"));
   return {
     key: at("featureKey", () => text(given.featureKey)),
@@ -197,11 +197,15 @@ function entitlement(value: unknown): Entitlement {
     entitled,
     value: at("value", () => featureValue(given.value, entitled)),
     sources: at("sources", () =>
-      list(given.sources ?? [], source).filter((known): known is EntitlementSource => known !== null),
+      list(given.sources, source).filter((known): known is EntitlementSource => known !== null),
     ),
-    upgrades: at("upgrades", () => list(given.upgrades ?? [], upgrade)),
+    upgrades: at("upgrades", () => list(given.upgrades, upgrade)),
     meter: at("meter", () =>
-      given.meter === undefined ? (type === "metered" ? meter({}) : null) : meter(given.meter),
+      given.meter === undefined
+        ? type === "metered"
+          ? meter({ used: 0, held: 0, banked: 0 })
+          : null
+        : meter(given.meter),
     ),
   };
 }
@@ -250,7 +254,7 @@ export const decodeCheck: Decoder = (value) => {
 /** Decodes `Entitlements.ListEntitlements`' answer. @internal */
 export const decodeEntitlements: Decoder = (value) => {
   const given = object<Wire.ListEntitlementsResponse>(value);
-  return { ...context(given), entitlements: at("entitlements", () => list(given.entitlements ?? [], entitlement)) };
+  return { ...context(given), entitlements: at("entitlements", () => list(given.entitlements, entitlement)) };
 };
 
 /** Decodes the answer every usage write shares, `{ tracked }`. @internal */
@@ -262,18 +266,18 @@ export const decodeUsage: Decoder = (value) => {
       ...context(tracked),
       ...at("entitlement", () => entitlement(tracked.entitlement)),
       ...at("usage", () => ({
-        outcome: at("outcome", () => enumName(usage.outcome ?? "USAGE_OUTCOME_UNSPECIFIED", "USAGE_OUTCOME_")),
+        outcome: at("outcome", () => enumName(usage.outcome, "USAGE_OUTCOME_")),
         refusal: at("refusal", () => (usage.refusal === undefined ? null : enumName(usage.refusal, "USAGE_REFUSAL_"))),
         id: at("usageId", () => optionalText(usage.usageId)),
         holdId: at("holdId", () => optionalText(usage.holdId)),
-        mode: at("mode", () => enumName(usage.mode ?? "USAGE_MODE_UNSPECIFIED", "USAGE_MODE_")),
-        amount: at("amount", () => whole(usage.amount ?? 0)),
-        meterChange: at("meterChange", () => integer(usage.meterChange ?? 0)),
-        overBy: at("overBy", () => whole(usage.overBy ?? 0)),
-        late: at("late", () => bool(usage.late ?? false)),
+        mode: at("mode", () => enumName(usage.mode, "USAGE_MODE_")),
+        amount: at("amount", () => whole(usage.amount)),
+        meterChange: at("meterChange", () => integer(usage.meterChange)),
+        overBy: at("overBy", () => whole(usage.overBy)),
+        late: at("late", () => bool(usage.late)),
         occurredAt: at("occurredAtMs", () => optionalMilliseconds(usage.occurredAtMs)),
         expiresAt: at("expiresAtMs", () => optionalMilliseconds(usage.expiresAtMs)),
-        replayed: at("replayed", () => bool(usage.replayed ?? false)),
+        replayed: at("replayed", () => bool(usage.replayed)),
       })),
     } satisfies UsageResult;
   });
@@ -288,15 +292,15 @@ function customerRecord(value: unknown): CustomerRecord {
     email: at("email", () => optionalText(given.email)),
     attributes: at("attributes", () =>
       Object.fromEntries(
-        list(given.attributes ?? [], (item) => {
+        list(given.attributes, (item) => {
           const attribute = object<Wire.CustomerAttribute>(item);
           return [at("key", () => text(attribute.key)), at("value", () => text(attribute.value))];
         }),
       ),
     ),
     trackId: at("trackId", () => optionalText(given.trackId)),
-    money: at("money", () => enumName(given.money ?? "CUSTOMER_MONEY_UNSPECIFIED", "CUSTOMER_MONEY_")),
-    revision: at("revision", () => whole(given.revision ?? 0)),
+    money: at("money", () => enumName(given.money, "CUSTOMER_MONEY_")),
+    revision: at("revision", () => whole(given.revision)),
     createdAt: at("createdAt", () => seconds(given.createdAt)),
     updatedAt: at("updatedAt", () => seconds(given.updatedAt)),
   };
@@ -311,7 +315,7 @@ export const decodeRegistered: Decoder = (value) => {
   const given = object<Wire.RegisterCustomerResponse>(value);
   return {
     ...at("customer", () => customerRecord(given.customer)),
-    created: at("created", () => bool(given.created ?? false)),
+    created: at("created", () => bool(given.created)),
   } satisfies RegisteredCustomer;
 };
 
@@ -322,7 +326,7 @@ export const decodeToken: Decoder = (value) => {
     token: at("token", () => text(given.token)),
     id: at("tokenId", () => text(given.tokenId)),
     customerId: at("customerId", () => optionalText(given.customerId)),
-    scopes: at("scopes", () => list(given.scopes ?? [], scopeName)),
+    scopes: at("scopes", () => list(given.scopes, scopeName)),
     expiresAt: at("expiresAt", () => seconds(given.expiresAt)),
   } satisfies IssuedCustomerToken;
 };

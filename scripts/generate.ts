@@ -43,7 +43,7 @@ export const OPERATIONS = [
 
 const REF = "#/components/schemas/";
 
-const typeName = (ref: string) => ref.slice(ref.lastIndexOf(".") + 1);
+const typeName = (ref: string) => ref.slice(ref.lastIndexOf(".") + 1).replaceAll("-", "");
 
 const property = (name: string) => (/^[A-Za-z_$][\w$]*$/.test(name) ? name : JSON.stringify(name));
 

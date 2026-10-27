@@ -55,7 +55,7 @@ describe("the customer's record", () => {
   });
 
   it("registers with no details, reads and changes the record", async () => {
-    const { customer, sent } = setup(json({ customer: record }));
+    const { customer, sent } = setup(json({ customer: record, created: false }));
     expect((await customer.register()).created).toBe(false);
     expect((await customer.details()).customerId).toBe("cu_1");
     await customer.update({ email: "ada@example.com" });

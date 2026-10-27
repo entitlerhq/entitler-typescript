@@ -165,11 +165,11 @@ describe("check", () => {
     expect((await ada.check("f")).served).toEqual(expected);
   });
 
-  it("reads a customer not registered yet, a plan without a product and a missing decision", async () => {
+  it("reads a customer not registered yet and a plan without a product", async () => {
     const { customer: ada } = customer(
       json({
         ...checkAnswer({
-          entitled: undefined,
+          entitled: false,
           sources: [{ defaultPlan: { planId: "pl_0", planKey: "free", planName: "Free", versionNumber: 1 } }],
         }),
         customer: { externalId: "user_1" },

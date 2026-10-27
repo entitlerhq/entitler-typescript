@@ -81,7 +81,12 @@ describe("requests", () => {
 
   it("decodes Unix seconds as dates and keeps unknown enum values", async () => {
     const { fetch } = fakeFetch(
-      json(checkAnswer({ kind: "ENTITLED_FEATURE_KIND_BRAND_NEW", meter: { used: 3, resetsAt: 1_793_491_200 } })),
+      json(
+        checkAnswer({
+          kind: "ENTITLED_FEATURE_KIND_BRAND_NEW",
+          meter: { used: 3, held: 0, banked: 0, resetsAt: 1_793_491_200 },
+        }),
+      ),
     );
     const check = await server(fetch).customer("u").check("f");
     expect(check.asOf).toEqual(new Date("2026-10-09T01:00:00.000Z"));
