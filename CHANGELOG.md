@@ -19,3 +19,6 @@ All notable changes to this package are listed here. The format follows
 - `EntitlerClient`, the in-app client for one signed-in customer, built from a customer token (or a
   provider for one) or from a publishable key and an identity token. It asks the provider again
   when Entitler refuses the token, and answers through `me`. `TokenError` reports a failing provider.
+- Offline snapshots: `snapshot()` asks Entitler to sign the customer's entitlements, `snapshotKeys()`
+  fetches the keys that verify them without a credential, and `verifySnapshot()` checks one offline
+  and answers its entitlements. `SnapshotError` reports why one fails to verify.

@@ -17,6 +17,7 @@ export type {
   RecordUsageOptions,
   RegisterOptions,
   ServerCustomer,
+  SnapshotOptions,
   TokenOptions,
   UpdateOptions,
   UsageWriteOptions,
@@ -29,6 +30,8 @@ export {
   ConnectionError,
   EntitlerError,
   isUnreachable,
+  SnapshotError,
+  type SnapshotFailure,
   TimeoutError,
   TokenError,
   UsageRefusedError,
@@ -37,6 +40,7 @@ export {
   type UsageSettlementErrorInit,
 } from "./errors.js";
 export { EntitlerServer, type ServerOptions } from "./server.js";
+export { type SnapshotExpectation, type VerifiedSnapshot, verifySnapshot } from "./snapshot.js";
 export type { TokenProvider } from "./tokens.js";
 export type { CallOptions, ClientOptions, ReadOptions } from "./transport.js";
 export * from "./types.js";

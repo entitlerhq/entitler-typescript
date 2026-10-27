@@ -349,3 +349,37 @@ export interface IssuedCustomerToken {
   /** When the token expires. */
   readonly expiresAt: Date;
 }
+
+/** A snapshot Entitler signed of a customer's entitlements, to check them offline with `verifySnapshot`. */
+export interface Snapshot {
+  /** The signed snapshot, a compact JWS. Store it in the app's own storage. */
+  readonly token: string;
+  /** The id of the key that signed it. */
+  readonly keyId: string;
+  /** When it stops verifying. */
+  readonly expiresAt: Date;
+}
+
+/** A public key that verifies snapshots, as a JSON Web Key. */
+export interface SnapshotKey {
+  /** `EC`. */
+  readonly kty: "EC";
+  /** `P-256`. */
+  readonly crv: "P-256";
+  /** `ES256`. */
+  readonly alg: "ES256";
+  /** `sig`. */
+  readonly use: "sig";
+  /** The key's id, which a snapshot's header names. */
+  readonly kid: string;
+  /** The key's x coordinate, base64url. */
+  readonly x: string;
+  /** The key's y coordinate, base64url. */
+  readonly y: string;
+}
+
+/** The keys that verify snapshots, as a JSON Web Key Set. Persist it as it is. */
+export interface SnapshotKeySet {
+  /** The keys. */
+  readonly keys: readonly SnapshotKey[];
+}

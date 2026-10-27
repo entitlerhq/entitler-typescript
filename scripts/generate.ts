@@ -39,6 +39,8 @@ export const OPERATIONS = [
   "Customers.UpdateCustomer",
   "Customers.EraseCustomer",
   "CustomerTokens.CreateToken",
+  "Snapshots.CreateSnapshot",
+  "SnapshotKeys",
 ];
 
 const REF = "#/components/schemas/";
