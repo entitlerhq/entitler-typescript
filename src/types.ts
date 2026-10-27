@@ -14,7 +14,7 @@ export type Value = true | number | "unlimited";
 export type Limit = number | "unlimited";
 
 /** A money value's limit in each market, by market id. */
-export type Markets = Readonly<Record<string, Limit>>;
+export type Markets = Readonly<Record<string, Limit | undefined>>;
 
 /** A release answered. */
 export interface ServedRelease {
