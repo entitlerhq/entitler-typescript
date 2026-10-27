@@ -112,6 +112,7 @@ interface Received {
   readonly text: string;
   readonly redirect?: boolean;
   readonly retried?: boolean;
+  readonly auth?: Authorised;
 }
 
 /** The options each client adds to {@link ClientOptions}, resolved. @internal */
@@ -403,7 +404,12 @@ export class Transport {
       !directive(entry.cacheControl, "no-store") &&
       (entry.etag !== undefined || maxAgeOf(entry.cacheControl) !== undefined)
     ) {
-      await this.#set(cache, key, entry, call.options?.signal);
+      await this.#set(
+        cache,
+        received.auth ? await this.#key(call, url, received.auth) : key,
+        entry,
+        call.options?.signal,
+      );
     }
     return { data, stale: false };
   }
@@ -511,7 +517,7 @@ export class Transport {
         );
         if (!received.redirect && (received.status < 300 || received.status === 304)) {
           this.#downUntil = 0;
-          return retry === 0 ? received : { ...received, retried: true };
+          return { ...received, ...(retry === 0 ? {} : { retried: true }), ...(refreshed ? { auth: current } : {}) };
         }
         const refused = apiError(received, call.idempotencyKey);
         failure = refused;

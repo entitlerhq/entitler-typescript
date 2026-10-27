@@ -1,5 +1,5 @@
 import { TokenError } from "./errors.js";
-import { deadlineAfter, requireCredential } from "./util.js";
+import { deadlineAfter, requireCredential, untilAborted } from "./util.js";
 
 /**
  * A function that answers a fresh token, such as one that asks your server for a customer token.
@@ -15,16 +15,6 @@ import { deadlineAfter, requireCredential } from "./util.js";
  * ```
  */
 export type TokenProvider = (context: { signal: AbortSignal }) => string | Promise<string>;
-
-function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(signal.reason);
-  return new Promise((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
-  });
-}
 
 /** A token kept from a fixed string or a provider. @internal */
 export class TokenSource {
@@ -50,14 +40,17 @@ export class TokenSource {
   }
 
   refresh(used: string, signal: AbortSignal | undefined): Promise<string> {
-    return this.#current !== undefined && this.#current !== used ? Promise.resolve(this.#current) : this.#ask(signal);
+    if (this.#current !== undefined && this.#current !== used) return Promise.resolve(this.#current);
+    this.#current = undefined;
+    return this.#ask(signal);
   }
 
   #ask(signal: AbortSignal | undefined): Promise<string> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     this.#pending ??= this.#fetch().finally(() => {
       this.#pending = undefined;
     });
-    return abortable(this.#pending, signal);
+    return untilAborted(this.#pending, signal);
   }
 
   async #fetch(): Promise<string> {
@@ -66,7 +59,7 @@ export class TokenSource {
     const deadline = closing ? AbortSignal.any([timer, closing]) : timer;
     let answer: unknown;
     try {
-      answer = await abortable(Promise.resolve((this.#provider as TokenProvider)({ signal: deadline })), deadline);
+      answer = await untilAborted(Promise.resolve((this.#provider as TokenProvider)({ signal: deadline })), deadline);
     } catch (cause) {
       if (closing?.aborted) throw closing.reason;
       throw new TokenError(

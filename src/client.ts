@@ -91,7 +91,8 @@ export class EntitlerClient {
     if (byToken ? key !== undefined || identityToken !== undefined : key === undefined || identityToken === undefined) {
       throw new TypeError(WAYS_IN);
     }
-    if (cache !== undefined && cache !== false && !((cache as unknown) instanceof MemoryCache)) throw new TypeError(CUSTOM_STORE);
+    if (cache !== undefined && cache !== false && !((cache as unknown) instanceof MemoryCache))
+      throw new TypeError(CUSTOM_STORE);
     let transport: Transport | undefined;
     const closing = () => transport?.closing;
     const timeout = options.timeout ?? 10_000;
