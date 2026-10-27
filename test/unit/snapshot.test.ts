@@ -196,6 +196,11 @@ describe("verifySnapshot", () => {
       async () => sign({ ...claims, sub: 7 }),
       "The snapshot's claims are not an Entitler snapshot's.",
     ],
+    [
+      "an expiry beyond any date",
+      async () => sign({ ...claims, exp: Number.MAX_SAFE_INTEGER }),
+      "The snapshot's claims are not an Entitler snapshot's.",
+    ],
     ["another issuer", async () => sign({ ...claims, iss: "someone" }), "Entitler did not issue this snapshot."],
     ["another customer", async () => sign({ ...claims, sub: "user_2" }), "The snapshot is for another customer."],
     [
