@@ -352,7 +352,10 @@ export interface ServerCustomer extends Customer {
    * ```
    */
   grant(feature: Feature | string, options: GrantOptions): Promise<GrantResult>;
-  /** Ends a grant now. Revoking twice is safe: the second answers `changed: false`. */
+  /**
+   * Ends a grant now. Revoking twice is safe: the second answers `changed: false`. Retries a
+   * revocation that failed on the way, unless it passes `expectedRevision`, which the first one may have moved on.
+   */
   revokeGrant(grantId: string, options?: RevisionOptions): Promise<RevokedGrant>;
   /** Moves the customer to a track, or back to the default track with `null`. */
   setTrack(trackId: string | null, options?: CallOptions): Promise<TrackAssignment>;
@@ -772,7 +775,8 @@ export class CustomerApi implements ServerCustomer {
 
   async revokeGrant(grantId: string, options?: RevisionOptions): Promise<RevokedGrant> {
     const grant = { grant_id: requireId(grantId, "Provide the id of the grant.") };
-    return this.#send("Grants.RevokeGrant", revision(options), decodeRevokedGrant, options, true, grant);
+    const retryable = options?.expectedRevision === undefined;
+    return this.#send("Grants.RevokeGrant", revision(options), decodeRevokedGrant, options, retryable, grant);
   }
 
   async setTrack(trackId: string | null, options?: CallOptions): Promise<TrackAssignment> {
