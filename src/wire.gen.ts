@@ -1,10 +1,21 @@
 /** The API's wire types and routes, generated from openapi.json by scripts/generate.ts. @internal */
 
+export type Actor = { id: string; type: ActorType };
+export type ActorType = "ACTOR_TYPE_UNSPECIFIED" | "ACTOR_TYPE_USER" | "ACTOR_TYPE_KEY" | "ACTOR_TYPE_SYSTEM";
 export type AddOnSource = { planId: string; planKey: string; planName: string; quantity: number; throughFeatureKey?: string; value?: FeatureValue; versionNumber: number };
+export type AdjustMeterRequest = { changeBy?: number; currency?: string; idempotencyKey?: string; reason?: string; setTo?: number; target?: ProductTarget };
+export type AdjustMeterResponse = { saturated: boolean; tracked?: TrackedUsage };
 export type Amount = { amount: number; currency: string; display: string };
 export type AppleListingIds = { productId: string; subscriptionGroupId?: string };
+export type AssignmentSource = "ASSIGNMENT_SOURCE_UNSPECIFIED" | "ASSIGNMENT_SOURCE_SERVER" | "ASSIGNMENT_SOURCE_DASHBOARD";
+export type AssignTrackRequest = { target?: ProductTarget; trackId?: string };
+export type AssignTrackResponse = { assignment?: CustomerTrack; changed: boolean; endedTestHoldings: number };
+export type CancelReportRequest = { reason?: string; target?: ProductTarget };
+export type CancelReportResponse = { tracked?: TrackedUsage };
 export type CheckFeatureResponse = { asOf: number; customer?: EntitledCustomer; entitlement?: Entitlement; nextChangeAt?: number; served?: ServedCatalogue };
 export type ConnectionMode = "CONNECTION_MODE_UNSPECIFIED" | "CONNECTION_MODE_LIVE" | "CONNECTION_MODE_TEST";
+export type CreateGrantRequest = { currency?: string; days?: number; expectedRevision?: RevisionInput; featureKey?: string; reason?: string; target?: ProductTarget; value?: GrantValue };
+export type CreateGrantResponse = { grant?: Grant; revision: number };
 export type CreateHoldRequest = { amount?: number; currency?: string; featureKey?: string; idempotencyKey?: string; target?: ProductTarget; ttlSeconds?: number };
 export type CreateHoldResponse = { tracked?: TrackedUsage };
 export type CreateSnapshotRequest = { lifetimeSeconds?: number; target?: ProductTarget };
@@ -20,6 +31,7 @@ export type CustomerPriceLine = { discounts: CustomerLineDiscount[]; listPrice?:
 export type CustomerPriceLines = { lines: CustomerPriceLine[] };
 export type CustomerPrices = { market?: PricingMarket; subscriptions: SubscriptionPrice[] };
 export type CustomerTokenScope = "CUSTOMER_TOKEN_SCOPE_UNSPECIFIED" | "CUSTOMER_TOKEN_SCOPE_ENTITLEMENTS_READ" | "CUSTOMER_TOKEN_SCOPE_USAGE_READ" | "CUSTOMER_TOKEN_SCOPE_USAGE_WRITE" | "CUSTOMER_TOKEN_SCOPE_BILLING_SELF";
+export type CustomerTrack = { customerId: string; externalId: string; money: CustomerMoney; previousTrackId?: string; revision: number; source: AssignmentSource; trackId?: string };
 export type DefaultPlanSource = { planId: string; planKey: string; planName: string; productId?: string; throughFeatureKey?: string; versionNumber: number };
 export type EntitledCustomer = { customerId?: string; externalId: string };
 export type EntitledFeatureKind = "ENTITLED_FEATURE_KIND_UNSPECIFIED" | "ENTITLED_FEATURE_KIND_SWITCH" | "ENTITLED_FEATURE_KIND_METERED" | "ENTITLED_FEATURE_KIND_CONFIGURATION" | "ENTITLED_FEATURE_KIND_GROUP";
@@ -35,7 +47,9 @@ export type GetCustomerPricingResponse = { prices?: CustomerPrices; pricing?: Pr
 export type GetCustomerResponse = { customer?: Customer };
 export type GetPricingResponse = { pricing?: PricingSheet };
 export type GoogleListingIds = { basePlanId?: string; offerId?: string; productId: string; purchaseOptionId?: string };
+export type Grant = { featureKey: string; from: number; grantedBy?: Actor; id: string; reason: string; revokeReason?: string; revokedAt?: number; revokedBy?: Actor; until?: number; value?: GrantValue };
 export type GrantSource = { grantId: string; throughFeatureKey?: string; until?: number; value?: FeatureValue };
+export type GrantValue = { limit?: Limit; on?: SwitchOn };
 export type GroupMember = { configuration?: Limit; featureKey: string; group?: GroupValue; metered?: Limit; switch?: boolean };
 export type GroupSource = { featureKeys: string[] };
 export type GroupValue = { members: GroupMember[] };
@@ -77,6 +91,8 @@ export type ReleaseHoldResponse = { tracked?: TrackedUsage };
 export type ReportUsageRequest = { amount?: number; currency?: string; featureKey?: string; idempotencyKey?: string; mode?: UsageMode; occurredAtMs?: number; register?: boolean; target?: ProductTarget };
 export type ReportUsageResponse = { tracked?: TrackedUsage };
 export type RevisionInput = { value?: number };
+export type RevokeGrantRequest = { expectedRevision?: RevisionInput; reason?: string; target?: ProductTarget };
+export type RevokeGrantResponse = { changed: boolean; grant?: Grant; revision: number };
 export type ServedCatalogue = { changeId?: string; nothing?: NothingServed; release?: ServedRelease; track?: ServedTrack };
 export type ServedRelease = { id: string; number: number };
 export type ServedTrack = { id: string; name: string };
@@ -85,6 +101,7 @@ export type SettleHoldResponse = { tracked?: TrackedUsage };
 export type SnapshotKeySet = { keys: { alg: "ES256"; crv: "P-256"; kid: string; kty: "EC"; use: "sig"; x: string; y: string }[] };
 export type StripeListingIds = { priceId: string };
 export type SubscriptionPrice = { atRenewal?: CustomerPriceLines; nextCharges: NextCharge[]; now: CustomerPriceLine[]; productId?: string; renewsAt: number; subscriptionId: string };
+export type SwitchOn = Record<string, never>;
 export type TrackedUsage = { asOf: number; customer?: EntitledCustomer; entitlement?: Entitlement; served?: ServedCatalogue; usage?: UsageResult };
 export type TrialLength = { days?: number; months?: number };
 export type Unlimited = Record<string, never>;
@@ -103,16 +120,21 @@ export type YearlyOn = { dates: YearlyDate[] };
 
 export const ROUTES = {
   "CustomerTokens.CreateToken": { method: "POST", path: "/v1/customers/{external_id}/tokens", query: [] },
+  "CustomerTracks.AssignTrack": { method: "PUT", path: "/v1/customers/{external_id}/track", query: [] },
   "Customers.EraseCustomer": { method: "POST", path: "/v1/customers/{external_id}:erase", query: [] },
   "Customers.GetCustomer": { method: "GET", path: "/v1/customers/{external_id}", query: ["target.team_id","target.project_id","target.environment_id"] },
   "Customers.RegisterCustomer": { method: "PUT", path: "/v1/customers/{external_id}", query: [] },
   "Customers.UpdateCustomer": { method: "PATCH", path: "/v1/customers/{external_id}", query: [] },
   "Entitlements.CheckFeature": { method: "GET", path: "/v1/customers/{external_id}/entitlements/{feature_key}", query: ["target.team_id","target.project_id","target.environment_id","as_of"] },
   "Entitlements.ListEntitlements": { method: "GET", path: "/v1/customers/{external_id}/entitlements", query: ["target.team_id","target.project_id","target.environment_id","as_of"] },
+  "Grants.CreateGrant": { method: "POST", path: "/v1/customers/{external_id}/grants", query: [] },
+  "Grants.RevokeGrant": { method: "POST", path: "/v1/customers/{external_id}/grants/{grant_id}:revoke", query: [] },
   "Pricing.GetCustomerPricing": { method: "GET", path: "/v1/customers/{external_id}/pricing", query: ["target.team_id","target.project_id","target.environment_id"] },
   "Pricing.GetPricing": { method: "GET", path: "/v1/pricing", query: ["target.team_id","target.project_id","target.environment_id","market","country"] },
   "SnapshotKeys": { method: "GET", path: "/v1/snapshot-keys", query: [] },
   "Snapshots.CreateSnapshot": { method: "POST", path: "/v1/customers/{external_id}/snapshots", query: [] },
+  "Usage.AdjustMeter": { method: "POST", path: "/v1/customers/{external_id}/meters/{feature_key}:adjust", query: [] },
+  "Usage.CancelReport": { method: "POST", path: "/v1/customers/{external_id}/usage/{usage_id}:cancel", query: [] },
   "Usage.CreateHold": { method: "POST", path: "/v1/customers/{external_id}/usage/holds", query: [] },
   "Usage.ReleaseHold": { method: "DELETE", path: "/v1/customers/{external_id}/usage/holds/{hold_id}", query: ["target.team_id","target.project_id","target.environment_id"] },
   "Usage.ReportUsage": { method: "POST", path: "/v1/customers/{external_id}/usage", query: [] },
