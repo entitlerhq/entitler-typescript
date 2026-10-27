@@ -83,6 +83,7 @@ describe("setPlan", () => {
           changed: true,
           policy: "upgrade",
         },
+        holdings: null,
       },
     });
   });

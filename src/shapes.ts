@@ -2,21 +2,32 @@ import type {
   Actor,
   Amount,
   AnswerContext,
+  BilledProduct,
+  BillingDrift,
   Check,
+  CustomerBilling,
+  CustomerPlans,
   CustomerPricing,
   CustomerRecord,
   Entitlement,
   EntitlementSource,
+  FeatureImpact,
   FeatureType,
   Grant,
   GrantResult,
+  HeldAddOn,
+  HeldDiscount,
   HeldPlan,
+  Holdings,
   IssuedCustomerToken,
+  Lane,
   Limit,
+  ListingPrice,
   Markets,
   Meter,
   MoveStep,
   PlanChange,
+  PlanOption,
   PricedPlan,
   PriceLine,
   PricingMarket,
@@ -463,6 +474,188 @@ function planChange(value: unknown): PlanChange {
   };
 }
 
+function optionalWhole(value: unknown): number | null {
+  return value === undefined ? null : whole(value);
+}
+
+function heldAddOn(value: unknown): HeldAddOn {
+  const given = object<Wire.HeldAddOn>(value);
+  return {
+    ...heldPlan(value),
+    quantity: at("quantity", () => whole(given.quantity)),
+    required: at("required", () => bool(given.required)),
+    addedAt: at("addedAt", () => seconds(given.addedAt)),
+  };
+}
+
+function heldDiscount(value: unknown): HeldDiscount {
+  const given = object<Wire.HeldDiscount>(value);
+  return {
+    offerKey: at("offerKey", () => text(given.offerKey)),
+    offerName: at("offerName", () => text(given.offerName)),
+    amount: at("amount", () => nullable(given.amount, amount)),
+    percentThousandths: at("percentThousandths", () => optionalWhole(given.percentThousandths)),
+    until: at("until", () => optionalSeconds(given.until)),
+    applied: at("applied", () => bool(given.applied)),
+  };
+}
+
+function lane(value: unknown): Lane {
+  const given = object<Wire.LaneHolding>(value);
+  return {
+    product: at("productId", () => optionalText(given.productId)),
+    plan: at("plan", () => nullable(given.plan, heldPlan)),
+    addOns: at("addOns", () => list(given.addOns, heldAddOn)),
+    startedAt: at("startedAt", () => optionalSeconds(given.startedAt)),
+    renewsAt: at("renewsAt", () => optionalSeconds(given.renewsAt)),
+    trialEndsAt: at("trialEndsAt", () => optionalSeconds(given.trialEndsAt)),
+    cancelsAt: at("cancelsAt", () => optionalSeconds(given.cancelsAt)),
+    paidUntil: at("paidUntil", () => optionalSeconds(given.paidUntil)),
+    until: at("until", () => optionalSeconds(given.until)),
+    collection: at("collection", () => enumName(given.collection, "SUBSCRIPTION_COLLECTION_")),
+    pending: at("pending", () =>
+      nullable(given.pending, (pending) => {
+        const booked = object<Wire.PendingChange>(pending);
+        const move =
+          booked.move === undefined ? undefined : at("move", () => object<Wire.PendingPlanMove>(booked.move));
+        return {
+          at: at("at", () => seconds(booked.at)),
+          cancel: booked.cancel !== undefined,
+          plan: at("move", () => (move === undefined ? null : at("planId", () => text(move.planId)))),
+          period: at("move", () => (move === undefined ? null : at("periodId", () => optionalText(move.periodId)))),
+        };
+      }),
+    ),
+    cancellation: at("cancellation", () =>
+      nullable(given.cancellation, (cancellation) => {
+        const ending = object<Wire.Cancellation>(cancellation);
+        return {
+          endsAt: at("endsAt", () => seconds(ending.endsAt)),
+          exitFee: at("exitFee", () => nullable(ending.exitFee, amount)),
+          chargedBack: at("chargedBack", () => nullable(ending.chargedBack, amount)),
+        };
+      }),
+    ),
+    discounts: at("discounts", () => list(given.discounts, heldDiscount)),
+    payment: {
+      amount: at("paymentAmount", () => nullable(given.paymentAmount, amount)),
+      dueAt: at("paymentDueAt", () => optionalSeconds(given.paymentDueAt)),
+      days: at("paymentDays", () => optionalWhole(given.paymentDays)),
+    },
+  };
+}
+
+function holdings(value: unknown): Holdings {
+  const given = object<Wire.Holdings>(value);
+  return {
+    lanes: at("lanes", () => list(given.lanes, lane)),
+    grants: at("grants", () => list(given.grants, grant)),
+  };
+}
+
+function impact(value: unknown): FeatureImpact {
+  const given = object<Wire.FeatureImpact>(value);
+  return {
+    feature: at("featureKey", () => text(given.featureKey)),
+    kind: at("kind", () => enumName(given.kind, "IMPACT_KIND_")),
+    from: at("from", () => sourceValue(given.from)),
+    to: at("to", () => sourceValue(given.to)),
+    fromMarkets: at("from", () => markets(given.from)),
+    toMarkets: at("to", () => markets(given.to)),
+  };
+}
+
+function planOption(value: unknown): PlanOption {
+  const given = object<Wire.PlanOption>(value);
+  return {
+    plan: {
+      id: at("planId", () => text(given.planId)),
+      key: at("planKey", () => text(given.planKey)),
+      name: at("planName", () => text(given.planName)),
+    },
+    product: at("productId", () => optionalText(given.productId)),
+    kind: at("kind", () => enumName(given.kind, "OPTION_KIND_")),
+    direction: at("direction", () => enumName(given.direction, "PLAN_DIRECTION_")),
+    selling: at("selling", () => enumName(given.selling, "SELLING_")),
+    timing: at("timing", () => enumName(given.timing, "MOVE_TIMING_")),
+    periods: at("periodIds", () => list(given.periodIds, text)),
+    replaces: at("replacesPlanId", () => optionalText(given.replacesPlanId)),
+    impact: at("impact", () => list(given.impact, impact)),
+  };
+}
+
+/** Decodes `Subscriptions.ListAvailablePlans`'s answer. @internal */
+export const decodePlans: Decoder = (value) => {
+  const given = object<Wire.ListAvailablePlansResponse>(value);
+  return {
+    asOf: at("asOf", () => seconds(given.asOf)),
+    customerId: at("customerId", () => optionalText(given.customerId)),
+    options: at("options", () => list(given.options, planOption)),
+    holdings: at("holdings", () => nullable(given.holdings, holdings)),
+  } satisfies Omit<CustomerPlans, "stale">;
+};
+
+function drift(value: unknown): BillingDrift {
+  const given = object<Wire.BillingDrift>(value);
+  return {
+    billedPlan: at("billedPlanId", () => text(given.billedPlanId)),
+    heldPlan: at("heldPlanId", () => optionalText(given.heldPlanId)),
+    product: at("productId", () => optionalText(given.productId)),
+    observedAt: at("observedAt", () => seconds(given.observedAt)),
+  };
+}
+
+function billed(given: Wire.BilledProduct | Wire.CustomerBilling): Omit<BilledProduct, "product" | "connectionId"> {
+  return {
+    status: at("status", () => enumName(given.status, "PROVIDER_SUBSCRIPTION_STATUS_")),
+    items: at("items", () => whole(given.items)),
+    renews: at("renews", () => bool(given.renews)),
+    sku: at("sku", () =>
+      nullable(given.sku, (sku) => {
+        const billedSku = object<Wire.BilledSku>(sku);
+        return {
+          priceId: at("priceId", () => text(billedSku.priceId)),
+          period: at("periodId", () => optionalText(billedSku.periodId)),
+          price: at("price", () => nullable(billedSku.price, listingPrice)),
+        };
+      }),
+    ),
+    drift: at("drift", () => nullable(given.drift, drift)),
+  };
+}
+
+/** Decodes `Billing.GetBilling`'s answer. @internal */
+export const decodeBilling: Decoder = (value) => {
+  const given = at("billing", () => object<Wire.CustomerBilling>(object<Wire.GetBillingResponse>(value).billing));
+  return at("billing", () => ({
+    linked: at("linked", () => bool(given.linked)),
+    connectionId: at("connectionId", () => optionalText(given.connectionId)),
+    ...billed(given),
+    products: at("products", () =>
+      list(given.products, (item) => {
+        const product = object<Wire.BilledProduct>(item);
+        return {
+          product: at("productId", () => optionalText(product.productId)),
+          connectionId: at("connectionId", () => text(product.connectionId)),
+          ...billed(product),
+        };
+      }),
+    ),
+  })) satisfies CustomerBilling;
+};
+
+/** Decodes `Billing.CreatePortalSession`'s answer. @internal */
+export const decodePortal: Decoder = (value) => {
+  const given = object<Wire.CreatePortalSessionResponse>(value);
+  return { url: at("url", () => text(given.url)) };
+};
+
+/** Decodes `Billing.SyncBilling`'s answer. @internal */
+export const decodeSync: Decoder = (value) => {
+  const given = object<Wire.SyncBillingResponse>(value);
+  return { changed: at("changed", () => bool(given.changed)) };
+};
+
 /** Decodes a plan move's answer. @internal */
 export const decodeMove: Decoder = (value) => {
   const given = object<Wire.SetPlanResponse>(value);
@@ -483,6 +676,7 @@ export const decodeMove: Decoder = (value) => {
       revision: at("revision", () => whole(done.revision)),
       money: at("money", () => enumName(done.money, "CUSTOMER_MONEY_")),
       change: at("change", () => nullable(done.change, planChange)),
+      holdings: at("holdings", () => nullable(done.holdings, holdings)),
     },
   })) satisfies MoveStep;
 };
@@ -758,18 +952,18 @@ function channel(value: unknown) {
     mode: at("mode", () => enumName(given.mode, "CONNECTION_MODE_")),
     purchasable: at("purchasable", () => bool(given.purchasable)),
     ids: at("ids", () => (given.ids === undefined ? {} : listingIds(given.ids))),
-    price: at("price", () =>
-      nullable(given.price, (price) => {
-        const listed = object<Wire.ListingPrice>(price);
-        return {
-          amount: at("amount", () => integer(listed.amount)),
-          currency: at("currency", () => text(listed.currency)),
-          interval: at("interval", () => enumName(listed.interval, "LISTING_PRICE_INTERVAL_")),
-          intervalCount: at("intervalCount", () => whole(listed.intervalCount)),
-          tax: at("tax", () => enumName(listed.tax, "LISTING_TAX_BEHAVIOUR_")),
-        };
-      }),
-    ),
+    price: at("price", () => nullable(given.price, listingPrice)),
+  };
+}
+
+function listingPrice(value: unknown): ListingPrice {
+  const listed = object<Wire.ListingPrice>(value);
+  return {
+    amount: at("amount", () => integer(listed.amount)),
+    currency: at("currency", () => text(listed.currency)),
+    interval: at("interval", () => enumName(listed.interval, "LISTING_PRICE_INTERVAL_")),
+    intervalCount: at("intervalCount", () => whole(listed.intervalCount)),
+    tax: at("tax", () => enumName(listed.tax, "LISTING_TAX_BEHAVIOUR_")),
   };
 }
 
