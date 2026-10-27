@@ -66,7 +66,8 @@ function list<T>(value: unknown, decode: (item: unknown) => T): T[] {
 }
 
 function seconds(value: unknown): Date {
-  return new Date(whole(value) * 1000);
+  const date = new Date(whole(value) * 1000);
+  return Number.isNaN(date.getTime()) ? fail() : date;
 }
 
 function optionalSeconds(value: unknown): Date | null {
