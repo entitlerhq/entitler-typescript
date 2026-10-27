@@ -81,12 +81,24 @@ describe("EntitlerClient", () => {
   });
 
   it("refreshes once per call, and passes a second refusal on", async () => {
-    const token = vi.fn(async () => "ct_x");
+    let issued = 0;
+    const token = vi.fn(async () => `ct_${++issued}`);
     const { fetch, sent } = fakeFetch(apiError(401, "Unauthenticated", "TOKEN_INVALID"));
     const entitler = new EntitlerClient({ token, fetch });
     await expect(entitler.me.check("f")).rejects.toMatchObject({ status: 401 });
     expect(sent).toHaveLength(2);
     expect(token).toHaveBeenCalledTimes(2);
+  });
+
+  it("never resends a refused token the provider answers again, nor keeps it", async () => {
+    const token = vi.fn(async () => "ct_x");
+    const { fetch, sent } = fakeFetch(apiError(401, "Unauthenticated", "TOKEN_INVALID"));
+    const entitler = new EntitlerClient({ token, fetch });
+    await expect(entitler.me.check("f")).rejects.toMatchObject({ reason: "TOKEN_INVALID" });
+    expect(sent).toHaveLength(1);
+    await expect(entitler.me.check("f")).rejects.toMatchObject({ reason: "TOKEN_INVALID" });
+    expect(sent).toHaveLength(2);
+    expect(token).toHaveBeenCalledTimes(4);
   });
 
   it("passes a fixed token's refusal on without asking again", async () => {
