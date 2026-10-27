@@ -258,7 +258,7 @@ export class Transport {
   #downUntil = 0;
   #probing = false;
   #authorised: Authorised | undefined;
-  readonly #unrenewed = new Set<string>();
+  readonly #renewing = new Map<string, string>();
 
   constructor(options: TransportOptions, credentials: Credentials, headers: () => Record<string, string> = () => ({})) {
     this.baseUrl = (options.baseUrl ?? "https://api.entitler.app").replace(/\/+$/, "");
@@ -447,15 +447,16 @@ export class Transport {
 
   async #generation(cache: CacheStore, auth: Authorised, customer: string, signal: AbortSignal | undefined) {
     const key = await this.#generationKey(auth, customer);
-    const found = this.#unrenewed.has(key) ? undefined : await this.#get(cache, key, signal);
+    const found = this.#renewing.has(key) ? undefined : await this.#get(cache, key, signal);
     return found?.body ?? (await this.#renew(cache, key, signal));
   }
 
   async #renew(cache: CacheStore, key: string, signal: AbortSignal | undefined): Promise<string> {
     const generation = crypto.randomUUID();
     const entry: CacheEntry = { v: 1, body: generation, receivedAt: Date.now() };
-    this.#unrenewed.add(key);
-    if (await this.#set(cache, key, entry, signal, this.#staleFor + GENERATION_LIFETIME)) this.#unrenewed.delete(key);
+    this.#renewing.set(key, generation);
+    const kept = await this.#set(cache, key, entry, signal, this.#staleFor + GENERATION_LIFETIME);
+    if (kept && this.#renewing.get(key) === generation) this.#renewing.delete(key);
     return generation;
   }
 
