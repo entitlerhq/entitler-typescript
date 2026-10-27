@@ -1,7 +1,7 @@
 import { type Operation, route } from "./routes.js";
-import { type Decoder, decodePricing } from "./shapes.js";
+import { type Decoder, decodeFeatures, decodePricing } from "./shapes.js";
 import type { ReadOptions, Transport } from "./transport.js";
-import type { PricingSheet } from "./types.js";
+import type { FeatureList, PricingSheet } from "./types.js";
 
 /** Options for reading a customer's pricing. */
 export interface CustomerPricingOptions extends ReadOptions {
@@ -61,4 +61,16 @@ export function pricing(transport: Transport, options: PricingOptions | undefine
     options,
     decodePricing,
   );
+}
+
+/** Reads the catalogue's features served on the default track. @internal */
+export async function features(transport: Transport, options: ReadOptions | undefined): Promise<FeatureList> {
+  const answer = await transport.send<FeatureList>({
+    ...route("Pricing.ListFeaturesOnSale", {}),
+    cached: true,
+    revalidate: options?.revalidate,
+    decode: decodeFeatures,
+    options,
+  });
+  return answer.data;
 }

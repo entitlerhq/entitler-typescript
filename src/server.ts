@@ -1,10 +1,10 @@
 import type { CacheStore } from "./cache.js";
 import { CustomerApi, type ServerCustomer } from "./customer.js";
 import { type ClientDescription, describe } from "./describe.js";
-import { type PricingOptions, pricing } from "./pricing.js";
+import { features, type PricingOptions, pricing } from "./pricing.js";
 import { snapshotKeys } from "./snapshot.js";
-import { type CallOptions, type ClientOptions, Transport } from "./transport.js";
-import type { PricingSheet, SnapshotKeySet } from "./types.js";
+import { type CallOptions, type ClientOptions, type ReadOptions, Transport } from "./transport.js";
+import type { FeatureList, PricingSheet, SnapshotKeySet } from "./types.js";
 import { requireCredential, requireId } from "./util.js";
 
 /** Options for {@link EntitlerServer}. */
@@ -54,6 +54,11 @@ export class EntitlerServer {
    */
   pricing(options?: PricingOptions): Promise<PricingSheet> {
     return pricing(this.#transport, options);
+  }
+
+  /** Reads the catalogue's features served on the default track, archived ones included. */
+  features(options?: ReadOptions): Promise<FeatureList> {
+    return features(this.#transport, options);
   }
 
   /**

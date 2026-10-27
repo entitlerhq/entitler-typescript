@@ -59,6 +59,7 @@ export const OPERATIONS = [
   "SnapshotKeys",
   "Pricing.GetPricing",
   "Pricing.GetCustomerPricing",
+  "Pricing.ListFeaturesOnSale",
 ];
 
 const REF = "#/components/schemas/";

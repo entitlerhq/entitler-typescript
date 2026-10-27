@@ -4,6 +4,7 @@ import type {
   AnswerContext,
   BilledProduct,
   BillingDrift,
+  CatalogueFeature,
   Check,
   CustomerBilling,
   CustomerPlans,
@@ -12,6 +13,7 @@ import type {
   Entitlement,
   EntitlementSource,
   FeatureImpact,
+  FeatureList,
   FeatureType,
   Grant,
   GrantResult,
@@ -698,6 +700,41 @@ export const decodeMove: Decoder = (value) => {
       holdings: at("holdings", () => nullable(done.holdings, holdings)),
     },
   })) satisfies MoveStep;
+};
+
+function catalogueFeature(value: unknown): CatalogueFeature {
+  const given = object<Wire.Feature>(value);
+  const version =
+    given.version === undefined ? undefined : at("version", () => object<Wire.FeatureVersion>(given.version));
+  const measure =
+    version?.measure === undefined
+      ? undefined
+      : at("version", () => at("measure", () => object<Wire.Measure>(version.measure)));
+  return {
+    id: at("id", () => text(given.id)),
+    key: at("key", () => text(given.key)),
+    type: at("kind", () => enumName(given.kind, "FEATURE_KIND_")),
+    archived: at("archived", () => bool(given.archived)),
+    ...at("version", () => ({
+      name: version === undefined ? null : at("name", () => text(version.name)),
+      description: version === undefined ? null : at("description", () => text(version.description)),
+      unit: version === undefined || version.unit === "" ? null : at("unit", () => text(version.unit)),
+      decimals: at("measure", () =>
+        measure?.decimals === undefined ? 0 : at("decimals", () => whole(measure.decimals)),
+      ),
+      money: measure?.money !== undefined,
+      version: version === undefined ? null : at("number", () => whole(version.number)),
+    })),
+  };
+}
+
+/** Decodes `Pricing.ListFeaturesOnSale`'s answer. @internal */
+export const decodeFeatures: Decoder = (value) => {
+  const given = object<Wire.ListFeaturesOnSaleResponse>(value);
+  return {
+    features: at("features", () => list(given.features, catalogueFeature)),
+    served: at("served", () => served(given.served ?? {})),
+  } satisfies FeatureList;
 };
 
 /** Decodes an answer the SDK has no use for. @internal */
