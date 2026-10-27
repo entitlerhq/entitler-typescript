@@ -55,9 +55,7 @@ function credentials(kind: ClientKind, source: TokenSource, key?: string): Crede
   return {
     kind,
     authorise: async (signal) => signed(await source.get(signal)),
-    ...(source.refreshable
-      ? { refresh: async (used, signal) => signed(await source.refresh(used.token as string, signal)) }
-      : {}),
+    ...(source.refreshable ? { refuse: (used) => source.refuse(used.token as string) } : {}),
   };
 }
 

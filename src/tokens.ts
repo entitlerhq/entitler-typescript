@@ -22,6 +22,7 @@ export class TokenSource {
   readonly #timeout: number;
   readonly #closing: () => AbortSignal | undefined;
   #current: string | undefined;
+  #refused: string | undefined;
   #pending: Promise<string> | undefined;
 
   constructor(value: string | TokenProvider, blank: string, timeout: number, closing: () => AbortSignal | undefined) {
@@ -39,13 +40,9 @@ export class TokenSource {
     return this.#current === undefined ? this.#ask(signal) : Promise.resolve(this.#current);
   }
 
-  refresh(used: string, signal: AbortSignal | undefined): Promise<string> {
-    if (this.#current !== undefined && this.#current !== used) return Promise.resolve(this.#current);
-    this.#current = undefined;
-    return this.#ask(signal).then((token) => {
-      if (token === used && this.#current === token) this.#current = undefined;
-      return token;
-    });
+  refuse(token: string): void {
+    this.#refused = token;
+    if (this.#current === token) this.#current = undefined;
   }
 
   #ask(signal: AbortSignal | undefined): Promise<string> {
@@ -76,7 +73,7 @@ export class TokenSource {
     } catch {
       throw new TokenError("The token provider answered a blank token, or one that can't go in a header.");
     }
-    this.#current = token;
+    if (token !== this.#refused) this.#current = token;
     return token;
   }
 }

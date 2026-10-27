@@ -67,7 +67,7 @@ export interface Authorised {
 export interface Credentials {
   readonly kind: string;
   authorise(signal: AbortSignal | undefined): Promise<Authorised>;
-  refresh?(used: Authorised, signal: AbortSignal | undefined): Promise<Authorised>;
+  refuse?(used: Authorised): void;
 }
 
 /** One request. @internal */
@@ -522,9 +522,11 @@ export class Transport {
         const refused = apiError(received, call.idempotencyKey);
         failure = refused;
         if (received.redirect) throw failure;
-        if (received.status === 401 && !refreshed && this.#credentials.refresh && !call.open) {
+        if (received.status === 401 && this.#credentials.refuse && !call.open) {
+          this.#credentials.refuse(current);
+          if (refreshed) throw failure;
           refreshed = true;
-          const next = redacted(await this.#credentials.refresh(current, signal));
+          const next = redacted(await this.#credentials.authorise(signal));
           if (next.credential === current.credential) throw failure;
           current = next;
           continue;
