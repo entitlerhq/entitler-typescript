@@ -87,12 +87,12 @@ describe("grants", () => {
       apiError(503, "Unavailable"),
       json({ grant: revoked, revision: 9, changed: true }),
     );
-    const result = await customer.revokeGrant("gr_1", { reason: "Refunded", expectedRevision: 8 });
+    const result = await customer.revokeGrant("gr_1", { reason: "Refunded" });
     expect(sent).toHaveLength(2);
     expect(sent[1]).toMatchObject({
       method: "POST",
       path: "/v1/customers/user_1/grants/gr_1:revoke",
-      body: { reason: "Refunded", expectedRevision: { value: 8 } },
+      body: { reason: "Refunded" },
     });
     expect(result).toMatchObject({
       revision: 9,
@@ -103,6 +103,12 @@ describe("grants", () => {
         revokedBy: { type: "user", id: "us_9" },
       },
     });
+  });
+  it("doesn't retry a revocation against a revision, which a lost first answer may have moved on", async () => {
+    const { customer, sent } = setup(apiError(503, "Unavailable"));
+    await expect(customer.revokeGrant("gr_1", { expectedRevision: 8 })).rejects.toMatchObject({ status: 503 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.body).toEqual({ expectedRevision: { value: 8 } });
   });
 });
 
