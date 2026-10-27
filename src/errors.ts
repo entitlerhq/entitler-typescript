@@ -126,7 +126,10 @@ export class TimeoutError extends EntitlerError {
   }
 }
 
-/** The in-app client's token provider failed, timed out or answered a blank token. The cause is in `cause`. */
+/**
+ * The in-app client's token provider failed, timed out, or answered a blank token or one Entitler
+ * refused. Only a failure or a timeout has a `cause`, and only those count as unreachable.
+ */
 export class TokenError extends EntitlerError {
   /** `TokenError`. */
   override name = "TokenError";
@@ -234,8 +237,8 @@ export class UsageSettlementError extends EntitlerError {
 
 /**
  * True when `error` means Entitler could not be reached: a {@link ConnectionError}, a
- * {@link TimeoutError}, a {@link TokenError} (a token provider failing, offline typically), or an
- * {@link ApiError} with status 408, 429, a 5xx status or reason `RESPONSE_INVALID`.
+ * {@link TimeoutError}, a {@link TokenError} from a token provider that failed or timed out (offline
+ * typically), or an {@link ApiError} with status 408, 429, a 5xx status or reason `RESPONSE_INVALID`.
  *
  * @example
  * ```ts
@@ -251,7 +254,7 @@ export function isUnreachable(error: unknown): boolean {
   return (
     error instanceof ConnectionError ||
     error instanceof TimeoutError ||
-    error instanceof TokenError ||
+    (error instanceof TokenError && error.cause !== undefined) ||
     (error instanceof ApiError &&
       (error.status === 408 || error.status === 429 || error.status >= 500 || error.reason === "RESPONSE_INVALID"))
   );
